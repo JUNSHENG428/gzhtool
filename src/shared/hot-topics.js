@@ -49,30 +49,45 @@ export const HOT_SOURCE_META = {
   xiaohongshu: { id: "xiaohongshu", label: "小红书", detail: "发现页引导", category: "china" }
 };
 
+const CACHE_TTL_MS = 3 * 60 * 1000; // 3分钟
+const _cache = new Map();
+
 /**
  * 获取指定平台的热榜数据
  * @param {keyof typeof HOT_SOURCE_META} sourceId
+ * @param {boolean} forceRefresh 是否强制刷新忽略缓存
  */
-export async function fetchHotTopics(sourceId) {
+export async function fetchHotTopics(sourceId, forceRefresh = false) {
   const meta = HOT_SOURCE_META[sourceId];
   if (!meta) {
     return { ok: false, message: "未知的热点来源。" };
   }
 
+  // 读取缓存
+  if (!forceRefresh) {
+    const cached = _cache.get(sourceId);
+    if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+      return { ok: true, payload: cached.payload };
+    }
+  }
+
   const fetchedAt = new Date().toISOString();
 
   try {
+    let payload = null;
     if (meta.newsNow) {
-      return { ok: true, payload: await fetchNewsNowHot(fetchedAt, meta) };
+      payload = await fetchNewsNowHot(fetchedAt, meta);
+    } else if (sourceId === "reddit") {
+      payload = await fetchRedditHot(fetchedAt, meta);
+    } else if (sourceId === "x") {
+      payload = portalPayload(fetchedAt, meta, xPortal());
+    } else if (sourceId === "xiaohongshu") {
+      payload = portalPayload(fetchedAt, meta, xhsPortal());
     }
-    if (sourceId === "reddit") {
-      return { ok: true, payload: await fetchRedditHot(fetchedAt, meta) };
-    }
-    if (sourceId === "x") {
-      return { ok: true, payload: portalPayload(fetchedAt, meta, xPortal()) };
-    }
-    if (sourceId === "xiaohongshu") {
-      return { ok: true, payload: portalPayload(fetchedAt, meta, xhsPortal()) };
+
+    if (payload) {
+      _cache.set(sourceId, { timestamp: Date.now(), payload });
+      return { ok: true, payload };
     }
   } catch (e) {
     return {

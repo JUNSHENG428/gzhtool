@@ -2,6 +2,7 @@ const hotContent = document.querySelector("#hotContent");
 const hotMeta = document.querySelector("#hotMeta");
 const hotStatus = document.querySelector("#hotStatus");
 const refreshBtn = document.querySelector("#refreshHot");
+const filterInput = document.querySelector("#hotFilterInput");
 
 const runtimeOk = Boolean(globalThis.chrome?.runtime?.id);
 
@@ -11,7 +12,15 @@ document.querySelectorAll(".hot-sources-container [data-source]").forEach((btn) 
 
 refreshBtn.addEventListener("click", () => {
   const current = document.querySelector('.hot-sources-container [aria-selected="true"]');
-  void loadSource(current?.dataset.source || "zhihu");
+  void loadSource(current?.dataset.source || "zhihu", true);
+});
+
+filterInput?.addEventListener("input", (e) => {
+  const val = e.target.value.trim().toLowerCase();
+  document.querySelectorAll(".hot-item").forEach((el) => {
+    const text = el.textContent.toLowerCase();
+    el.style.display = text.includes(val) ? "" : "none";
+  });
 });
 
 document.querySelector("[data-open-workspace]")?.addEventListener("click", (e) => {
@@ -33,7 +42,7 @@ function selectSource(source) {
   void loadSource(source);
 }
 
-async function loadSource(source) {
+async function loadSource(source, forceRefresh = false) {
   if (!runtimeOk) {
     hotContent.innerHTML =
       '<p class="hot-notice">请在 Chrome 扩展环境中打开本页以拉取热点。</p>';
@@ -43,10 +52,11 @@ async function loadSource(source) {
   hotStatus.textContent = "正在拉取…";
   hotContent.innerHTML = "";
   hotMeta.textContent = "";
+  if (filterInput) filterInput.value = "";
 
   const response = await chrome.runtime.sendMessage({
     type: "FETCH_HOT_TOPICS",
-    payload: { source }
+    payload: { source, forceRefresh }
   });
 
   if (!response?.ok) {

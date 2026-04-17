@@ -122,7 +122,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "FETCH_HOT_TOPICS": {
-        const result = await fetchHotTopics(message.payload?.source || "reddit");
+        const result = await fetchHotTopics(
+          message.payload?.source || "zhihu",
+          message.payload?.forceRefresh || false
+        );
         if (result.ok) {
           sendResponse({ ok: true, data: result.payload });
         } else {

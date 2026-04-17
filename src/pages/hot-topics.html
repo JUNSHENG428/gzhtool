@@ -104,7 +104,10 @@
 
         <div class="hot-toolbar">
           <p id="hotMeta" class="muted"></p>
-          <button type="button" class="primary" id="refreshHot">🔄 刷新当前榜单</button>
+          <div style="display: flex; gap: 8px; flex: 1; justify-content: flex-end;">
+            <input type="search" id="hotFilterInput" class="hot-filter-input" placeholder="输入关键字筛选..." aria-label="筛选当前榜单" />
+            <button type="button" class="primary" id="refreshHot">🔄 强制刷新</button>
+          </div>
         </div>
 
         <p id="hotStatus" class="hot-status" role="status" aria-live="polite"></p>

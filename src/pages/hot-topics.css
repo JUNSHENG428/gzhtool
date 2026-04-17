@@ -82,6 +82,23 @@
   color: var(--soft-ink);
 }
 
+.hot-filter-input {
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  width: 200px;
+  outline: none;
+  background: var(--bg-primary);
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+.hot-filter-input:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgba(181, 107, 36, 0.1);
+}
+
 .hot-list {
   display: grid;
   gap: 10px;
@@ -113,6 +130,7 @@
 
 .hot-item-title {
   margin: 0 0 6px;
+  font-family: var(--font-display);
   font-size: 0.9375rem;
   line-height: var(--leading-snug);
 }
