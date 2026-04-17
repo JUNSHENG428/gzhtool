@@ -131,8 +131,12 @@ function renderList(data) {
           ${item.subtitle ? `<p class="hot-item-sub">${escapeHtml(item.subtitle)}</p>` : ""}
         </div>
         <div class="hot-item-actions">
-          <button type="button" class="ghost" data-action="open" data-url="${escapeAttr(item.url)}">打开</button>
-          <button type="button" class="ghost" data-action="copy" data-url="${escapeAttr(item.url)}">复制链接</button>
+          <button type="button" class="primary ghost" data-action="express" data-url="${escapeAttr(item.url)}">📥 一键入库</button>
+          <button type="button" class="ghost" data-action="card" data-url="${escapeAttr(item.url)}">分享截屏</button>
+          <div style="display:flex;gap:6px">
+            <button type="button" class="ghost" style="flex:1" data-action="open" data-url="${escapeAttr(item.url)}">打开</button>
+            <button type="button" class="ghost" style="flex:1" data-action="copy" data-url="${escapeAttr(item.url)}">复制链</button>
+          </div>
         </div>
       </article>`;
     })
@@ -148,21 +152,120 @@ function renderList(data) {
       if (!url) {
         return;
       }
-      if (btn.dataset.action === "open") {
+      
+      const action = btn.dataset.action;
+      
+      if (action === "open") {
         chrome.tabs.create({ url });
         return;
       }
-      try {
-        await navigator.clipboard.writeText(url);
-        hotStatus.textContent = "已复制链接。";
-        setTimeout(() => {
-          hotStatus.textContent = "";
-        }, 2000);
-      } catch {
-        hotStatus.textContent = "复制失败，请手动复制。";
+
+      if (action === "copy") {
+        try {
+          await navigator.clipboard.writeText(url);
+          showToast("已复制链接。");
+        } catch {
+          showToast("复制失败，请手动复制。");
+        }
+        return;
+      }
+
+      if (action === "express") {
+        const originalText = btn.innerHTML;
+        btn.innerHTML = "📡 拉取中...";
+        btn.disabled = true;
+        try {
+          const res = await chrome.runtime.sendMessage({
+            type: "SCRAPE_BACKGROUND_AND_IMPORT",
+            payload: { url }
+          });
+          if (res?.ok && res.data) {
+            showToast("拉取成功，正在打开排版台...", "success");
+            setTimeout(() => {
+              chrome.tabs.create({ url: chrome.runtime.getURL("src/workspace/workspace.html") });
+              btn.innerHTML = "✅ 成功";
+            }, 600);
+          } else {
+            throw new Error((res?.error && res.error.message) ? res.error.message : "拉取失败。");
+          }
+        } catch (e) {
+          showToast(e.message || "后台抓取失败，建议在此页面点「打开」后尝试标准抓取。");
+          btn.innerHTML = originalText;
+          btn.disabled = false;
+        }
+        return;
+      }
+
+      if (action === "card") {
+        const itemObj = items.find(i => i.url === url);
+        if (itemObj) {
+          await drawShareCard(itemObj, data.label || "热点捕捉器");
+        }
+        return;
       }
     });
   });
+}
+
+function showToast(msg) {
+  hotStatus.textContent = msg;
+  setTimeout(() => {
+    if (hotStatus.textContent === msg) hotStatus.textContent = "";
+  }, 3500);
+}
+
+async function drawShareCard(item, sourceLabel) {
+  showToast("正在生成卡片...");
+  const svgMarkup = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="600" height="300">
+      <foreignObject width="100%" height="100%">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="font-family: system-ui, sans-serif; height: 100%; box-sizing: border-box; padding: 24px; background: linear-gradient(135deg, #fffdf8, #f5f0e3); color: #2c2720; border-radius: 12px; display: flex; flex-direction: column; justify-content: center; position: relative;">
+          <h2 style="font-size: 26px; line-height: 1.4; margin: 0 0 12px; font-weight: 700; color: #1a1612;">
+            ${escapeHtml(item.title)}
+          </h2>
+          <p style="font-size: 16px; margin: 0; color: #5c4f3d; opacity: 0.8;">
+            ${escapeHtml(item.subtitle || sourceLabel)}
+          </p>
+          <div style="position: absolute; bottom: 20px; right: 24px; font-size: 12px; font-weight: bold; color: #b56b24; opacity: 0.6;">
+            经由 公众号改写排版台 获取
+          </div>
+        </div>
+      </foreignObject>
+    </svg>
+  `;
+
+  try {
+    const blob = new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = url;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = 600;
+    canvas.height = 300;
+    const ctx = canvas.getContext("2d");
+    
+    // Fill white background just in case
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, 600, 300);
+    ctx.drawImage(img, 0, 0, 600, 300);
+    
+    const pngBlob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+    
+    await navigator.clipboard.write([
+      new ClipboardItem({ "image/png": pngBlob })
+    ]);
+    
+    URL.revokeObjectURL(url);
+    showToast("🎉 卡片已生成并成功复制到剪贴板，可直接粘贴！");
+  } catch (error) {
+    showToast("生成卡片失败，由于浏览器安全限制可能无法直接写入剪贴板。");
+  }
 }
 
 function escapeHtml(s) {

@@ -61,6 +61,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true, data: session });
         break;
       }
+      case "SCRAPE_BACKGROUND_AND_IMPORT": {
+        const capture = await scrapeBackgroundSilent(message.payload.url);
+        sendResponse({ ok: true, data: capture });
+        break;
+      }
       case "SCRAPE_LAST_SOURCE_TAB": {
         const capture = await scrapeLastSourceTab();
         await saveSession({ lastCapture: capture });
@@ -321,4 +326,57 @@ async function resolveSourceTab() {
 
 function isScrapableUrl(url = "") {
   return /^https?:\/\//i.test(url);
+}
+
+async function scrapeBackgroundSilent(targetUrl) {
+  if (!isScrapableUrl(targetUrl)) {
+    throw new Error("不是一个合法的可抓取网址。");
+  }
+
+  // 1. 创建不可见标签页
+  const tab = await chrome.tabs.create({ url: targetUrl, active: false });
+  let capture = null;
+
+  try {
+    // 2. 等待最多一小段时间，让页面大致装载
+    await waitForTabComplete(tab.id, 15000);
+
+    // 3. 注入提取脚本
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: [SCRAPE_ARTICLE_SCRIPT]
+    });
+
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: async () => {
+        if (typeof window.__gzhRunFullCapture !== "function") {
+          return null;
+        }
+        return window.__gzhRunFullCapture();
+      }
+    });
+
+    capture = results?.[0]?.result;
+    if (!capture || !Array.isArray(capture.blocks) || capture.blocks.length === 0) {
+      throw new Error("抓取失败或正文为空，请确认目标站点支持免登录公开访问。");
+    }
+
+    // 4. 保存持久化草稿
+    const finalTab = await chrome.tabs.get(tab.id).catch(() => null);
+    await saveSession({
+      lastSourceTabId: null, // 该临时标签页会被销毁
+      lastSourceTitle: finalTab?.title || capture.title || "",
+      lastSourceUrl: finalTab?.url || targetUrl,
+      lastCapture: capture
+    });
+
+  } finally {
+    // 无论成功失败，都销毁临时标签页
+    if (tab.id) {
+      await chrome.tabs.remove(tab.id).catch(() => {});
+    }
+  }
+
+  return capture;
 }
