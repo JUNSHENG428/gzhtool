@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>设置 API</title>
+    <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main class="settings-shell">
+      <section class="hero">
+        <p class="eyebrow">设置</p>
+        <h1>AI 改写与公众号发布设置</h1>
+        <p class="intro">
+          在这里填好 AI 改写接口和公众号发布所需的信息，保存后就能在编辑台里使用。所有信息只保存在当前浏览器中。
+        </p>
+      </section>
+
+      <section class="card">
+        <div class="section-heading">
+          <h2>AI 改写接口</h2>
+          <p>支持任何兼容 OpenAI 格式的接口，例如 OpenAI、OpenRouter，或你已有的代理地址。</p>
+        </div>
+
+        <label>
+          <span>API Base URL</span>
+          <input id="apiBaseUrl" type="url" required placeholder="https://api.openai.com/v1/chat/completions" />
+        </label>
+
+        <div class="split-grid">
+          <label>
+            <span>API Key</span>
+            <input id="apiKey" type="password" required placeholder="sk-..." minlength="8" />
+          </label>
+          <label>
+            <span>Model</span>
+            <input id="model" type="text" required placeholder="gpt-4.1-mini" />
+          </label>
+        </div>
+
+        <label>
+          <span>Temperature</span>
+          <input id="temperature" type="number" required min="0" max="2" step="0.1" />
+        </label>
+
+        <div class="test-action-row">
+          <button id="testConnectionButton" class="ghost" type="button">测试连接</button>
+          <p id="testConnectionResult" class="test-result" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="card split-grid">
+        <div class="section-heading split-full">
+          <h2>品牌与联系方式</h2>
+          <p>这些信息会自动显示在欢迎页、帮助中心和政策页面上，方便用户在需要时联系到你。</p>
+        </div>
+
+        <label>
+          <span>产品名</span>
+          <input id="productName" type="text" placeholder="公众号改写排版台" />
+        </label>
+        <label>
+          <span>运营主体</span>
+          <input id="operatorName" type="text" placeholder="公司名或个人品牌名" />
+        </label>
+        <label class="split-full">
+          <span>客服邮箱</span>
+          <input id="supportEmail" type="email" placeholder="support@your-domain.com" />
+        </label>
+        <label class="split-full">
+          <span>官网 / 落地页</span>
+          <input id="officialSiteUrl" type="url" placeholder="https://your-domain.com" />
+        </label>
+      </section>
+
+      <section class="card split-grid">
+        <div class="section-heading split-full">
+          <h2>默认改写偏好</h2>
+          <p>这些偏好会在每次打开编辑台时自动填入，你仍然可以在编辑时临时调整。</p>
+        </div>
+
+        <label>
+          <span>默认受众</span>
+          <textarea id="defaultAudience" rows="3"></textarea>
+        </label>
+        <label>
+          <span>默认语气</span>
+          <textarea id="defaultTone" rows="3"></textarea>
+        </label>
+        <label>
+          <span>默认改写角度</span>
+          <textarea id="defaultAngle" rows="3"></textarea>
+        </label>
+        <label>
+          <span>默认结尾 CTA</span>
+          <textarea id="defaultCta" rows="3"></textarea>
+        </label>
+      </section>
+
+      <section class="card split-grid">
+        <div class="section-heading split-full">
+          <h2>公众号直连发布</h2>
+          <p>
+            填好后即可直接推送到公众号草稿箱或发布。如果你的公众号后台开启了「IP 白名单」，请先在公众号后台把当前电脑的 IP 添加进去。
+          </p>
+        </div>
+
+        <label>
+          <span>公众号 AppID</span>
+          <input id="wechatAppId" type="text" placeholder="wx..." pattern="^wx[a-f0-9]{16}$" title="微信 AppID 格式为 wx 开头，后跟 16 位小写字母或数字" />
+        </label>
+        <label>
+          <span>公众号 AppSecret</span>
+          <input id="wechatAppSecret" type="password" placeholder="填写公众号密钥" minlength="8" />
+        </label>
+        <label>
+          <span>默认作者</span>
+          <input id="wechatDefaultAuthor" type="text" placeholder="文章作者署名" maxlength="8" title="公众号作者最多 8 个字" />
+        </label>
+        <label>
+          <span>默认来源链接</span>
+          <input id="wechatDefaultSourceUrl" type="url" placeholder="https://你的官网或原文地址" />
+        </label>
+        <label>
+          <span>默认发布模式</span>
+          <select id="wechatDefaultPublishMode">
+            <option value="draft">推草稿箱</option>
+            <option value="publish">直接发布</option>
+          </select>
+        </label>
+        <div class="checkbox-stack">
+          <label class="checkbox-row">
+            <input id="wechatDefaultOpenComment" type="checkbox" />
+            <span>默认开启评论</span>
+          </label>
+          <label class="checkbox-row">
+            <input id="wechatDefaultOnlyFansCanComment" type="checkbox" />
+            <span>默认仅粉丝可评论</span>
+          </label>
+        </div>
+
+        <div class="test-action-row split-full">
+          <button id="testWechatConnectionButton" class="ghost" type="button">测试公众号连接</button>
+          <p id="testWechatConnectionResult" class="test-result" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-heading split-full">
+          <h2>多账号管理</h2>
+          <p>如果你有多个公众号，可以在这里保存多套凭证，发布时在编辑台里切换。</p>
+        </div>
+
+        <div id="wechatProfilesContainer" class="profiles-list"></div>
+
+        <div class="split-grid">
+          <label>
+            <span>账号名称</span>
+            <input id="profileName" type="text" placeholder="例如：主号 / 小号 / 客户A" />
+          </label>
+          <label>
+            <span>AppID</span>
+            <input id="profileAppId" type="text" placeholder="wx..." pattern="^wx[a-f0-9]{16}$" />
+          </label>
+          <label>
+            <span>AppSecret</span>
+            <input id="profileAppSecret" type="password" placeholder="公众号密钥" />
+          </label>
+          <label>
+            <span>默认作者</span>
+            <input id="profileAuthor" type="text" placeholder="该号的默认作者" />
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="addProfileButton" type="button">添加账号</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-heading">
+          <h2>相关页面</h2>
+          <p>快速打开欢迎页、帮助中心以及与本扩展相关的政策页面。</p>
+        </div>
+
+        <div class="page-link-grid">
+          <button id="openWelcomePage">欢迎页</button>
+          <button id="openHelpPage">帮助中心</button>
+          <button id="openPermissionsPage">权限说明</button>
+          <button id="openPrivacyPage">隐私政策</button>
+          <button id="openTermsPage">服务条款</button>
+        </div>
+
+        <div class="history-tools">
+          <button id="exportHistoryButton" class="ghost" type="button">导出所有历史</button>
+          <button id="clearHistoryButton" class="ghost" type="button">清空历史</button>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button id="saveButton" class="primary">保存设置</button>
+        <button id="resetButton">恢复默认</button>
+      </div>
+      <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+    </main>
+    <script type="module" src="./options.js"></script>
+  </body>
+</html>

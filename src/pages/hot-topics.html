@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>热点捕捉器 - 公众号改写排版台</title>
+    <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+    <link rel="stylesheet" href="./page.css" />
+    <link rel="stylesheet" href="./hot-topics.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主内容</a>
+    <main id="main" class="page-shell" role="main">
+      <header class="topbar">
+        <a class="brand" href="./welcome.html" data-product-name>公众号改写排版台</a>
+        <nav class="topnav">
+          <a href="./hot-topics.html" aria-current="page">热点捕捉</a>
+          <a href="./help.html">帮助中心</a>
+          <a href="./welcome.html">欢迎页</a>
+        </nav>
+      </header>
+
+      <section class="hero hot-hero">
+        <p class="eyebrow">选题与资讯</p>
+        <h1>热点捕捉器</h1>
+        <p class="hero-lead">
+          聚合多个社交平台的热门条目，点开后在新标签页阅读，再用扩展的「抓取网页」把正文与配图带入编辑台，配合 AI 一键改写与排版。
+        </p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <p class="eyebrow">来源</p>
+          <h2>选择平台并刷新</h2>
+        </div>
+
+        <div class="hot-source-tabs" role="tablist" aria-label="热点平台">
+          <button type="button" role="tab" data-source="reddit" aria-selected="true">Reddit</button>
+          <button type="button" role="tab" data-source="weibo">微博热搜</button>
+          <button type="button" role="tab" data-source="x">X（Twitter）</button>
+          <button type="button" role="tab" data-source="xiaohongshu">小红书</button>
+        </div>
+
+        <div class="hot-toolbar">
+          <p id="hotMeta" class="muted"></p>
+          <button type="button" class="primary" id="refreshHot">刷新</button>
+        </div>
+
+        <p id="hotStatus" class="hot-status" role="status" aria-live="polite"></p>
+        <div id="hotContent"></div>
+
+        <p class="hot-disclaimer">
+          热点数据依赖各站公开接口或网页，可能因平台策略、登录要求或地区网络而暂时不可用；转载与二次创作请遵守版权与平台规则。X
+          与小红书无稳定匿名 JSON，故提供官方入口引导。
+        </p>
+      </section>
+
+      <footer class="page-footer">
+        <a href="./welcome.html">返回欢迎页</a>
+        ·
+        <a href="../workspace/workspace.html" data-open-workspace>打开编辑台</a>
+      </footer>
+    </main>
+    <script type="module" src="./page.js"></script>
+    <script type="module" src="./hot-topics.js"></script>
+  </body>
+</html>

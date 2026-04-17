@@ -1,0 +1,133 @@
+:root {
+  color-scheme: light;
+  font-family: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", sans-serif;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top right, rgba(207, 140, 67, 0.18), transparent 34%),
+    linear-gradient(180deg, #f7f3eb 0%, #f1eee5 100%);
+  color: #1f2d24;
+}
+
+:where(button, a):focus-visible {
+  outline: 2px solid #173722;
+  outline-offset: 2px;
+}
+
+.popup-shell {
+  padding: 18px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #7c6b5a;
+}
+
+h1 {
+  margin: 0 0 10px;
+  font-family: "Source Han Serif SC", "Noto Serif SC", serif;
+  font-size: 24px;
+  line-height: 1.3;
+}
+
+.intro {
+  margin: 0 0 18px;
+  color: #435247;
+  line-height: 1.7;
+}
+
+.actions {
+  display: grid;
+  gap: 10px;
+}
+
+.quick-links {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+button {
+  border: 1px solid #c8cfbf;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.74);
+  padding: 12px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 26px rgba(24, 53, 31, 0.08);
+}
+
+button.primary {
+  border-color: #173722;
+  background: #173722;
+  color: #f7f5ef;
+}
+
+.link-button {
+  padding: 8px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #58695d;
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.link-button:hover {
+  transform: none;
+  box-shadow: none;
+  color: #173722;
+}
+
+.status {
+  min-height: 20px;
+  margin: 14px 0 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  color: #58695d;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid #d8d5ca;
+  transition: opacity 400ms ease, background-color 400ms ease, border-color 400ms ease;
+  opacity: 1;
+}
+
+.status.is-faded {
+  opacity: 0;
+}
+
+.status[data-status-type="info"] {
+  background: rgba(248, 248, 248, 0.9);
+  border-color: #d8d5ca;
+  color: #56675d;
+}
+
+.status[data-status-type="success"] {
+  background: rgba(230, 245, 230, 0.9);
+  border-color: #a8d5a2;
+  color: #2d5a2d;
+}
+
+.status[data-status-type="warning"] {
+  background: rgba(255, 248, 230, 0.9);
+  border-color: #e8d0a0;
+  color: #7a5c2e;
+}
+
+.status[data-status-type="error"] {
+  background: rgba(255, 238, 238, 0.9);
+  border-color: #e8b4b4;
+  color: #8a3a3a;
+}

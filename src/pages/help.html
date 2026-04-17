@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>帮助中心 - 公众号改写排版台</title>
+    <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+    <link rel="stylesheet" href="./page.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主内容</a>
+    <main id="main" class="page-shell" role="main">
+      <header class="topbar">
+        <a class="brand" href="./welcome.html" data-product-name>公众号改写排版台</a>
+        <nav class="topnav">
+          <a href="./welcome.html">欢迎页</a>
+          <a href="./hot-topics.html">热点捕捉</a>
+          <a href="./permissions.html">权限说明</a>
+          <a href="./privacy.html">隐私政策</a>
+          <a href="./terms.html">服务条款</a>
+        </nav>
+      </header>
+
+      <section class="hero">
+        <p class="eyebrow">帮助中心</p>
+        <h1>使用中遇到问题？这里有答案。</h1>
+        <p class="hero-lead">
+          这里汇总了最常见的使用问题、推荐的使用步骤，以及出错时的排查思路。如果仍然没有解决你的疑问，可以通过页面底部的客服邮箱联系我们。
+        </p>
+      </section>
+
+      <section class="grid two">
+        <article class="panel">
+          <div class="panel-head">
+            <p class="eyebrow">常见问题</p>
+            <h2>最常见的 4 个问题</h2>
+          </div>
+          <ul class="info-list">
+            <li><strong>为什么抓不到正文或图片？</strong>有些网页的正文是滚动后才加载的，图片也可能设置了防盗链。请先在原网页确认内容已经完整显示，再点一次抓取。</li>
+            <li><strong>AI 改写总是失败怎么办？</strong>请在设置页确认接口地址、密钥和模型名填写正确，并确保所选模型支持较长的文章内容。</li>
+            <li><strong>推送到公众号失败怎么办？</strong>请确认公众号的 AppID 和 AppSecret 填写正确，并在公众号后台把你当前的 IP 加入白名单。</li>
+            <li><strong>在公众号编辑器里没自动填入内容？</strong>微信后台偶尔会调整页面结构。此时可以点助手面板上的「复制 HTML」，再到公众号编辑器里手动粘贴。</li>
+          </ul>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <p class="eyebrow">使用步骤</p>
+            <h2>建议这样开始</h2>
+          </div>
+          <ol class="step-list">
+            <li>
+              <span class="step-index">1</span>
+              第一次使用，先到设置页填好 AI 接口、公众号账号、客服邮箱和官网信息。
+            </li>
+            <li>
+              <span class="step-index">2</span>
+              打开任意一篇想转发的网页，点「抓取当前页并打开编辑台」先跑通一篇，再尝试多图文。
+            </li>
+            <li>
+              <span class="step-index">3</span>
+              正式发布前，建议先推一次「草稿箱」在公众号后台预览，没问题再选择「直接发布」。
+            </li>
+          </ol>
+          <div class="action-row">
+            <button class="primary" data-action="open-options" data-runtime-only>去设置页</button>
+            <button class="ghost" data-action="open-workspace" data-runtime-only>去编辑台</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <p class="eyebrow">编辑台</p>
+          <h2>常用快捷键</h2>
+        </div>
+        <p class="hero-lead help-shortcuts-lead">
+          在编辑台页面，以下快捷键全局可用；在输入框或正文编辑区按 <code>⌘</code> / <code>Ctrl</code> + <code>K</code> 同样可以打开命令面板。
+        </p>
+        <div class="table">
+          <div class="table-row">
+            <div><code>保存草稿</code></div>
+            <div><code>⌘</code> + <code>S</code>（macOS）或 <code>Ctrl</code> + <code>S</code>（Windows）</div>
+          </div>
+          <div class="table-row">
+            <div><code>AI 改写当前篇</code></div>
+            <div><code>⌘</code> + <code>Enter</code> 或 <code>Ctrl</code> + <code>Enter</code></div>
+          </div>
+          <div class="table-row">
+            <div><code>抓取最近浏览页</code></div>
+            <div><code>⌘</code> + <code>Shift</code> + <code>C</code> 或 <code>Ctrl</code> + <code>Shift</code> + <code>C</code></div>
+          </div>
+          <div class="table-row">
+            <div><code>命令面板</code></div>
+            <div><code>⌘</code> + <code>K</code> 或 <code>Ctrl</code> + <code>K</code></div>
+          </div>
+          <div class="table-row">
+            <div><code>撤销 / 重做</code></div>
+            <div><code>⌘</code>/<code>Ctrl</code> + <code>Z</code>、<code>⌘</code>/<code>Ctrl</code> + <code>Shift</code> + <code>Z</code>、<code>Ctrl</code> + <code>Y</code></div>
+          </div>
+          <div class="table-row">
+            <div><code>调整多图文顺序</code></div>
+            <div><code>Alt</code> + <code>↑</code> / <code>↓</code></div>
+          </div>
+          <div class="table-row">
+            <div><code>Esc</code></div>
+            <div>关闭命令面板、关闭右侧草稿历史抽屉、关闭首次引导或空状态提示，并让正文编辑区失焦</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <p class="eyebrow">排查思路</p>
+          <h2>按出错环节逐步排查</h2>
+        </div>
+        <div class="table">
+          <div class="table-row" id="scrape-no-content">
+            <div><code>抓取网页</code></div>
+            <div>请确认当前页是普通的公开网页，内容已经完全加载，并且不需要登录即可查看。部分网站会有反爬限制，可能无法抓取。对应错误码：<code>SCRAPE_NO_CONTENT</code></div>
+          </div>
+          <div class="table-row" id="network-timeout">
+            <div><code>网络超时</code></div>
+            <div>请检查本地网络是否正常，或目标服务（AI 接口 / 公众号接口）是否可用。稍后重试通常可以解决。对应错误码：<code>NETWORK_TIMEOUT</code></div>
+          </div>
+          <div class="table-row" id="api-auth-failed">
+            <div><code>AI 认证失败</code></div>
+            <div>密钥无效或已过期，请到设置页重新填写 API Key。对应错误码：<code>API_AUTH_FAILED</code></div>
+          </div>
+          <div class="table-row" id="api-rate-limited">
+            <div><code>AI 请求频率受限</code></div>
+            <div>请求过于频繁或账户额度不足。请稍等片刻后点击「重试」，或升级 API 套餐。对应错误码：<code>API_RATE_LIMITED</code></div>
+          </div>
+          <div class="table-row" id="api-bad-response">
+            <div><code>AI 接口异常</code></div>
+            <div>接口地址或模型名称不正确，或 AI 服务暂时不可用（5xx）。请在设置页确认接口地址是完整的 chat completions 地址，并检查模型名拼写。对应错误码：<code>API_BAD_RESPONSE</code></div>
+          </div>
+          <div class="table-row" id="wechat-ip">
+            <div><code>公众号 IP 白名单</code></div>
+            <div>公众号后台开启了 IP 白名单限制。请登录<a href="https://mp.weixin.qq.com" target="_blank" rel="noreferrer">公众号后台</a>，依次进入「开发 → 基本配置 → IP 白名单」，将当前出口 IP 添加进去，然后重新推送。对应错误码：<code>WECHAT_IP_NOT_WHITELISTED</code></div>
+          </div>
+          <div class="table-row" id="wechat-invalid-secret">
+            <div><code>公众号凭证无效</code></div>
+            <div>AppID 或 AppSecret 填错，请在设置页核实后重新保存。对应错误码：<code>WECHAT_INVALID_SECRET</code></div>
+          </div>
+          <div class="table-row" id="image-download-failed">
+            <div><code>图片下载失败</code></div>
+            <div>原站可能设置了防盗链或图片链接已失效。可以尝试手动保存图片后，直接插入到编辑器中，或更换防盗链的图床链接。对应错误码：<code>IMAGE_DOWNLOAD_FAILED</code></div>
+          </div>
+          <div class="table-row" id="image-upload-failed">
+            <div><code>图片上传失败</code></div>
+            <div>图片格式不符合公众号要求（支持 JPG / PNG / GIF / BMP），或文件超过大小限制。请先压缩图片后再重试。对应错误码：<code>IMAGE_UPLOAD_FAILED</code></div>
+          </div>
+          <div class="table-row" id="wechat-media-too-large">
+            <div><code>素材太大</code></div>
+            <div>图片或封面素材超过公众号接口大小上限（通常为 10 MB）。请压缩图片后重试。对应错误码：<code>WECHAT_MEDIA_TOO_LARGE</code></div>
+          </div>
+          <div class="table-row" id="waiting-publish">
+            <div><code>等待发布</code></div>
+            <div>点击发布后，页面会自动查询发布状态。即使中途关掉页面，下次打开时也会继续查询，请耐心等待。</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="contact-card">
+        <h2>仍然没解决？联系我们</h2>
+        <p>客服邮箱：<a data-support-email href="#">请先在设置页填写客服邮箱</a></p>
+        <p>官网：<a data-site-url href="#">未设置官网</a></p>
+        <p>运营主体：<span data-operator-name>请先在设置页填写运营主体</span></p>
+      </section>
+
+      <footer class="page-footer">
+        最后更新：2026-04-17。
+      </footer>
+    </main>
+    <script type="module" src="./page.js"></script>
+  </body>
+</html>

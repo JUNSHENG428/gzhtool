@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>公众号改写排版台</title>
+    <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+    <link rel="stylesheet" href="./workspace.css" />
+  </head>
+  <body>
+    <div
+      id="loadingOverlay"
+      class="loading-overlay"
+      aria-hidden="true"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <p id="loadingMessage" aria-live="polite">加载中...</p>
+    </div>
+
+    <div id="firstRunOverlay" class="first-run-overlay" hidden>
+      <div class="first-run-card">
+        <div class="first-run-icon">
+          <svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true" focusable="false">
+            <rect width="64" height="64" rx="16" fill="#173722"/>
+            <text x="32" y="44" font-size="32" text-anchor="middle" fill="#f7f5ef" font-family="serif">文</text>
+          </svg>
+        </div>
+        <h2>开始你的第一篇公众号稿件</h2>
+        <p class="first-run-subtitle">三步搞定一篇推文</p>
+        <div class="first-run-steps">
+          <div class="step">
+            <span class="step-num">1</span>
+            <p>配置 AI 改写接口</p>
+          </div>
+          <div class="step-arrow">→</div>
+          <div class="step">
+            <span class="step-num">2</span>
+            <p>抓取任意网页</p>
+          </div>
+          <div class="step-arrow">→</div>
+          <div class="step">
+            <span class="step-num">3</span>
+            <p>AI 改写并发布</p>
+          </div>
+        </div>
+        <div class="first-run-actions">
+          <button id="firstRunOptionsButton" class="primary">去设置</button>
+          <button id="firstRunCaptureButton">已经配置好，抓一篇试试</button>
+        </div>
+        <a href="#" id="firstRunHelpLink" class="first-run-help">查看帮助中心</a>
+      </div>
+    </div>
+
+    <div id="emptyPromptCard" class="empty-prompt-card" hidden>
+      <div class="empty-prompt-icon">
+        <svg viewBox="0 0 48 48" width="48" height="48" aria-hidden="true" focusable="false">
+          <rect width="48" height="48" rx="12" fill="#6b8f71" opacity="0.15"/>
+          <text x="24" y="34" font-size="24" text-anchor="middle" fill="#6b8f71" font-family="serif">抓</text>
+        </svg>
+      </div>
+      <p>先点右上角「抓取最近浏览页」开始</p>
+      <button id="emptyPromptCaptureButton" class="ghost">现在抓取</button>
+    </div>
+
+    <div class="workspace-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">编辑台</p>
+          <h1>公众号改写排版台</h1>
+          <p class="subtitle">
+            抓取网页内容，用 AI 改写后整理标题、摘要和封面，支持单篇和多图文，最终推送到公众号草稿箱或直接发布。
+          </p>
+        </div>
+        <div class="topbar-actions">
+          <button id="openOptionsButton" aria-label="打开设置页面">设置</button>
+          <button id="historyButton" class="ghost" aria-label="查看历史草稿记录">历史记录</button>
+          <button id="captureButton" aria-label="抓取当前浏览器标签页的内容">抓取最近浏览页</button>
+          <button id="rewriteButton" class="primary" aria-label="使用 AI 改写当前文章">AI 改写当前篇</button>
+        </div>
+      </header>
+
+      <main class="workspace-layout">
+        <aside class="left-rail" role="region" aria-label="采集信息区">
+          <section class="panel">
+            <div class="section-header">
+              <div>
+                <p class="section-kicker">来源</p>
+                <h2>采集信息</h2>
+              </div>
+              <button id="copyPromptButton" class="ghost">复制手动提示词</button>
+            </div>
+            <div id="sourceMeta" class="meta-grid"></div>
+            <div id="imageRail" class="image-rail"></div>
+            <div id="sourcePreview" class="source-preview"></div>
+          </section>
+        </aside>
+
+        <section class="center-stage" role="region" aria-label="稿件信息区">
+          <section class="panel">
+            <div class="section-header">
+              <div>
+                <p class="section-kicker">多图文</p>
+                <h2>草稿包管理</h2>
+              </div>
+              <div class="stack-actions">
+                <button id="addSubArticleButton">新增副篇</button>
+                <button id="moveArticleUpButton" class="ghost">前移当前篇</button>
+                <button id="moveArticleDownButton" class="ghost">后移当前篇</button>
+                <button id="duplicateArticleButton" class="ghost">复制当前篇</button>
+                <button id="removeArticleButton" class="ghost">删除当前篇</button>
+                <button id="importBundleButton" class="ghost">导入草稿包</button>
+                <button id="exportBundleButton" class="ghost">导出草稿包</button>
+              </div>
+            </div>
+            <div id="articleStack" class="article-stack"></div>
+            <p id="bundleSummary" class="stack-hint">一次最多可编排 1 篇主篇 + 7 篇副篇。你在右侧编辑的是上方当前选中的这一篇。</p>
+            <input id="bundleImportInput" type="file" accept="application/json,.json" hidden />
+          </section>
+
+          <section class="panel">
+            <div class="section-header">
+              <div>
+                <p class="section-kicker">稿件信息</p>
+                <h2>标题、摘要与改写参数</h2>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <label class="wide">
+                <span>公众号标题</span>
+                <input id="titleInput" type="text" placeholder="显示在公众号列表和分享卡片上的标题" aria-describedby="titleInputHint" />
+                <p id="titleInputHint" class="field-hint" data-for="titleInput">0 / 64</p>
+              </label>
+              <label>
+                <span>副标题</span>
+                <input id="subtitleInput" type="text" placeholder="显示在正文顶部的小字说明" aria-describedby="subtitleInputHint" />
+                <p id="subtitleInputHint" class="field-hint" data-for="subtitleInput">0 / 32</p>
+              </label>
+              <label>
+                <span>作者</span>
+                <input id="authorInput" type="text" placeholder="作者署名" aria-describedby="authorInputHint" />
+                <p id="authorInputHint" class="field-hint" data-for="authorInput">0 / 8</p>
+              </label>
+              <label class="wide">
+                <span>摘要</span>
+                <textarea id="digestInput" rows="3" placeholder="在公众号列表和分享卡片中显示的简短摘要" aria-describedby="digestInputHint"></textarea>
+                <p id="digestInputHint" class="field-hint" data-for="digestInput">0 / 120</p>
+              </label>
+              <label class="wide">
+                <span>原文链接</span>
+                <input id="sourceUrlInput" type="url" placeholder="读者点击「阅读原文」后打开的链接" />
+              </label>
+              <label class="wide">
+                <span>导语</span>
+                <textarea id="leadInput" rows="3" placeholder="显示在正文开头的导语卡片"></textarea>
+              </label>
+              <label class="wide">
+                <span>结尾 CTA</span>
+                <textarea id="ctaInput" rows="3" placeholder="文章结尾对读者的行动引导，例如关注、留言等"></textarea>
+              </label>
+              <label>
+                <span>受众</span>
+                <input id="audienceInput" type="text" />
+              </label>
+              <label>
+                <span>语气</span>
+                <input id="toneInput" type="text" />
+              </label>
+              <label>
+                <span>改写角度</span>
+                <input id="angleInput" type="text" />
+              </label>
+              <label>
+                <span>篇幅</span>
+                <select id="lengthSelect">
+                  <option value="short">短文</option>
+                  <option value="medium" selected>标准</option>
+                  <option value="long">长文</option>
+                </select>
+              </label>
+              <label>
+                <span>排版主题</span>
+                <select id="themeSelect"></select>
+              </label>
+            </div>
+
+            <div id="titleSuggestions" class="chip-list"></div>
+            <div id="keywordSuggestions" class="chip-list muted"></div>
+          </section>
+
+          <section class="panel editor-panel">
+            <div class="section-header">
+              <div>
+                <p class="section-kicker">正文</p>
+                <h2>像公众号后台一样编辑正文</h2>
+              </div>
+              <div class="export-actions">
+                <button id="copyHtmlButton" class="ghost">复制正文 HTML</button>
+                <button id="copyMarkdownButton" class="ghost">复制 Markdown</button>
+                <button id="downloadHtmlButton" class="ghost">导出预览 HTML</button>
+              </div>
+            </div>
+
+            <div class="toolbar-strip">
+              <div class="editor-toolbar" role="toolbar" aria-label="正文格式工具栏">
+                <button data-command="formatBlock" data-value="h2" aria-label="设为二级标题">H2</button>
+                <button data-command="formatBlock" data-value="h3" aria-label="设为三级标题">H3</button>
+                <button data-command="formatBlock" data-value="p" aria-label="设为正文段落">正文</button>
+                <button data-command="bold" aria-label="加粗选中的文字">加粗</button>
+                <button data-command="formatBlock" data-value="blockquote" aria-label="设为引用块">引用</button>
+                <button data-command="insertUnorderedList" aria-label="插入无序列表">列表</button>
+                <button data-command="insertHorizontalRule" aria-label="插入水平分隔线">分隔线</button>
+                <button data-command="removeFormat" aria-label="清除格式">清格式</button>
+              </div>
+              <div class="editor-toolbar secondary" role="toolbar" aria-label="内容插入工具栏">
+                <button data-template="section" aria-label="插入章节标题和正文">插入章节</button>
+                <button data-template="insight" aria-label="插入观点句">插入观点句</button>
+                <button data-template="note" aria-label="插入提醒卡片">插入提醒卡</button>
+                <button data-template="checklist" aria-label="插入待办清单">插入清单</button>
+                <button data-template="image" aria-label="插入选中的图片">插入选中图片</button>
+                <select id="customTemplateSelect" class="template-select" title="自定义模板" aria-label="选择自定义模板">
+                  <option value="">自定义模板...</option>
+                </select>
+                <button id="saveTemplateButton" class="ghost" title="保存当前选区为新模板" aria-label="保存当前选区为自定义模板">+ 保存模板</button>
+              </div>
+            </div>
+
+            <div
+              id="editor"
+              class="editor theme-editorial-green"
+              contenteditable="true"
+              role="textbox"
+              aria-multiline="true"
+              aria-label="正文编辑器"
+            ></div>
+            <div id="editorWordCount" class="editor-word-count">正文 0 字</div>
+          </section>
+        </section>
+
+        <aside class="right-rail" role="region" aria-label="发布与预览区">
+          <section class="panel">
+            <div class="section-header">
+              <div>
+                <p class="section-kicker">发布</p>
+                <h2>封面、发布状态与同步</h2>
+              </div>
+            </div>
+
+            <div class="publish-grid">
+              <label>
+                <span>封面图</span>
+                <select id="coverImageSelect"></select>
+              </label>
+              <label>
+                <span>发布模式</span>
+                <select id="publishModeSelect">
+                  <option value="draft">推草稿箱</option>
+                  <option value="publish">直接发布</option>
+                </select>
+              </label>
+              <label>
+                <span>发布账号</span>
+                <select id="wechatProfileSelect">
+                  <option value="-1">默认账号</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="checkbox-stack">
+              <label class="checkbox-row">
+                <input id="openCommentCheckbox" type="checkbox" />
+                <span>开启评论</span>
+              </label>
+              <label class="checkbox-row">
+                <input id="fansOnlyCheckbox" type="checkbox" />
+                <span>仅粉丝可评论</span>
+              </label>
+            </div>
+
+            <div id="coverPreview" class="cover-preview"></div>
+
+            <div class="publish-actions">
+              <button id="publishCurrentButton">按上方模式执行</button>
+              <button id="publishNowButton" class="primary">立即发布</button>
+              <button id="pollStatusButton" class="ghost">查询发布状态</button>
+              <button id="syncWebEditorButton" class="ghost">同步到网页编辑器</button>
+            </div>
+
+            <div id="publishResult" class="publish-result"></div>
+            <div id="webEditorSyncResult" class="publish-result secondary-result"></div>
+          </section>
+
+          <section class="panel preview-panel">
+            <div class="section-header">
+              <div>
+                <p class="section-kicker">预览</p>
+                <h2>公众号阅读效果</h2>
+              </div>
+              <div class="preview-tabs" role="tablist" aria-label="预览模式切换">
+                <button
+                  id="previewPhoneTab"
+                  class="preview-tab active"
+                  data-preview="phone"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="previewContainer"
+                  tabindex="0"
+                >手机</button>
+                <button
+                  id="previewDarkTab"
+                  class="preview-tab"
+                  data-preview="dark"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="previewContainer"
+                  tabindex="-1"
+                >深色</button>
+                <button
+                  id="previewCardTab"
+                  class="preview-tab"
+                  data-preview="card"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="previewContainer"
+                  tabindex="-1"
+                >分享卡片</button>
+              </div>
+            </div>
+            <p id="previewDescription" class="preview-desc">模拟在手机上阅读公众号文章的实际效果</p>
+            <div id="previewContainer" class="phone-shell preview-mode-phone" role="tabpanel" tabindex="0" aria-labelledby="previewPhoneTab">
+              <div id="wechatPreview" class="wechat-preview"></div>
+            </div>
+          </section>
+
+          <section class="panel output-panel">
+            <div class="editor-tabs" role="tablist" aria-label="导出格式切换">
+              <button
+                id="htmlTab"
+                class="tab active"
+                data-tab="html"
+                role="tab"
+                aria-selected="true"
+                aria-controls="htmlPanel"
+                tabindex="0"
+              >HTML</button>
+              <button
+                id="markdownTab"
+                class="tab"
+                data-tab="markdown"
+                role="tab"
+                aria-selected="false"
+                aria-controls="markdownPanel"
+                tabindex="-1"
+              >Markdown</button>
+            </div>
+            <div id="htmlPanel" class="tab-panel active" role="tabpanel" aria-labelledby="htmlTab">
+              <textarea id="htmlOutput" readonly></textarea>
+            </div>
+            <div id="markdownPanel" class="tab-panel" role="tabpanel" aria-labelledby="markdownTab" hidden>
+              <textarea id="markdownOutput" readonly></textarea>
+            </div>
+          </section>
+        </aside>
+      </main>
+
+      <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+    </div>
+
+    <div id="historyDrawerBackdrop" class="drawer-backdrop" hidden></div>
+    <aside id="historyDrawer" class="history-drawer" aria-hidden="true">
+      <div class="history-drawer-header">
+        <div>
+          <p class="section-kicker">草稿记录</p>
+          <h2>这篇的草稿记录</h2>
+          <p class="history-drawer-intro">
+            抓取网页、AI 改写或发布后，会自动留一份，方便回到之前写过的版本。
+          </p>
+        </div>
+        <button id="closeHistoryDrawerButton" class="ghost" type="button">关闭</button>
+      </div>
+      <div id="historyDrawerList" class="history-list"></div>
+    </aside>
+    <script type="module" src="./workspace.js"></script>
+  </body>
+</html>

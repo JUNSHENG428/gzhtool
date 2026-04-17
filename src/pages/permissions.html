@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>权限说明 - 公众号改写排版台</title>
+    <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+    <link rel="stylesheet" href="./page.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主内容</a>
+    <main id="main" class="page-shell" role="main">
+      <header class="topbar">
+        <a class="brand" href="./welcome.html" data-product-name>公众号改写排版台</a>
+        <nav class="topnav">
+          <a href="./welcome.html">欢迎页</a>
+          <a href="./help.html">帮助中心</a>
+          <a href="./privacy.html">隐私政策</a>
+          <a href="./terms.html">服务条款</a>
+        </nav>
+      </header>
+
+      <section class="hero">
+        <p class="eyebrow">权限说明</p>
+        <h1>扩展会用到的权限，以及用在哪里。</h1>
+        <p class="hero-lead">
+          为了帮你抓取网页、改写内容并推送到公众号，扩展在安装时会申请下面几项浏览器权限。我们只在你主动操作时使用它们，不会在后台做任何你不知情的事情。
+        </p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <p class="eyebrow">权限清单</p>
+          <h2>每一项权限的作用</h2>
+        </div>
+        <div class="table">
+          <div class="table-row">
+            <div><code>读取当前标签页</code></div>
+            <div>当你点击「抓取」时，扩展需要读取你当前打开的网页内容，用来提取正文和图片。</div>
+          </div>
+          <div class="table-row">
+            <div><code>标签页管理</code></div>
+            <div>用于记住你最近浏览的网页，以及在需要时帮你打开编辑台、帮助中心或公众号编辑器标签。</div>
+          </div>
+          <div class="table-row">
+            <div><code>本地存储</code></div>
+            <div>在浏览器中保存你的接口配置、公众号账号、草稿内容和最近的发布状态，方便下次打开时继续使用。</div>
+          </div>
+          <div class="table-row">
+            <div><code>网页脚本注入</code></div>
+            <div>把抓取逻辑注入到你当前打开的网页上，用来识别并提取正文、图片和文章信息。</div>
+          </div>
+          <div class="table-row">
+            <div><code>访问任意网站</code></div>
+            <div>扩展需要访问你主动打开的任意网页来抓取内容，下载文章中的图片，并调用你配置的 AI 接口和公众号接口。</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <p class="eyebrow">为什么需要这些权限</p>
+          <h2>这些权限是如何被使用的</h2>
+        </div>
+        <ul class="info-list">
+          <li><strong>抓取你浏览的任意网页</strong>你想改写哪篇文章是不确定的，所以扩展需要能在你主动触发时读取任意网站上的内容。</li>
+          <li><strong>连接你指定的 AI 服务</strong>你可以使用 OpenAI、OpenRouter 或其他兼容服务，AI 接口的域名由你在设置里填写，因此需要能够访问这些地址。</li>
+          <li><strong>下载文章中的图片</strong>公众号发布前，文章中引用的外部图片必须先下载再重新上传到公众号素材库。</li>
+        </ul>
+      </section>
+
+      <footer class="page-footer">
+        当前扩展版本：<span data-version>0.0.0</span>。如果权限有调整，本页会同步更新。
+      </footer>
+    </main>
+    <script type="module" src="./page.js"></script>
+  </body>
+</html>
