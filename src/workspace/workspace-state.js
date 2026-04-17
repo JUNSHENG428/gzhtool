@@ -63,7 +63,45 @@ function _bindStateEvents() {
       _ctx.renderSource();
       _ctx.renderCoverPreview();
       schedulePersist();
+      return;
     }
+    if (button.dataset.imageAction === "delete") {
+      deleteSourceImage(index);
+      return;
+    }
+  });
+
+  // 图片拖拽排序
+  let dragSrcIndex = null;
+  view.imageRail.addEventListener("dragstart", (event) => {
+    const card = event.target.closest("[data-image-index]");
+    if (!card) return;
+    dragSrcIndex = Number(card.dataset.imageIndex);
+    card.style.opacity = "0.4";
+    event.dataTransfer.effectAllowed = "move";
+  });
+  view.imageRail.addEventListener("dragend", (event) => {
+    const card = event.target.closest("[data-image-index]");
+    if (card) card.style.opacity = "";
+    dragSrcIndex = null;
+  });
+  view.imageRail.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const card = event.target.closest("[data-image-index]");
+    if (card) card.style.borderColor = "#4f83c2";
+  });
+  view.imageRail.addEventListener("dragleave", (event) => {
+    const card = event.target.closest("[data-image-index]");
+    if (card) card.style.borderColor = "";
+  });
+  view.imageRail.addEventListener("drop", (event) => {
+    event.preventDefault();
+    const card = event.target.closest("[data-image-index]");
+    if (!card || dragSrcIndex === null) return;
+    const dropTargetIndex = Number(card.dataset.imageIndex);
+    if (dropTargetIndex === dragSrcIndex) return;
+    reorderSourceImages(dragSrcIndex - 1, dropTargetIndex - 1);
   });
 
   // 文章堆叠切换

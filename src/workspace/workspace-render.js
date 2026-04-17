@@ -98,8 +98,8 @@ export function renderSource() {
             const imageIndex = index + 1;
             const isSelected = imageIndex === state.selectedImageIndex;
             const isCover = imageIndex === Number(controls.coverImageIndex.value || 0);
-            return `<article class="image-card ${isSelected ? "is-selected" : ""} ${isCover ? "is-cover" : ""}">
-              <img src="${escapeAttribute(image.src)}" alt="${escapeAttribute(image.alt || `图片 ${imageIndex}`)}" />
+            return `<article class="image-card ${isSelected ? "is-selected" : ""} ${isCover ? "is-cover" : ""}" draggable="true" data-image-index="${imageIndex}">
+              <img src="${escapeAttribute(image.src)}" alt="${escapeAttribute(image.alt || `图片 ${imageIndex}`)}" draggable="false" />
               <div>
                 <p><strong>图片 ${imageIndex}</strong></p>
                 <p>${escapeHtml(image.caption || image.alt || image.src)}</p>
@@ -107,6 +107,7 @@ export function renderSource() {
                   <button data-image-action="select" data-index="${imageIndex}">选中</button>
                   <button data-image-action="insert" data-index="${imageIndex}">插入正文</button>
                   <button data-image-action="cover" data-index="${imageIndex}">设为封面</button>
+                  <button data-image-action="delete" data-index="${imageIndex}" class="ghost" style="color:#c0392b">删除</button>
                 </div>
               </div>
             </article>`;
