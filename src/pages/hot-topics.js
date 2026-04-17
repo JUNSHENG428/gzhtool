@@ -5,13 +5,13 @@ const refreshBtn = document.querySelector("#refreshHot");
 
 const runtimeOk = Boolean(globalThis.chrome?.runtime?.id);
 
-document.querySelectorAll(".hot-source-tabs [data-source]").forEach((btn) => {
+document.querySelectorAll(".hot-sources-container [data-source]").forEach((btn) => {
   btn.addEventListener("click", () => selectSource(btn.dataset.source));
 });
 
 refreshBtn.addEventListener("click", () => {
-  const current = document.querySelector('.hot-source-tabs [aria-selected="true"]');
-  void loadSource(current?.dataset.source || "reddit");
+  const current = document.querySelector('.hot-sources-container [aria-selected="true"]');
+  void loadSource(current?.dataset.source || "zhihu");
 });
 
 document.querySelector("[data-open-workspace]")?.addEventListener("click", (e) => {
@@ -22,11 +22,11 @@ document.querySelector("[data-open-workspace]")?.addEventListener("click", (e) =
   chrome.tabs.create({ url: chrome.runtime.getURL("src/workspace/workspace.html") });
 });
 
-let activeSource = "reddit";
+let activeSource = "zhihu";
 
 function selectSource(source) {
   activeSource = source;
-  document.querySelectorAll(".hot-source-tabs [data-source]").forEach((b) => {
+  document.querySelectorAll(".hot-sources-container [data-source]").forEach((b) => {
     const on = b.dataset.source === source;
     b.setAttribute("aria-selected", on ? "true" : "false");
   });

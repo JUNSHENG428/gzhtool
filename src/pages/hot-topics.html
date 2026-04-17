@@ -5,12 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>热点捕捉器 - 公众号改写排版台</title>
     <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Noto+Serif+SC:wght@500;600;700&display=swap"
+    />
     <link rel="stylesheet" href="./page.css" />
     <link rel="stylesheet" href="./hot-topics.css" />
   </head>
-  <body>
+  <body class="ambient-page">
     <a class="skip-link" href="#main">跳到主内容</a>
-    <main id="main" class="page-shell" role="main">
+    <main id="main" class="page-shell fade-in-children" role="main">
       <header class="topbar">
         <a class="brand" href="./welcome.html" data-product-name>公众号改写排版台</a>
         <nav class="topnav">
@@ -20,38 +26,92 @@
         </nav>
       </header>
 
-      <section class="hero hot-hero">
-        <p class="eyebrow">选题与资讯</p>
+      <section class="hero hot-hero hero-stagger">
+        <p class="eyebrow">选题与资讯资源池</p>
         <h1>热点捕捉器</h1>
         <p class="hero-lead">
-          聚合多个社交平台的热门条目，点开后在新标签页阅读，再用扩展的「抓取网页」把正文与配图带入编辑台，配合 AI 一键改写与排版。
+          一站式聚合了跨越数十个中外社交与媒体平台的热议资源。<br/>点开链接在新标签页阅读，再用扩展面板的「抓取网页」把正文与配图拿入工作台，配合 AI 一键进行符合规范的改写排版。
         </p>
       </section>
 
       <section class="panel">
         <div class="panel-head">
-          <p class="eyebrow">来源</p>
+          <p class="eyebrow">实时来源</p>
           <h2>选择平台并刷新</h2>
         </div>
 
-        <div class="hot-source-tabs" role="tablist" aria-label="热点平台">
-          <button type="button" role="tab" data-source="reddit" aria-selected="true">Reddit</button>
-          <button type="button" role="tab" data-source="weibo">微博热搜</button>
-          <button type="button" role="tab" data-source="x">X（Twitter）</button>
-          <button type="button" role="tab" data-source="xiaohongshu">小红书</button>
+        <div class="hot-sources-container" role="tablist" aria-label="热点平台网格">
+          
+          <div class="hot-category">
+            <h4 class="hot-category-title">发现 · 社区讨论</h4>
+            <div class="hot-source-grid">
+              <button type="button" role="tab" data-source="zhihu" aria-selected="true">知乎热榜</button>
+              <button type="button" role="tab" data-source="weibo">微博热搜</button>
+              <button type="button" role="tab" data-source="tieba">百度贴吧</button>
+              <button type="button" role="tab" data-source="hupu">虎扑热帖</button>
+              <button type="button" role="tab" data-source="baidu">百度热搜</button>
+              <button type="button" role="tab" data-source="xiaohongshu">小红书入口</button>
+            </div>
+          </div>
+
+          <div class="hot-category">
+            <h4 class="hot-category-title">极客 · 科技数码</h4>
+            <div class="hot-source-grid">
+              <button type="button" role="tab" data-source="sspai">少数派</button>
+              <button type="button" role="tab" data-source="juejin">稀土掘金</button>
+              <button type="button" role="tab" data-source="coolapk">酷安热度</button>
+              <button type="button" role="tab" data-source="ithome">IT之家</button>
+              <button type="button" role="tab" data-source="36kr">36氪快讯</button>
+              <button type="button" role="tab" data-source="v2ex">V2EX 分享</button>
+              <button type="button" role="tab" data-source="github">GitHub 趋势</button>
+              <button type="button" role="tab" data-source="hackernews">HackerNews</button>
+              <button type="button" role="tab" data-source="producthunt">Product Hunt</button>
+            </div>
+          </div>
+
+          <div class="hot-category">
+            <h4 class="hot-category-title">全球 · 综合门户</h4>
+            <div class="hot-source-grid">
+              <button type="button" role="tab" data-source="toutiao">今日头条</button>
+              <button type="button" role="tab" data-source="tencent">腾讯新闻</button>
+              <button type="button" role="tab" data-source="thepaper">澎湃新闻</button>
+              <button type="button" role="tab" data-source="zaobao">联合早报</button>
+              <button type="button" role="tab" data-source="reddit">Reddit 热门</button>
+              <button type="button" role="tab" data-source="x">X(Twitter)趋势</button>
+            </div>
+          </div>
+
+          <div class="hot-category">
+            <h4 class="hot-category-title">视频 · 泛娱乐</h4>
+            <div class="hot-source-grid">
+              <button type="button" role="tab" data-source="bilibili">B站热搜</button>
+              <button type="button" role="tab" data-source="bilibili_rank">B站排行榜</button>
+              <button type="button" role="tab" data-source="douyin">抖音热榜</button>
+              <button type="button" role="tab" data-source="douban">豆瓣热门影视</button>
+            </div>
+          </div>
+
+          <div class="hot-category">
+            <h4 class="hot-category-title">财经 · 创投网</h4>
+            <div class="hot-source-grid">
+              <button type="button" role="tab" data-source="wallstreetcn">华尔街见闻</button>
+              <button type="button" role="tab" data-source="xueqiu">雪球热门</button>
+              <button type="button" role="tab" data-source="cls">财联社电报</button>
+            </div>
+          </div>
+
         </div>
 
         <div class="hot-toolbar">
           <p id="hotMeta" class="muted"></p>
-          <button type="button" class="primary" id="refreshHot">刷新</button>
+          <button type="button" class="primary" id="refreshHot">🔄 刷新当前榜单</button>
         </div>
 
         <p id="hotStatus" class="hot-status" role="status" aria-live="polite"></p>
         <div id="hotContent"></div>
 
         <p class="hot-disclaimer">
-          热点数据依赖各站公开接口或网页，可能因平台策略、登录要求或地区网络而暂时不可用；转载与二次创作请遵守版权与平台规则。X
-          与小红书无稳定匿名 JSON，故提供官方入口引导。
+          免责与说明：热榜接口通过第三方汇聚接口代理访问，可能受上游限流或地区策略影响而不可用；请遵守内容来源的版权声明与使用权限。X平台与小红书等因为无免登录 API 故只提供平台快捷传送门。
         </p>
       </section>
 
