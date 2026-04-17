@@ -38,7 +38,9 @@ import {
   deriveDigestFromEditor,
   deriveDigestFromArticle,
   getCoverImageForArticle,
-  getSelectedImage
+  getSelectedImage,
+  deleteSourceImage,
+  reorderSourceImages
 } from "./workspace-state.js";
 
 import {
@@ -129,7 +131,10 @@ const controls = {
   coverImageIndex: document.querySelector("#coverImageSelect"),
   publishMode: document.querySelector("#publishModeSelect"),
   needOpenComment: document.querySelector("#openCommentCheckbox"),
-  onlyFansCanComment: document.querySelector("#fansOnlyCheckbox")
+  onlyFansCanComment: document.querySelector("#fansOnlyCheckbox"),
+  customTemplateSelect: document.querySelector("#customTemplateSelect"),
+  saveTemplateButton: document.querySelector("#saveTemplateButton"),
+  wechatProfileSelect: document.querySelector("#wechatProfileSelect")
 };
 
 // ── 入口级工具 ──
@@ -162,6 +167,9 @@ export function closeOverlays() {
 
 export function blurEditor() { view.editor.blur(); }
 export function openHelp() { chrome.tabs.create({ url: chrome.runtime.getURL("src/pages/help.html") }); }
+export function openHotTopicsPage() {
+  chrome.tabs.create({ url: chrome.runtime.getURL("src/pages/hot-topics.html") });
+}
 export function openSettings() { chrome.runtime.openOptionsPage(); }
 
 // ── 状态栏 ──
@@ -236,7 +244,7 @@ async function bootstrap() {
     view, controls, state,
     // 入口级工具
     setStatus, setErrorStatus, showLoading, hideLoading, activateTab,
-    closeOverlays, blurEditor, openHelp, openSettings, resetRetryCount,
+    closeOverlays, blurEditor, openHelp, openHotTopicsPage, openSettings, resetRetryCount,
     // workspace-state.js
     schedulePersist, getCurrentArticle, applyCurrentArticleToControls,
     syncCurrentArticleFromControls, onWorkspaceInput, collectRewritePreferences,
@@ -247,6 +255,7 @@ async function bootstrap() {
     normalizeArticleDoc, createEmptyArticleDoc, hasMeaningfulDraftState,
     buildHistoryLabel, validateCurrentArticleForPublish,
     deriveDigestFromEditor, deriveDigestFromArticle, getCoverImageForArticle, getSelectedImage,
+    deleteSourceImage, reorderSourceImages,
     // workspace-render.js
     syncWorkspace, renderSource, renderCoverPreview, renderHistoryDrawer,
     renderArticleStack, fillThemeOptions, applyTheme,
@@ -294,7 +303,9 @@ async function bootstrap() {
     captureSource, rewriteArticle,
     copyHtml, copyMarkdown, downloadHtml, downloadMarkdown,
     toggleOutputPreviewTab, cycleEditorTheme,
-    openHelp, openSettings,
+    openHelp,
+    openHotTopics: openHotTopicsPage,
+    openSettings,
     openWorkspaceHistory: () => void openHistoryDrawer(),
     closeOverlays, blurEditor, moveCurrentArticle
   });
@@ -310,6 +321,7 @@ async function bootstrap() {
 
 function _bindGlobalEvents(ctx) {
   document.querySelector("#openOptionsButton")?.addEventListener("click", openSettings);
+  document.querySelector("#openHotTopicsButton")?.addEventListener("click", openHotTopicsPage);
 
   const syncTargets = [
     controls.title, controls.subtitle, controls.author, controls.digest,
@@ -334,7 +346,7 @@ function _bindFirstRunEvents() {
   });
   document.querySelector("#firstRunHelpLink")?.addEventListener("click", (event) => {
     event.preventDefault();
-    window.open("https://mp.weixin.qq.com", "_blank");
+    chrome.tabs.create({ url: chrome.runtime.getURL("src/pages/help.html") });
   });
   document.querySelector("#emptyPromptCaptureButton")?.addEventListener("click", () => {
     view.emptyPromptCard.hidden = true;

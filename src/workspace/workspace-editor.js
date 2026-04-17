@@ -7,6 +7,7 @@
 import { composeArticleBodyHtml, decorateHtmlForTheme, htmlToMarkdown } from "../shared/article.js";
 import { THEME_PRESETS } from "../shared/defaults.js";
 import { escapeHtml, escapeAttribute } from "../shared/utils.js";
+import { getSettings, saveSettings } from "../shared/storage.js";
 
 let _ctx;
 
@@ -14,6 +15,7 @@ export function init(ctx) {
   _ctx = ctx;
   _bindEditorEvents();
   bindFieldHints();
+  _loadCustomTemplates();
 }
 
 function _bindEditorEvents() {
@@ -29,6 +31,23 @@ function _bindEditorEvents() {
     button.addEventListener("click", () => insertTemplate(button.dataset.template));
   });
 
+  // 自定义模板下拉
+  _ctx.controls.customTemplateSelect?.addEventListener("change", () => {
+    const name = _ctx.controls.customTemplateSelect.value;
+    if (!name) return;
+    const templates = _ctx.state.settings?.customTemplates || {};
+    const html = templates[name];
+    if (html) {
+      view.editor.focus();
+      document.execCommand("insertHTML", false, html);
+      _ctx.onWorkspaceInput();
+    }
+    _ctx.controls.customTemplateSelect.value = "";
+  });
+
+  // 保存自定义模板
+  document.querySelector("#saveTemplateButton")?.addEventListener("click", saveCustomTemplate);
+
   // 面板 Tab 切换
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => _ctx.activateTab(tab.dataset.tab));
@@ -41,6 +60,15 @@ function _bindEditorEvents() {
 
   // 编辑器输入 → 字数统计（onWorkspaceInput 在 workspace.js 的 bindEvents 里额外绑定）
   view.editor.addEventListener("input", updateEditorWordCount);
+
+  // 工具栏禁用态
+  view.editor.addEventListener("keyup", updateToolbarState);
+  view.editor.addEventListener("mouseup", updateToolbarState);
+  document.addEventListener("selectionchange", () => {
+    if (document.activeElement === view.editor || view.editor.contains(document.activeElement)) {
+      updateToolbarState();
+    }
+  });
 }
 
 // ── 文章 HTML 构建（被 render 和 publish 模块通过 ctx 调用）──
@@ -276,4 +304,92 @@ function bindLengthHint(inputEl, hintEl, limit, { hard = true } = {}) {
 
   inputEl.addEventListener("input", update);
   update();
+}
+
+// ── 工具栏禁用态 ──
+
+export function updateToolbarState() {
+  const { view } = _ctx;
+  const selection = document.getSelection();
+  const isInEditor = selection?.rangeCount > 0 && view.editor.contains(selection.anchorNode);
+
+  let isInImage = false;
+  let hasSelection = false;
+
+  if (isInEditor && selection) {
+    const node = selection.anchorNode;
+    if (node?.nodeType === Node.ELEMENT_NODE) {
+      isInImage = node.closest?.("figure, img") != null;
+    } else if (node?.parentElement) {
+      isInImage = node.parentElement.closest?.("figure, img") != null;
+    }
+    hasSelection = !selection.isCollapsed;
+  }
+
+  document.querySelectorAll(".editor-toolbar button[data-command]").forEach((button) => {
+    const command = button.dataset.command;
+    let disabled = !isInEditor;
+
+    if (!disabled && isInImage) {
+      disabled = !["insertHorizontalRule", "removeFormat"].includes(command);
+    }
+    if (!disabled && command === "bold" && !hasSelection) {
+      disabled = true;
+    }
+
+    button.disabled = disabled;
+    button.style.opacity = disabled ? "0.4" : "";
+    button.style.cursor = disabled ? "not-allowed" : "";
+  });
+
+  document.querySelectorAll(".editor-toolbar.secondary button[data-template]").forEach((button) => {
+    const template = button.dataset.template;
+    let disabled = !isInEditor;
+
+    if (!disabled && template !== "image" && isInImage) {
+      disabled = true;
+    }
+
+    button.disabled = disabled;
+    button.style.opacity = disabled ? "0.4" : "";
+    button.style.cursor = disabled ? "not-allowed" : "";
+  });
+}
+
+// ── 自定义模板 ──
+
+async function saveCustomTemplate() {
+  const { view, setStatus, onWorkspaceInput } = _ctx;
+  const selection = document.getSelection();
+  if (!selection || selection.isCollapsed) {
+    setStatus("请先选中编辑器中的一段内容，再保存为模板。", "warning");
+    return;
+  }
+
+  const range = selection.getRangeAt(0);
+  const container = document.createElement("div");
+  container.appendChild(range.cloneContents());
+  const html = container.innerHTML;
+
+  const name = prompt("给这个模板起个名字：", "我的模板");
+  if (!name || !name.trim()) return;
+
+  const settings = await getSettings();
+  const templates = { ...(settings.customTemplates || {}), [name.trim()]: html };
+  await saveSettings({ customTemplates: templates });
+  _ctx.state.settings = await getSettings();
+  _loadCustomTemplates();
+  setStatus(`模板「${name.trim()}」已保存。`, "success");
+}
+
+function _loadCustomTemplates() {
+  const { controls } = _ctx;
+  const templates = _ctx.state.settings?.customTemplates || {};
+  const names = Object.keys(templates);
+  if (!controls.customTemplateSelect) return;
+
+  controls.customTemplateSelect.innerHTML = [
+    '<option value="">自定义模板...</option>',
+    ...names.map((n) => `<option value="${escapeAttribute(n)}">${escapeHtml(n)}</option>`)
+  ].join("");
 }

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "公众号改写排版台",
-  "description": "抓取网页文字和配图，改写并排版成公众号文章，并可直连草稿箱与发布接口。",
+  "description": "抓取网页文字和配图，AI 改写排版，热点资讯捕捉，多图文草稿与公众号草稿箱/发布。",
   "version": "0.3.0",
   "icons": {
     "16": "src/icons/icon16.png",

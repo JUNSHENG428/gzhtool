@@ -33,6 +33,7 @@ function formatShortcut(parts) {
  *   toggleOutputPreviewTab: () => void;
  *   cycleEditorTheme: () => void;
  *   openHelp: () => void;
+ *   openHotTopics: () => void;
  *   openSettings: () => void;
  *   openWorkspaceHistory: () => void | Promise<void>;
  *   closeOverlays: () => void;
@@ -164,6 +165,13 @@ export function initWorkspaceShortcuts(api) {
         shortcut: "",
         searchText: "帮助 help bangzhu",
         run: () => api.openHelp()
+      },
+      {
+        id: "hotTopics",
+        label: "热点捕捉器",
+        shortcut: "",
+        searchText: "热点 reddit 微博 资讯 选题 redian",
+        run: () => api.openHotTopics()
       },
       {
         id: "settings",

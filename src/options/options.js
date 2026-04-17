@@ -52,6 +52,9 @@ document.querySelector("#addProfileButton")?.addEventListener("click", addProfil
 document.querySelector("#openWelcomePage").addEventListener("click", () =>
   openInternalPage("src/pages/welcome.html")
 );
+document.querySelector("#openHotTopicsPage").addEventListener("click", () =>
+  openInternalPage("src/pages/hot-topics.html")
+);
 document.querySelector("#openHelpPage").addEventListener("click", () =>
   openInternalPage("src/pages/help.html")
 );

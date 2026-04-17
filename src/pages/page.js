@@ -81,6 +81,13 @@ function bindActions() {
         });
         return;
       }
+
+      if (action === "open-hot-topics") {
+        await chrome.tabs.create({
+          url: chrome.runtime.getURL("src/pages/hot-topics.html")
+        });
+        return;
+      }
     });
   });
 }

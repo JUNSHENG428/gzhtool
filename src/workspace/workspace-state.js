@@ -552,6 +552,80 @@ export function buildHistoryLabel(label) {
   return mainTitle ? `${label} · ${mainTitle}` : label;
 }
 
+export function deleteSourceImage(index) {
+  if (!state.source?.images || index < 1 || index > state.source.images.length) return;
+  const removed = state.source.images.splice(index - 1, 1)[0];
+
+  state.articleBundle.forEach((article) => {
+    const currentCover = Number(article.meta.coverImageIndex || 0);
+    if (currentCover === index) {
+      article.meta.coverImageIndex = 0;
+    } else if (currentCover > index) {
+      article.meta.coverImageIndex = currentCover - 1;
+    }
+  });
+
+  if (state.selectedImageIndex === index) {
+    state.selectedImageIndex = 0;
+  } else if (state.selectedImageIndex > index) {
+    state.selectedImageIndex -= 1;
+  }
+
+  if (state.source.blocks) {
+    state.source.blocks = state.source.blocks.filter((block) => {
+      if (block.type === "image" && block.index === index) return false;
+      if (block.type === "image" && block.index > index) block.index -= 1;
+      return true;
+    });
+  }
+
+  _ctx.syncWorkspace();
+  schedulePersist();
+  _ctx.setStatus(`已删除图片「${removed.caption || removed.alt || "未命名"}」`, "success");
+}
+
+export function reorderSourceImages(fromIndex, toIndex) {
+  if (!state.source?.images || fromIndex < 0 || toIndex < 0) return;
+  const images = state.source.images;
+  if (fromIndex >= images.length || toIndex >= images.length) return;
+
+  const [moved] = images.splice(fromIndex, 1);
+  images.splice(toIndex, 0, moved);
+
+  // 重建索引映射
+  const oldImages = [...images];
+  oldImages.splice(toIndex, 0, oldImages.splice(fromIndex, 1)[0]);
+
+  const indexMap = new Map();
+  oldImages.forEach((img, oldIdx) => {
+    const newIdx = images.indexOf(img) + 1;
+    indexMap.set(oldIdx + 1, newIdx);
+  });
+
+  state.articleBundle.forEach((article) => {
+    const oldCover = Number(article.meta.coverImageIndex || 0);
+    if (oldCover > 0 && indexMap.has(oldCover)) {
+      article.meta.coverImageIndex = indexMap.get(oldCover);
+    }
+  });
+
+  if (state.selectedImageIndex > 0 && indexMap.has(state.selectedImageIndex)) {
+    state.selectedImageIndex = indexMap.get(state.selectedImageIndex);
+  }
+
+  if (state.source.blocks) {
+    state.source.blocks.forEach((block) => {
+      if (block.type === "image" && block.index > 0 && indexMap.has(block.index)) {
+        block.index = indexMap.get(block.index);
+      }
+    });
+  }
+
+  _ctx.syncWorkspace();
+  schedulePersist();
+  _ctx.setStatus("图片顺序已调整", "success");
+}
+
 export function validateCurrentArticleForPublish() {
   const article = getCurrentArticle();
   const meta = article.meta;
