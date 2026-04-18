@@ -1,8 +1,8 @@
 import { requestRewrite, testAiConnection } from "../shared/ai.js";
 import { getSession, getSettings, saveSession } from "../shared/storage.js";
 import { WECHAT_WEB_EDITOR_URL } from "../shared/defaults.js";
-import { classifyError } from "../shared/errors.js";
-import { publishToWechat, queryPublishStatus, testWechatConnection } from "../shared/wechat.js";
+import { classifyError, ErrorCode } from "../shared/errors.js";
+import { publishToWechat, queryPublishStatus, validateWechatCredentials } from "../shared/wechat.js";
 import { sleep } from "../shared/utils.js";
 import { fetchHotTopics } from "../shared/hot-topics.js";
 
@@ -62,68 +62,166 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "SCRAPE_BACKGROUND_AND_IMPORT": {
-        const capture = await scrapeBackgroundSilent(message.payload.url);
-        sendResponse({ ok: true, data: capture });
+        try {
+          const capture = await scrapeBackgroundSilent(message.payload.url);
+          sendResponse({ ok: true, data: capture });
+        } catch (e) {
+          sendResponse({ ok: false, error: classifyError(e, { stage: "scrape" }) });
+        }
         break;
       }
       case "SCRAPE_LAST_SOURCE_TAB": {
-        const capture = await scrapeLastSourceTab();
-        await saveSession({ lastCapture: capture });
-        sendResponse({ ok: true, data: capture });
+        try {
+          const capture = await scrapeLastSourceTab();
+          await saveSession({ lastCapture: capture });
+          sendResponse({ ok: true, data: capture });
+        } catch (e) {
+          sendResponse({ ok: false, error: classifyError(e, { stage: "scrape" }) });
+        }
         break;
       }
       case "REWRITE_ARTICLE": {
-        const settings = await getSettings();
-        const article = await withRetry(
-          () =>
-            requestRewrite(
-              settings,
-              message.payload.source,
-              message.payload.preferences || {}
-            ),
-          MAX_RETRIES,
-          "AI 改写"
-        );
-        await saveSession({ lastDraft: article });
-        sendResponse({ ok: true, data: article });
+        try {
+          const settings = await getSettings();
+          const article = await withRetry(
+            () =>
+              requestRewrite(
+                settings,
+                message.payload.source,
+                message.payload.preferences || {}
+              ),
+            MAX_RETRIES,
+            "AI 改写"
+          );
+          await saveSession({ lastDraft: article });
+          sendResponse({ ok: true, data: article });
+        } catch (e) {
+          sendResponse({ ok: false, error: classifyError(e, { stage: "rewrite" }) });
+        }
         break;
       }
       case "TEST_AI_CONNECTION": {
-        const result = await testAiConnection(message.payload || {});
-        sendResponse(result);
+        try {
+          const result = await testAiConnection(message.payload || {});
+          sendResponse(result);
+        } catch (e) {
+          sendResponse({ ok: false, error: classifyError(e, { stage: "test-ai" }) });
+        }
         break;
       }
       case "TEST_WECHAT_CONNECTION": {
-        const result = await testWechatConnection({
-          appId: message.payload?.appId,
-          appSecret: message.payload?.appSecret
+        const appId = String(message.payload?.appId ?? "").trim();
+        const appSecret = String(message.payload?.appSecret ?? "").trim();
+        if (!appId) {
+          sendResponse({
+            ok: false,
+            error: { code: ErrorCode.UNKNOWN, message: "请先填写公众号 AppID。", retryable: false }
+          });
+          break;
+        }
+        if (!appSecret) {
+          sendResponse({
+            ok: false,
+            error: { code: ErrorCode.UNKNOWN, message: "请先填写公众号 AppSecret。", retryable: false }
+          });
+          break;
+        }
+
+        const result = await validateWechatCredentials({ appId, appSecret });
+
+        if (result.ok) {
+          sendResponse({
+            ok: true,
+            data: { message: "凭证有效", ipSeen: result.ipSeen }
+          });
+          break;
+        }
+
+        const errmsg = String(result.errmsg || "");
+        const ipSeen = result.ipSeen;
+
+        if (result.errcode === 40013 || result.errcode === 40125) {
+          sendResponse({
+            ok: false,
+            error: classifyError(
+              new Error(`微信验证失败：${errmsg}（errcode ${result.errcode}）`),
+              { stage: "test-wechat" }
+            )
+          });
+          break;
+        }
+
+        if (result.errcode === 40164) {
+          sendResponse({
+            ok: false,
+            error: {
+              code: ErrorCode.WECHAT_IP_NOT_WHITELISTED,
+              message:
+                "公众号后台开启了 IP 白名单限制，请将当前出口 IP 加入公众号「开发 → 基本配置 → IP 白名单」。",
+              retryable: false,
+              ipSeen
+            }
+          });
+          break;
+        }
+
+        if (result.errcode != null) {
+          sendResponse({
+            ok: false,
+            error: {
+              code: ErrorCode.UNKNOWN,
+              message: errmsg || "微信接口返回错误。",
+              retryable: false
+            }
+          });
+          break;
+        }
+
+        sendResponse({
+          ok: false,
+          error: {
+            code: ErrorCode.UNKNOWN,
+            message: errmsg || "微信验证失败。",
+            retryable: false
+          }
         });
-        sendResponse(result);
         break;
       }
       case "PUBLISH_TO_WECHAT": {
-        const settings = await getSettings();
-        const result = await withRetry(
-          () => publishToWechat(settings, message.payload),
-          MAX_RETRIES,
-          "公众号发布"
-        );
-        sendResponse({ ok: true, data: result });
+        try {
+          const settings = await getSettings();
+          const result = await withRetry(
+            () => publishToWechat(settings, message.payload),
+            MAX_RETRIES,
+            "公众号发布"
+          );
+          sendResponse({ ok: true, data: result });
+        } catch (e) {
+          sendResponse({ ok: false, error: classifyError(e, { stage: "publish" }) });
+        }
         break;
       }
       case "GET_WECHAT_PUBLISH_STATUS": {
-        const settings = await getSettings();
-        const result = await queryPublishStatus(settings, message.payload.publishId);
-        sendResponse({ ok: true, data: result });
+        try {
+          const settings = await getSettings();
+          const result = await queryPublishStatus(settings, message.payload.publishId);
+          sendResponse({ ok: true, data: result });
+        } catch (e) {
+          sendResponse({ ok: false, error: classifyError(e, { stage: "publish" }) });
+        }
         break;
       }
       case "SYNC_TO_WECHAT_WEB_EDITOR": {
-        const result = await withRetry(
-          () => syncToWechatWebEditor(message.payload),
-          MAX_RETRIES,
-          "网页编辑器同步"
-        );
-        sendResponse({ ok: true, data: result });
+        try {
+          const result = await withRetry(
+            () => syncToWechatWebEditor(message.payload),
+            MAX_RETRIES,
+            "网页编辑器同步"
+          );
+          sendResponse({ ok: true, data: result });
+        } catch (e) {
+          sendResponse({ ok: false, error: classifyError(e, { stage: "sync-web-editor" }) });
+        }
         break;
       }
       case "FETCH_HOT_TOPICS": {
@@ -325,7 +423,25 @@ async function resolveSourceTab() {
 }
 
 function isScrapableUrl(url = "") {
-  return /^https?:\/\//i.test(url);
+  if (!/^https?:\/\//i.test(url)) {
+    return false;
+  }
+  try {
+    const u = new URL(url);
+    const p = u.protocol.toLowerCase();
+    if (
+      p === "chrome:" ||
+      p === "chrome-extension:" ||
+      p === "edge:" ||
+      p === "about:" ||
+      p === "moz-extension:"
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function scrapeBackgroundSilent(targetUrl) {
