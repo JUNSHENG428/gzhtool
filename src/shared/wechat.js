@@ -31,10 +31,15 @@ export async function publishToWechat(settings, payload) {
   let totalImageCount = 0;
 
   const allFailedImages = [];
+  const publishState = payload.publishState || { inlineReplacements: {}, covers: {} };
 
   for (const [index, article] of payload.articles.entries()) {
-    const { replacements, failedImages } = await uploadInlineImages(accessToken, article.inlineImages || []);
-    const contentHtml = applyImageReplacements(article.html, replacements);
+    const inlineToUpload = (article.inlineImages || []).filter(img => !publishState.inlineReplacements[img.token]);
+    const { replacements, failedImages } = await uploadInlineImages(accessToken, inlineToUpload);
+    
+    Object.assign(publishState.inlineReplacements, replacements);
+
+    const contentHtml = applyImageReplacements(article.html, publishState.inlineReplacements);
 
     if (failedImages.length > 0) {
       for (const fail of failedImages) {
@@ -44,29 +49,34 @@ export async function publishToWechat(settings, payload) {
     }
 
     if (contentHtml.length > 20000) {
-      throw new Error(`第 ${index + 1} 篇正文 HTML 超过公众号接口 2 万字符限制。`);
+      const err = new Error(`第 ${index + 1} 篇正文 HTML 超过公众号接口 2 万字符限制。`);
+      err.publishState = publishState;
+      throw err;
     }
 
-    let coverMediaId = "";
-    try {
-      const coverBlob = await fetchImageBlob(article.cover.src);
-      const coverCompatibleBlob = await ensureCompatibleImageBlob(coverBlob);
-      coverMediaId = await uploadPermanentImage(
-        accessToken,
-        coverCompatibleBlob,
-        article.cover.filename || `cover-${index + 1}.png`
-      );
-    } catch (error) {
-      allFailedImages.push({
-        type: "cover",
-        src: article.cover.src,
-        filename: article.cover.filename || `cover-${index + 1}.png`,
-        articleIndex: index + 1,
-        error: error.message || "封面上传失败"
-      });
+    let coverMediaId = publishState.covers[index] || "";
+    if (!coverMediaId) {
+      try {
+        const coverBlob = await fetchImageBlob(article.cover.src);
+        const coverCompatibleBlob = await ensureCompatibleImageBlob(coverBlob);
+        coverMediaId = await uploadPermanentImage(
+          accessToken,
+          coverCompatibleBlob,
+          article.cover.filename || `cover-${index + 1}.png`
+        );
+        publishState.covers[index] = coverMediaId;
+      } catch (error) {
+        allFailedImages.push({
+          type: "cover",
+          src: article.cover.src,
+          filename: article.cover.filename || `cover-${index + 1}.png`,
+          articleIndex: index + 1,
+          error: error.message || "封面上传失败"
+        });
+      }
     }
 
-    totalImageCount += Object.keys(replacements).length;
+    totalImageCount += Object.keys(publishState.inlineReplacements).length;
     preparedArticles.push({
       ...article.meta,
       contentHtml,
@@ -74,27 +84,38 @@ export async function publishToWechat(settings, payload) {
     });
   }
 
-  const draftMediaId = await createDraft(accessToken, preparedArticles);
-
-  if (payload.publishMode === "publish") {
-    const publishId = await submitPublish(accessToken, draftMediaId);
-    return {
-      draftMediaId,
-      publishId,
-      articleCount: preparedArticles.length,
-      imageCount: totalImageCount,
-      mode: "publish",
-      failedImages: allFailedImages
-    };
+  if (allFailedImages.length > 0) {
+     const err = new Error("部分图片上传失败。");
+     err.code = "IMAGE_UPLOAD_FAILED";
+     err.publishState = publishState;
+     err.failedImages = allFailedImages;
+     throw err;
   }
 
-  return {
-    draftMediaId,
-    articleCount: preparedArticles.length,
-    imageCount: totalImageCount,
-    mode: "draft",
-    failedImages: allFailedImages
-  };
+  try {
+    const draftMediaId = await createDraft(accessToken, preparedArticles);
+
+    if (payload.publishMode === "publish") {
+      const publishId = await submitPublish(accessToken, draftMediaId);
+      return {
+        draftMediaId,
+        publishId,
+        articleCount: preparedArticles.length,
+        imageCount: totalImageCount,
+        mode: "publish"
+      };
+    }
+
+    return {
+      draftMediaId,
+      articleCount: preparedArticles.length,
+      imageCount: totalImageCount,
+      mode: "draft"
+    };
+  } catch (err) {
+    err.publishState = publishState;
+    throw err;
+  }
 }
 
 export async function queryPublishStatus(settings, publishId) {
@@ -107,24 +128,20 @@ export async function queryPublishStatus(settings, publishId) {
   return getPublishStatus(accessToken, publishId);
 }
 
-export async function testWechatConnection({ appId, appSecret, timeoutMs = 12000 }) {
+/**
+ * 验证公众号凭证是否有效（调用 token 接口，不暴露 access_token）。
+ * @param {{ appId: string, appSecret: string, timeoutMs?: number }} credentials
+ * @returns {{ ok: boolean, errcode?: number, errmsg?: string, ipSeen?: string }}
+ */
+export async function validateWechatCredentials({ appId, appSecret, timeoutMs = 12000 }) {
   const targetAppId = String(appId || "").trim();
   const targetAppSecret = String(appSecret || "").trim();
 
   if (!targetAppId) {
-    return {
-      ok: false,
-      latencyMs: 0,
-      error: "请先填写公众号 AppID。"
-    };
+    return { ok: false, errmsg: "请先填写公众号 AppID。" };
   }
-
   if (!targetAppSecret) {
-    return {
-      ok: false,
-      latencyMs: 0,
-      error: "请先填写公众号 AppSecret。"
-    };
+    return { ok: false, errmsg: "请先填写公众号 AppSecret。" };
   }
 
   const url = new URL(TOKEN_URL);
@@ -134,42 +151,38 @@ export async function testWechatConnection({ appId, appSecret, timeoutMs = 12000
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const startedAt = Date.now();
 
   try {
     const response = await fetch(url.toString(), {
       signal: controller.signal
     });
     const payload = await response.json().catch(() => ({}));
-    const latencyMs = Date.now() - startedAt;
+    const errmsg = String(payload?.errmsg ?? "");
+    const errcode = payload?.errcode;
 
-    if (!response.ok || payload?.errcode) {
+    const ipMatch = errmsg.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+    const ipSeen = ipMatch ? ipMatch[1] : undefined;
+
+    if (errcode) {
+      return { ok: false, errcode, errmsg, ipSeen };
+    }
+
+    if (!payload?.access_token) {
       return {
         ok: false,
-        latencyMs,
-        error: mapWechatConnectionError(payload, response.status)
+        errmsg: errmsg || "公众号接口未返回有效凭证，请检查 AppID 与 AppSecret。",
+        ipSeen
       };
     }
 
-    if (!payload.access_token) {
-      return {
-        ok: false,
-        latencyMs,
-        error: "验证失败，公众号接口没有返回 access token。"
-      };
-    }
-
-    return {
-      ok: true,
-      latencyMs,
-      error: ""
-    };
+    return { ok: true, errmsg: "", ipSeen };
   } catch (error) {
-    return {
-      ok: false,
-      latencyMs: Date.now() - startedAt,
-      error: mapWechatRuntimeError(error)
-    };
+    const name = error?.name === "AbortError" ? "AbortError" : "";
+    const message =
+      name === "AbortError"
+        ? "请求超时，请检查网络。"
+        : "请求失败，请检查网络连接。";
+    return { ok: false, errmsg: message, ipSeen: undefined };
   } finally {
     clearTimeout(timer);
   }
@@ -445,43 +458,6 @@ function ensureWechatOk(response, payload, fallback) {
   }
 
   throw new Error(message);
-}
-
-function mapWechatConnectionError(payload, status) {
-  if (payload?.errcode === 40013) {
-    return "AppID 无效，请检查公众号 AppID。";
-  }
-
-  if (payload?.errcode === 40125) {
-    return "AppSecret 无效，请检查公众号 AppSecret。";
-  }
-
-  if (payload?.errcode === 40164) {
-    return "验证失败：公众号后台开启了 IP 白名单，请先把当前出口 IP 加入开发配置。";
-  }
-
-  if (status === 401 || status === 403) {
-    return "公众号凭证无效，请检查 AppID 和 AppSecret。";
-  }
-
-  if (status === 404) {
-    return "微信验证接口地址异常，请稍后再试。";
-  }
-
-  return payload?.errmsg || `微信接口返回错误，状态码 ${status}。`;
-}
-
-function mapWechatRuntimeError(error) {
-  if (error?.name === "AbortError") {
-    return "请求超时，请检查网络或微信接口状态。";
-  }
-
-  const message = String(error?.message || "");
-  if (/failed to fetch|networkerror|load failed/i.test(message)) {
-    return "微信接口不可达，请检查网络连接。";
-  }
-
-  return message || "验证失败，请稍后再试。";
 }
 
 function normalizeFilename(filename, mimeType) {

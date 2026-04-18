@@ -7,17 +7,26 @@
 import { deleteSnapshot, listSnapshots, loadSnapshot, saveSnapshot } from "../shared/history.js";
 import { getSettings } from "../shared/storage.js";
 import { WECHAT_WEB_EDITOR_URL, THEME_PRESETS } from "../shared/defaults.js";
-import { clampIndex } from "../shared/utils.js";
+import { clampIndex, formatRuntimeError } from "../shared/utils.js";
 
 let _ctx;
 
-// 发布轮询内部状态（通过 isPolling() 导出只读视图）
-let publishPollTimer = null;
-let publishPollAttempts = 0;
+const POLL_INTERVAL_MS = 8000;
+const POLL_MAX_ATTEMPTS = 12;
+
+// 发布轮询内部状态
+const publishPollState = {
+  timer: null,
+  attempts: 0,
+  maxAttempts: POLL_MAX_ATTEMPTS,
+  nextAt: 0,
+  rafId: 0,
+  stoppedByUser: false
+};
 
 /** 供 workspace-render.js 通过 ctx.isPolling() 查询轮询状态 */
 export function isPolling() {
-  return publishPollTimer !== null;
+  return publishPollState.timer !== null;
 }
 
 export function init(ctx) {
@@ -39,6 +48,10 @@ function _bindPublishEvents() {
     pollPublishStatus({ auto: false })
   );
   document.querySelector("#syncWebEditorButton").addEventListener("click", syncCurrentToWebEditor);
+
+  // 轮询控制
+  document.querySelector("#pollManualButton")?.addEventListener("click", _onManualPoll);
+  document.querySelector("#pollStopButton")?.addEventListener("click", _onStopPoll);
 
   // 历史记录抽屉
   document.querySelector("#historyButton").addEventListener("click", () => void openHistoryDrawer());
@@ -96,42 +109,126 @@ export async function publishBundle(mode) {
       return;
     }
 
-    showLoading(mode === "publish" ? "正在提交多图文发布..." : "正在推送多图文草稿包...");
     state.settings = await getSettings();
 
+    // 多账号切换：如果选中了某个 profile，用 profile 的凭证覆盖默认凭证
+    const profileIndex = Number(_ctx.controls.wechatProfileSelect?.value || -1);
+    const profiles = state.settings.wechatProfiles || [];
+    if (profileIndex >= 0 && profiles[profileIndex]) {
+      const profile = profiles[profileIndex];
+      state.settings = {
+        ...state.settings,
+        wechatAppId: profile.appId,
+        wechatAppSecret: profile.appSecret,
+        wechatDefaultAuthor: profile.author || state.settings.wechatDefaultAuthor
+      };
+    }
+
     const payload = _buildWechatPublishPayload(mode);
-    const response = await chrome.runtime.sendMessage({ type: "PUBLISH_TO_WECHAT", payload });
 
-    if (!response?.ok) {
-      throw new Error(response?.error?.message || response?.error || "公众号发布失败。");
-    }
-
-    state.lastPublishResult = {
-      ...response.data,
-      title: state.articleBundle[0]?.meta.title || "",
-      performedAt: new Date().toISOString(),
-      requestedMode: mode
+    const maxAttempts = 3;
+    const backoff = [2000, 5000, 10000];
+    let attempt = 0;
+    const publishState = {
+      inlineReplacements: {},
+      covers: {}
     };
-    syncWorkspace();
-    schedulePersist();
-    await saveCurrentDraftRecord(mode === "publish" ? "发布完成" : "推送到公众号草稿箱");
 
-    if (response.data.publishId) {
-      startPublishStatusPolling(response.data.publishId);
-    } else {
-      clearPublishPolling();
+    const abortController = new AbortController();
+    const onCancel = () => {
+      abortController.abort();
+    };
+
+    while (attempt < maxAttempts) {
+      if (abortController.signal.aborted) {
+        setStatus("已取消操作。", "info");
+        return;
+      }
+
+      if (attempt > 0) {
+        showLoading(`网络或接口异常，正在准备第 ${attempt + 1}/${maxAttempts} 次重试...`, { onCancel });
+      } else {
+        showLoading(mode === "publish" ? "正在提交多图文发布..." : "正在推送多图文草稿包...", { onCancel });
+      }
+
+      const response = await chrome.runtime.sendMessage({
+        type: "PUBLISH_TO_WECHAT",
+        payload: { ...payload, publishState }
+      });
+
+      if (!response?.ok) {
+        const errorObj = response?.error || {};
+        
+        // 收集已成功上传的图片状态
+        if (errorObj.publishState) {
+          Object.assign(publishState.inlineReplacements, errorObj.publishState.inlineReplacements || {});
+          Object.assign(publishState.covers, errorObj.publishState.covers || {});
+        }
+
+        if (errorObj.retryable && attempt < maxAttempts - 1 && !abortController.signal.aborted) {
+          const delayMs = backoff[attempt];
+          attempt++;
+          // Wait for backoff or until aborted
+          await new Promise((resolve) => {
+            const timer = setTimeout(resolve, delayMs);
+            abortController.signal.addEventListener("abort", () => {
+              clearTimeout(timer);
+              resolve();
+            }, { once: true });
+          });
+          continue; // Retry
+        }
+        
+        // End of retries or non-retryable
+        throw { _errorObj: errorObj, message: errorObj.message };
+      }
+
+      // Success
+      const responseData = response.data;
+      state.lastPublishResult = {
+        ...responseData,
+        title: state.articleBundle[0]?.meta.title || "",
+        performedAt: new Date().toISOString(),
+        requestedMode: mode
+      };
+      
+      syncWorkspace();
+      schedulePersist();
+      await saveCurrentDraftRecord(mode === "publish" ? "发布完成" : "推送到公众号草稿箱");
+
+      if (responseData.publishId) {
+        startPublishStatusPolling(responseData.publishId);
+      } else {
+        clearPublishPolling();
+      }
+
+      setStatus(
+        mode === "publish"
+          ? "已提交发布请求，正在自动查询发布状态。"
+          : "已成功推送到公众号草稿箱。",
+        "success"
+      );
+      resetRetryCount();
+      return;
     }
 
-    setStatus(
-      mode === "publish"
-        ? "已提交发布请求，正在自动查询发布状态。"
-        : "已成功推送到公众号草稿箱。",
-      "success"
-    );
-    resetRetryCount();
   } catch (error) {
+    if (error.message === "AbortError") {
+      setStatus("已取消发布。", "info");
+      return;
+    }
+    const errObj = error._errorObj || { code: "UNKNOWN", message: error.message || "公众号发布失败。", retryable: false };
+    
+    // 如果是专门的图片上传失败
+    if (errObj.code === "IMAGE_UPLOAD_FAILED" && errObj.failedImages && errObj.failedImages.length > 0) {
+      const lines = errObj.failedImages.map(
+        (f) => `第 ${f.articleIndex} 篇 · ${f.type === "cover" ? "封面" : "正文图片"}：${f.error || "上传失败"}`
+      );
+      errObj.message = `重试 3 次后仍有图片上传失败，请检查网络或更换图片：${lines.join("；")}`;
+    }
+
     setErrorStatus(
-      error._errorObj || { code: "UNKNOWN", message: error.message || "公众号发布失败。", retryable: false },
+      errObj,
       "公众号发布失败。",
       () => publishBundle(mode)
     );
@@ -197,6 +294,7 @@ export async function pollPublishStatus({ auto = false } = {}) {
   const { state, setStatus, setErrorStatus, syncWorkspace, schedulePersist } = _ctx;
   if (!state.lastPublishResult?.publishId) {
     setStatus("还没有可查询的 publish_id。", "warning");
+    _hidePollProgress();
     return;
   }
 
@@ -206,8 +304,17 @@ export async function pollPublishStatus({ auto = false } = {}) {
   });
 
   if (!response?.ok) {
-    if (auto && publishPollAttempts < 12) { scheduleNextPublishPoll(); return; }
+    if (auto && publishPollState.attempts < publishPollState.maxAttempts) {
+      _scheduleNextPublishPoll();
+      return;
+    }
+    if (auto && publishPollState.attempts >= publishPollState.maxAttempts) {
+      clearPublishPolling();
+      setStatus("自动查询已达上限（12 次），可手动点击「查询发布状态」刷新。", "warning");
+      return;
+    }
     setErrorStatus(response?.error, "查询发布状态失败。", null);
+    _hidePollProgress();
     return;
   }
 
@@ -219,9 +326,17 @@ export async function pollPublishStatus({ auto = false } = {}) {
   syncWorkspace();
   schedulePersist();
 
-  if (auto && !response.data.isTerminal && publishPollAttempts < 12) {
-    scheduleNextPublishPoll();
-    setStatus(`公众号仍在处理中：${response.data.statusText}，继续轮询中...`, "info");
+  if (auto && !response.data.isTerminal) {
+    if (publishPollState.attempts < publishPollState.maxAttempts) {
+      _scheduleNextPublishPoll();
+      setStatus(`公众号仍在处理中：${response.data.statusText}，继续轮询中...`, "info");
+      return;
+    }
+    clearPublishPolling();
+    setStatus(
+      `自动查询已达上限（12 次）。最新状态：${response.data.statusText}。可手动点击「查询发布状态」刷新。`,
+      "warning"
+    );
     return;
   }
   clearPublishPolling();
@@ -230,21 +345,96 @@ export async function pollPublishStatus({ auto = false } = {}) {
 
 export function startPublishStatusPolling(publishId) {
   clearPublishPolling();
-  publishPollAttempts = 0;
+  publishPollState.attempts = 0;
+  publishPollState.stoppedByUser = false;
   _ctx.state.lastPublishResult = { ..._ctx.state.lastPublishResult, publishId };
   void pollPublishStatus({ auto: true });
 }
 
-function scheduleNextPublishPoll() {
-  clearTimeout(publishPollTimer);
-  publishPollAttempts += 1;
-  publishPollTimer = setTimeout(() => void pollPublishStatus({ auto: true }), 8000);
+function _scheduleNextPublishPoll() {
+  clearTimeout(publishPollState.timer);
+  publishPollState.attempts += 1;
+  publishPollState.nextAt = Date.now() + POLL_INTERVAL_MS;
+  publishPollState.timer = setTimeout(
+    () => void pollPublishStatus({ auto: true }),
+    POLL_INTERVAL_MS
+  );
+  _showPollProgress();
+  _startPollRafLoop();
 }
 
 export function clearPublishPolling() {
-  clearTimeout(publishPollTimer);
-  publishPollTimer = null;
-  publishPollAttempts = 0;
+  clearTimeout(publishPollState.timer);
+  publishPollState.timer = null;
+  publishPollState.nextAt = 0;
+  publishPollState.stoppedByUser = false;
+  _stopPollRafLoop();
+  _hidePollProgress();
+}
+
+function _showPollProgress() {
+  const { view } = _ctx;
+  if (!view.pollProgress) return;
+  view.pollProgress.hidden = false;
+  _updatePollProgressText();
+}
+
+function _hidePollProgress() {
+  const { view } = _ctx;
+  if (!view.pollProgress) return;
+  view.pollProgress.hidden = true;
+}
+
+function _updatePollProgressText() {
+  const { view } = _ctx;
+  if (!view.pollProgressText) return;
+  const { attempts, maxAttempts } = publishPollState;
+  view.pollProgressText.textContent = `正在查询发布状态（第 ${attempts}/${maxAttempts} 次）`;
+}
+
+function _startPollRafLoop() {
+  if (publishPollState.rafId) return;
+  function tick() {
+    const { view } = _ctx;
+    const { nextAt } = publishPollState;
+    if (!nextAt || !view.pollProgress || view.pollProgress.hidden) {
+      publishPollState.rafId = 0;
+      return;
+    }
+    const remaining = Math.max(0, nextAt - Date.now());
+    const pct = remaining / POLL_INTERVAL_MS;
+    const deg = pct * 360;
+    if (view.pollProgressRing) {
+      view.pollProgressRing.style.setProperty("--ring-deg", `${deg}deg`);
+    }
+    if (view.pollProgressCountdown) {
+      view.pollProgressCountdown.textContent = String(Math.ceil(remaining / 1000));
+    }
+    if (remaining > 0) {
+      publishPollState.rafId = requestAnimationFrame(tick);
+    } else {
+      publishPollState.rafId = 0;
+    }
+  }
+  publishPollState.rafId = requestAnimationFrame(tick);
+}
+
+function _stopPollRafLoop() {
+  if (publishPollState.rafId) {
+    cancelAnimationFrame(publishPollState.rafId);
+    publishPollState.rafId = 0;
+  }
+}
+
+function _onManualPoll() {
+  clearPublishPolling();
+  void pollPublishStatus({ auto: false });
+}
+
+function _onStopPoll() {
+  clearPublishPolling();
+  publishPollState.stoppedByUser = true;
+  _ctx.setStatus("已停止自动查询发布状态。", "info");
 }
 
 export function maybeResumePublishPolling() {
@@ -291,7 +481,7 @@ export async function syncCurrentToWebEditor() {
     });
 
     if (!response?.ok) {
-      throw new Error(response?.error?.message || response?.error || "同步网页编辑器失败。");
+      throw new Error(formatRuntimeError(response?.error, "同步网页编辑器失败。"));
     }
 
     state.lastWebSyncResult = {
@@ -406,6 +596,7 @@ async function restoreHistoryRecord(id) {
   applyCurrentArticleToControls();
   syncWorkspace();
   updateEditorWordCount();
+  if (typeof _ctx.resetEditorHistory === "function") _ctx.resetEditorHistory();
   try {
     await _ctx.schedulePersist.flush?.();
   } catch {}

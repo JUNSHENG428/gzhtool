@@ -40,7 +40,8 @@ import {
   getCoverImageForArticle,
   getSelectedImage,
   deleteSourceImage,
-  reorderSourceImages
+  reorderSourceImages,
+  appendLocalImages
 } from "./workspace-state.js";
 
 import {
@@ -55,7 +56,7 @@ import {
 } from "./workspace-render.js";
 
 import { init as initCapture, captureSource } from "./workspace-capture.js";
-import { init as initRewrite, rewriteArticle, copyManualPrompt } from "./workspace-rewrite.js";
+import { init as initRewrite, rewriteArticle, copyManualPrompt, hideRewriteDiffBarUI } from "./workspace-rewrite.js";
 
 import {
   init as initEditor,
@@ -69,7 +70,11 @@ import {
   toggleOutputPreviewTab,
   cycleEditorTheme,
   insertSourceImage,
-  updateEditorWordCount
+  updateEditorWordCount,
+  resetEditorHistory,
+  pushEditorSnapshotAfterRewrite,
+  editorUndo,
+  editorRedo
 } from "./workspace-editor.js";
 
 import {
@@ -101,6 +106,10 @@ const view = {
   wechatPreview: document.querySelector("#wechatPreview"),
   coverPreview: document.querySelector("#coverPreview"),
   publishResult: document.querySelector("#publishResult"),
+  pollProgress: document.querySelector("#pollProgress"),
+  pollProgressText: document.querySelector("#pollProgressText"),
+  pollProgressRing: document.querySelector("#pollProgressRing"),
+  pollProgressCountdown: document.querySelector("#pollProgressCountdown"),
   webEditorSyncResult: document.querySelector("#webEditorSyncResult"),
   titleSuggestions: document.querySelector("#titleSuggestions"),
   keywordSuggestions: document.querySelector("#keywordSuggestions"),
@@ -111,7 +120,12 @@ const view = {
   emptyPromptCard: document.querySelector("#emptyPromptCard"),
   historyDrawer: document.querySelector("#historyDrawer"),
   historyDrawerBackdrop: document.querySelector("#historyDrawerBackdrop"),
-  historyDrawerList: document.querySelector("#historyDrawerList")
+  historyDrawerList: document.querySelector("#historyDrawerList"),
+  rewriteDiffBar: document.querySelector("#rewriteDiffBar"),
+  rewriteDiffBarTime: document.querySelector("#rewriteDiffBarTime"),
+  rewriteDiffBackdrop: document.querySelector("#rewriteDiffBackdrop"),
+  rewriteDiffLeft: document.querySelector("#rewriteDiffLeft"),
+  rewriteDiffRight: document.querySelector("#rewriteDiffRight")
 };
 
 const controls = {
@@ -139,23 +153,46 @@ const controls = {
 
 // ── 入口级工具 ──
 
-export function showLoading(message = "处理中...") {
+export function showLoading(message = "处理中...", { onCancel } = {}) {
   view.loadingMessage.textContent = message;
   view.loadingOverlay.classList.add("active");
   view.loadingOverlay.setAttribute("aria-hidden", "false");
+
+  view.cancelLoadingButton = view.cancelLoadingButton || document.querySelector("#cancelLoadingButton");
+  if (view.cancelLoadingButton) {
+    if (onCancel) {
+      view.cancelLoadingButton.hidden = false;
+      view.cancelLoadingButton.onclick = () => {
+        onCancel();
+        hideLoading();
+      };
+    } else {
+      view.cancelLoadingButton.hidden = true;
+      view.cancelLoadingButton.onclick = null;
+    }
+  }
 }
 
 export function hideLoading() {
   view.loadingOverlay.classList.remove("active");
   view.loadingOverlay.setAttribute("aria-hidden", "true");
+  if (view.cancelLoadingButton) {
+    view.cancelLoadingButton.hidden = true;
+    view.cancelLoadingButton.onclick = null;
+  }
 }
 
 export function activateTab(name) {
   document.querySelectorAll(".tab").forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.tab === name);
+    const isActive = tab.dataset.tab === name;
+    tab.classList.toggle("active", isActive);
+    tab.setAttribute("aria-selected", String(isActive));
+    tab.setAttribute("tabindex", isActive ? "0" : "-1");
   });
   document.querySelectorAll(".tab-panel").forEach((panel) => {
-    panel.classList.toggle("active", panel.id === `${name}Panel`);
+    const isActive = panel.id === `${name}Panel`;
+    panel.classList.toggle("active", isActive);
+    panel.hidden = !isActive;
   });
 }
 
@@ -163,6 +200,7 @@ export function closeOverlays() {
   if (state.isHistoryDrawerOpen) closeHistoryDrawer();
   if (view.firstRunOverlay && !view.firstRunOverlay.hidden) view.firstRunOverlay.hidden = true;
   if (view.emptyPromptCard && !view.emptyPromptCard.hidden) view.emptyPromptCard.hidden = true;
+  if (view.rewriteDiffBackdrop && !view.rewriteDiffBackdrop.hidden) view.rewriteDiffBackdrop.hidden = true;
 }
 
 export function blurEditor() { view.editor.blur(); }
@@ -171,6 +209,50 @@ export function openHotTopicsPage() {
   chrome.tabs.create({ url: chrome.runtime.getURL("src/pages/hot-topics.html") });
 }
 export function openSettings() { chrome.runtime.openOptionsPage(); }
+
+// ── Dark mode ──
+
+const THEME_STORAGE_KEY = "workspace-theme-preference";
+
+export function getThemePreference() {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) || "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+export function setThemePreference(preference) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, preference);
+  } catch { /* ignore */ }
+  applyThemePreference();
+}
+
+export function applyThemePreference() {
+  const preference = getThemePreference();
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const isDark = preference === "dark" || (preference === "auto" && prefersDark);
+  document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+  updateThemeToggleIcon(isDark);
+}
+
+function updateThemeToggleIcon(isDark) {
+  const icon = document.querySelector("#themeToggleIcon");
+  if (!icon) return;
+  if (isDark) {
+    icon.innerHTML = '<path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>';
+  } else {
+    icon.innerHTML = '<path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>';
+  }
+}
+
+function toggleTheme() {
+  const current = getThemePreference();
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const isCurrentlyDark = current === "dark" || (current === "auto" && prefersDark);
+  setThemePreference(isCurrentlyDark ? "light" : "dark");
+}
 
 // ── 状态栏 ──
 
@@ -255,7 +337,7 @@ async function bootstrap() {
     normalizeArticleDoc, createEmptyArticleDoc, hasMeaningfulDraftState,
     buildHistoryLabel, validateCurrentArticleForPublish,
     deriveDigestFromEditor, deriveDigestFromArticle, getCoverImageForArticle, getSelectedImage,
-    deleteSourceImage, reorderSourceImages,
+    deleteSourceImage, reorderSourceImages, appendLocalImages,
     // workspace-render.js
     syncWorkspace, renderSource, renderCoverPreview, renderHistoryDrawer,
     renderArticleStack, fillThemeOptions, applyTheme,
@@ -263,10 +345,11 @@ async function bootstrap() {
     buildExportHtmlForArticle, buildMarkdownDocumentForArticle, buildPreviewDocument,
     copyHtml, copyMarkdown, downloadHtml, downloadMarkdown,
     toggleOutputPreviewTab, cycleEditorTheme, insertSourceImage, updateEditorWordCount,
+    resetEditorHistory, pushEditorSnapshotAfterRewrite, editorUndo, editorRedo,
     // workspace-capture.js
     captureSource,
     // workspace-rewrite.js
-    rewriteArticle, copyManualPrompt,
+    rewriteArticle, copyManualPrompt, hideRewriteDiffBarUI,
     // workspace-publish.js
     publishBundle, pollPublishStatus, syncCurrentToWebEditor, maybeResumePublishPolling,
     openHistoryDrawer, closeHistoryDrawer, refreshHistoryRecords,
@@ -287,6 +370,8 @@ async function bootstrap() {
   // 启动
   fillThemeOptions();
   _bindFirstRunEvents();
+  _bindThemeToggle();
+  applyThemePreference();
 
   state.settings = await getSettings();
   state.session = await getSession();
@@ -297,6 +382,7 @@ async function bootstrap() {
   syncWorkspace();
   updateEditorWordCount();
   maybeResumePublishPolling();
+  _loadWechatProfiles();
 
   initWorkspaceShortcuts({
     schedulePersist, setStatus,
@@ -307,16 +393,31 @@ async function bootstrap() {
     openHotTopics: openHotTopicsPage,
     openSettings,
     openWorkspaceHistory: () => void openHistoryDrawer(),
-    closeOverlays, blurEditor, moveCurrentArticle
+    closeOverlays, blurEditor, moveCurrentArticle,
+    editorUndo,
+    editorRedo
   });
+
+  const params = new URLSearchParams(location.search);
+  const wantAutoCapture = params.get("autocapture") === "1";
 
   const isFirstRun =
     !state.session?.lastSourceUrl && !state.settings?.apiKey && !state.settings?.apiBaseUrl;
-  if (isFirstRun) { view.firstRunOverlay.hidden = false; return; }
+
+  // 从工具栏「抓取并打开」进入时优先完成抓取，避免被首次引导挡住
+  if (isFirstRun && !wantAutoCapture) {
+    view.firstRunOverlay.hidden = false;
+    return;
+  }
+  if (isFirstRun && wantAutoCapture) {
+    view.firstRunOverlay.hidden = true;
+  }
+
   if (!state.source) view.emptyPromptCard.hidden = false;
 
-  const params = new URLSearchParams(location.search);
-  if (params.get("autocapture") === "1") await captureSource();
+  if (wantAutoCapture) {
+    await captureSource();
+  }
 }
 
 function _bindGlobalEvents(ctx) {
@@ -334,6 +435,26 @@ function _bindGlobalEvents(ctx) {
   [controls.needOpenComment, controls.onlyFansCanComment]
     .forEach((field) => field.addEventListener("change", onWorkspaceInput));
   view.editor.addEventListener("input", onWorkspaceInput);
+}
+
+function _loadWechatProfiles() {
+  const select = controls.wechatProfileSelect;
+  if (!select) return;
+  const profiles = state.settings?.wechatProfiles || [];
+  select.innerHTML = [
+    '<option value="-1">默认账号</option>',
+    ...profiles.map((p, i) => `<option value="${i}">${escapeHtml(p.name || `账号 ${i + 1}`)}</option>`)
+  ].join("");
+  const activeIndex = Number(state.settings?.activeWechatProfileIndex || -1);
+  if (activeIndex >= 0 && activeIndex < profiles.length) {
+    select.value = String(activeIndex);
+  }
+}
+
+function _bindThemeToggle() {
+  const toggle = document.querySelector("#themeToggle");
+  if (!toggle) return;
+  toggle.addEventListener("click", toggleTheme);
 }
 
 function _bindFirstRunEvents() {

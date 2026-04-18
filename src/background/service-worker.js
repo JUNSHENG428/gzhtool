@@ -4,7 +4,16 @@ import { WECHAT_WEB_EDITOR_URL } from "../shared/defaults.js";
 import { classifyError, ErrorCode } from "../shared/errors.js";
 import { publishToWechat, queryPublishStatus, validateWechatCredentials } from "../shared/wechat.js";
 import { sleep } from "../shared/utils.js";
-import { fetchHotTopics } from "../shared/hot-topics.js";
+import {
+  DEFAULT_HOT_TOPIC_SOURCE_IDS,
+  HOT_TOPIC_SOURCE_MAP,
+  HOT_TOPICS_CACHE_STORAGE_KEY,
+  buildHotTopicsCacheKey,
+  fetchHotTopicSourceItems,
+  getFreshHotTopicsCacheEntry,
+  normalizeHotTopicsLimit,
+  pruneHotTopicsCache
+} from "../shared/hot-topics-sources.js";
 
 const MAX_RETRIES = 2;
 
@@ -48,6 +57,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "PREPARE_SOURCE_AND_OPEN_WORKSPACE": {
+        const prefetchUrl = String(message.payload?.prefetchUrl || "").trim();
+        if (prefetchUrl) {
+          try {
+            const capture = await scrapeBackgroundSilent(prefetchUrl);
+            await openWorkspace(false);
+            sendResponse({
+              ok: true,
+              data: {
+                opened: true,
+                title: capture?.title || "",
+                url: prefetchUrl
+              }
+            });
+          } catch (e) {
+            sendResponse({ ok: false, error: classifyError(e, { stage: "scrape" }) });
+          }
+          break;
+        }
+
         const tab = await getCurrentActiveTab();
         if (tab?.id) {
           await rememberTab(tab.id);
@@ -190,14 +218,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "PUBLISH_TO_WECHAT": {
         try {
           const settings = await getSettings();
-          const result = await withRetry(
-            () => publishToWechat(settings, message.payload),
-            MAX_RETRIES,
-            "公众号发布"
-          );
+          const result = await publishToWechat(settings, message.payload);
           sendResponse({ ok: true, data: result });
         } catch (e) {
-          sendResponse({ ok: false, error: classifyError(e, { stage: "publish" }) });
+          const errorObj = classifyError(e, { stage: "publish" });
+          if (e.publishState) {
+            errorObj.publishState = e.publishState;
+          }
+          if (e.failedImages) {
+            errorObj.failedImages = e.failedImages;
+          }
+          sendResponse({ ok: false, error: errorObj });
         }
         break;
       }
@@ -225,18 +256,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "FETCH_HOT_TOPICS": {
-        const result = await fetchHotTopics(
-          message.payload?.source || "zhihu",
-          message.payload?.forceRefresh || false
-        );
-        if (result.ok) {
-          sendResponse({ ok: true, data: result.payload });
-        } else {
-          sendResponse({
-            ok: false,
-            error: { code: "HOT_TOPICS", message: result.message, retryable: true }
-          });
-        }
+        const result = await fetchGroupedHotTopics(message.payload || {});
+        sendResponse({ ok: true, data: result });
         break;
       }
       default:
@@ -343,6 +364,89 @@ async function waitForTabComplete(tabId, timeoutMs = 25000) {
     throw new Error("公众号网页编辑器标签页不可用。");
   }
   return tab;
+}
+
+async function fetchGroupedHotTopics(payload = {}) {
+  const requestedSourceIds =
+    Array.isArray(payload.sourceIds) && payload.sourceIds.length > 0
+      ? payload.sourceIds.filter((sourceId) => HOT_TOPIC_SOURCE_MAP[sourceId])
+      : DEFAULT_HOT_TOPIC_SOURCE_IDS;
+  const sourceIds = [...new Set(requestedSourceIds)];
+  const limit = normalizeHotTopicsLimit(payload.limit, 12);
+  const now = new Date();
+  const settings = await getSettings();
+  const stored = await chrome.storage.local.get(HOT_TOPICS_CACHE_STORAGE_KEY);
+  const cacheStore =
+    stored?.[HOT_TOPICS_CACHE_STORAGE_KEY] && typeof stored[HOT_TOPICS_CACHE_STORAGE_KEY] === "object"
+      ? { ...stored[HOT_TOPICS_CACHE_STORAGE_KEY] }
+      : {};
+  const nextCacheStore = { ...cacheStore };
+
+  const settled = await Promise.allSettled(
+    sourceIds.map(async (sourceId) => {
+      const source = HOT_TOPIC_SOURCE_MAP[sourceId];
+      const cached = getFreshHotTopicsCacheEntry(cacheStore, sourceId, now);
+      if (cached) {
+        return {
+          sourceId,
+          sourceName: cached.sourceName || source?.name || sourceId,
+          items: (cached.items || []).slice(0, limit),
+          fetchedAt: cached.fetchedAt || "",
+          fromCache: true,
+          error: ""
+        };
+      }
+
+      const fresh = await fetchHotTopicSourceItems(sourceId, settings, limit);
+      const cacheKey = buildHotTopicsCacheKey(sourceId, now);
+      nextCacheStore[cacheKey] = {
+        cacheKey,
+        sourceId,
+        sourceName: fresh.sourceName,
+        items: fresh.items,
+        fetchedAt: fresh.fetchedAt,
+        endpoint: fresh.endpoint
+      };
+
+      return {
+        sourceId,
+        sourceName: fresh.sourceName,
+        items: fresh.items,
+        fetchedAt: fresh.fetchedAt,
+        fromCache: false,
+        error: ""
+      };
+    })
+  );
+
+  const groups = {};
+  sourceIds.forEach((sourceId, index) => {
+    const source = HOT_TOPIC_SOURCE_MAP[sourceId];
+    const result = settled[index];
+    if (result?.status === "fulfilled") {
+      groups[sourceId] = result.value;
+      return;
+    }
+
+    groups[sourceId] = {
+      sourceId,
+      sourceName: source?.name || sourceId,
+      items: [],
+      fetchedAt: "",
+      fromCache: false,
+      error: "该源暂时不可用"
+    };
+  });
+
+  await chrome.storage.local
+    .set({ [HOT_TOPICS_CACHE_STORAGE_KEY]: pruneHotTopicsCache(nextCacheStore, now) })
+    .catch(() => {});
+
+  return {
+    groups,
+    sourceOrder: sourceIds,
+    fetchedAt: now.toISOString()
+  };
 }
 
 async function rememberTab(tabId) {
