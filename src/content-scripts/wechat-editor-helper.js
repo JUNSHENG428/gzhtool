@@ -176,18 +176,19 @@
 
     const node = target.node;
     const doc = target.doc;
+    const safeHtml = sanitizeHtml(html);
 
     try {
       node.focus();
       if (doc.execCommand) {
         try {
           doc.execCommand("selectAll", false);
-          doc.execCommand("insertHTML", false, html);
+          doc.execCommand("insertHTML", false, safeHtml);
         } catch {}
       }
 
       if (normalizeText(node.innerHTML || "").length < 20) {
-        node.innerHTML = html;
+        node.innerHTML = safeHtml;
       }
 
       node.dispatchEvent(new Event("input", { bubbles: true }));
@@ -197,6 +198,77 @@
     } catch {
       return false;
     }
+  }
+
+  function sanitizeHtml(html) {
+    if (!html || typeof html !== "string") return "";
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+
+    const allowedTags = new Set([
+      "html", "head", "body", "div", "span", "p", "br", "hr",
+      "h1", "h2", "h3", "h4", "h5", "h6",
+      "ul", "ol", "li", "dl", "dt", "dd",
+      "strong", "em", "b", "i", "u", "s", "strike", "sub", "sup", "mark",
+      "blockquote", "pre", "code", "a", "img", "figure", "figcaption",
+      "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col"
+    ]);
+
+    const dangerousTagsToDrop = new Set([
+      "script", "style", "iframe", "object", "embed", "form", "input", "textarea", 
+      "meta", "base", "svg", "math", "applet", "link", "template", "noscript"
+    ]);
+
+    const allowedAttributes = new Set([
+      "href", "src", "alt", "title", "class", "style", "width", "height", "target", "rel",
+      "rowspan", "colspan", "start", "type"
+    ]);
+
+    doc.querySelectorAll("*").forEach((el) => {
+      const tagName = el.tagName.toLowerCase();
+
+      if (!allowedTags.has(tagName)) {
+        if (dangerousTagsToDrop.has(tagName)) {
+          el.remove();
+          return;
+        }
+        const docFrag = document.createDocumentFragment();
+        while (el.firstChild) {
+          docFrag.appendChild(el.firstChild);
+        }
+        el.replaceWith(docFrag);
+        return;
+      }
+
+      for (const attr of [...el.attributes]) {
+        const name = attr.name.toLowerCase();
+        if (!allowedAttributes.has(name) && !name.startsWith("data-")) {
+          el.removeAttribute(attr.name);
+        }
+      }
+
+      if (tagName === "a") {
+        const href = el.getAttribute("href");
+        if (href) {
+          const trimmed = href.trim().toLowerCase();
+          if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://") && !trimmed.startsWith("#")) {
+            el.removeAttribute("href");
+          }
+        }
+      }
+
+      if (tagName === "img") {
+        const src = el.getAttribute("src");
+        if (src) {
+          const trimmed = src.trim().toLowerCase();
+          if (trimmed.startsWith("javascript:") || trimmed.startsWith("vbscript:") || trimmed.startsWith("data:text/html")) {
+            el.removeAttribute("src");
+          }
+        }
+      }
+    });
+
+    return doc.body.innerHTML;
   }
 
   function renderHelperDock(result) {
