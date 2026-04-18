@@ -7,9 +7,9 @@
     <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
     <link rel="stylesheet" href="./page.css" />
   </head>
-  <body>
+  <body class="ambient-page">
     <a class="skip-link" href="#main">跳到主内容</a>
-    <main id="main" class="page-shell" role="main">
+    <main id="main" class="page-shell fade-in-children" role="main">
       <header class="topbar">
         <a class="brand" href="./welcome.html" data-product-name>公众号改写排版台</a>
         <nav class="topnav">
@@ -21,7 +21,7 @@
         </nav>
       </header>
 
-      <section class="hero">
+      <section class="hero hero-stagger">
         <p class="eyebrow">帮助中心</p>
         <h1>使用中遇到问题？这里有答案。</h1>
         <p class="hero-lead">
@@ -33,13 +33,14 @@
         <article class="panel">
           <div class="panel-head">
             <p class="eyebrow">常见问题</p>
-            <h2>最常见的 4 个问题</h2>
+            <h2>最常见的 5 个问题</h2>
           </div>
           <ul class="info-list">
             <li><strong>为什么抓不到正文或图片？</strong>有些网页的正文是滚动后才加载的，图片也可能设置了防盗链。请先在原网页确认内容已经完整显示，再点一次抓取。</li>
             <li><strong>AI 改写总是失败怎么办？</strong>请在设置页确认接口地址、密钥和模型名填写正确，并确保所选模型支持较长的文章内容。</li>
             <li><strong>推送到公众号失败怎么办？</strong>请确认公众号的 AppID 和 AppSecret 填写正确，并在公众号后台把你当前的 IP 加入白名单。</li>
             <li><strong>在公众号编辑器里没自动填入内容？</strong>微信后台偶尔会调整页面结构。此时可以点助手面板上的「复制 HTML」，再到公众号编辑器里手动粘贴。</li>
+            <li id="hot-topics-no-data"><strong>热点捕捉拉不到数据怎么办？</strong>热点捕捉器默认使用第三方聚合接口，当主通道不可用时会自动切换到 RSSHub 备用路由。如果备用路由也受限流影响，你可以在设置页的「RSSHub Base URL」里填写自己部署的 RSSHub 实例地址（<a href="https://docs.rsshub.app/deploy/" target="_blank" rel="noreferrer">部署指南</a>），或者稍后再试。</li>
           </ul>
         </article>
 
@@ -170,7 +171,7 @@
       </section>
 
       <footer class="page-footer">
-        最后更新：2026-04-17。
+        最后更新：2026-04-17。<span aria-hidden="true"> · </span>扩展版本 <span data-version>—</span>
       </footer>
     </main>
     <script type="module" src="./page.js"></script>

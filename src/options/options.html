@@ -7,9 +7,9 @@
     <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
     <link rel="stylesheet" href="./options.css" />
   </head>
-  <body>
-    <main class="settings-shell">
-      <section class="hero">
+  <body class="ambient-page">
+    <main class="settings-shell fade-in-children">
+      <section class="hero settings-hero">
         <p class="eyebrow">设置</p>
         <h1>AI 改写与公众号发布设置</h1>
         <p class="intro">
@@ -147,6 +147,19 @@
       </section>
 
       <section class="card">
+        <div class="section-heading">
+          <h2>热点捕捉 · RSSHub 备用通道</h2>
+          <p>
+            当主数据源不可用时，热点捕捉器会自动切换到 RSSHub 备用路由。你可以替换为自部署的 RSSHub 实例地址以获得更稳定的体验。留空则使用默认公共实例。
+          </p>
+        </div>
+        <label>
+          <span>RSSHub Base URL</span>
+          <input id="rsshubBaseUrl" type="url" placeholder="https://rsshub.app" />
+        </label>
+      </section>
+
+      <section class="card">
         <div class="section-heading split-full">
           <h2>多账号管理</h2>
           <p>如果你有多个公众号，可以在这里保存多套凭证，发布时在编辑台里切换。</p>
@@ -181,7 +194,7 @@
       <section class="card">
         <div class="section-heading">
           <h2>相关页面</h2>
-          <p>快速打开欢迎页、帮助中心以及与本扩展相关的政策页面。</p>
+          <p>快速打开欢迎页、热点捕捉、帮助中心以及与本扩展相关的政策页面。</p>
         </div>
 
         <div class="page-link-grid">
