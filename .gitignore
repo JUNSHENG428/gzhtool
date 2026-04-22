@@ -1,0 +1,27 @@
+node_modules/
+
+# Python venv
+.venv/
+__pycache__/
+*.pyc
+
+# IDE / 编辑器
+.cursor/
+.vscode/
+.idea/
+
+# 系统元数据
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# 构建产物 / 日志
+dist/
+build/
+*.log
+npm-debug.log*
+
+# 环境变量
+.env
+.env.local
+.env.*.local
