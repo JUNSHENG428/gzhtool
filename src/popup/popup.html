@@ -9,23 +9,41 @@
   </head>
   <body>
     <main class="popup-shell">
-      <p class="eyebrow">公众号助手</p>
-      <h1>公众号改写排版台</h1>
-      <p class="intro">
-        一键抓取当前网页的正文和图片，用 AI 改写后整理成可直接发布的公众号稿件。
-      </p>
+      <header class="popup-head">
+        <div>
+          <p class="eyebrow">公众号助手</p>
+          <h1>公众号改写排版台</h1>
+        </div>
+        <span id="runtimeBadge" class="badge">就绪</span>
+      </header>
 
-      <div class="actions">
-        <button id="captureAndOpen" class="primary">抓取当前页并打开编辑台</button>
-        <button id="openWorkspace">只打开编辑台</button>
-        <button id="openOptions">设置 API</button>
-      </div>
+      <section class="current-page" aria-labelledby="currentPageTitle">
+        <p id="currentPageTitle" class="section-label">当前标签页</p>
+        <p id="currentTabTitle" class="page-title">正在读取...</p>
+        <p id="currentTabHost" class="page-host"></p>
+      </section>
 
-      <div class="quick-links">
-        <button id="openWelcome" class="link-button">快速开始</button>
-        <button id="openHotTopics" class="link-button">热点捕捉</button>
-        <button id="openHelp" class="link-button">帮助中心</button>
-      </div>
+      <section class="primary-actions" aria-label="主要操作">
+        <button id="captureAndOpen" class="btn btn-primary" type="button">
+          <span>抓取当前页并打开编辑台</span>
+          <small>Alt+Shift+C</small>
+        </button>
+        <div class="action-grid">
+          <button id="openWorkspace" class="btn" type="button">打开编辑台</button>
+          <button id="openHotTopics" class="btn" type="button">热点捕捉</button>
+        </div>
+      </section>
+
+      <section class="last-source" aria-labelledby="lastSourceTitle">
+        <p id="lastSourceTitle" class="section-label">最近抓取</p>
+        <p id="lastSourceText" class="muted">暂无记录</p>
+      </section>
+
+      <nav class="quick-links" aria-label="辅助入口">
+        <button id="openWelcome" class="text-button" type="button">快速开始</button>
+        <button id="openOptions" class="text-button" type="button">设置</button>
+        <button id="openHelp" class="text-button" type="button">帮助</button>
+      </nav>
 
       <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
     </main>

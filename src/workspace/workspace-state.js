@@ -13,7 +13,7 @@ import {
 } from "../shared/defaults.js";
 import { saveSnapshot } from "../shared/history.js";
 import { getSettings, saveSession } from "../shared/storage.js";
-import { debounce, clampIndex, createId, normalizeText } from "../shared/utils.js";
+import { debounce, clampIndex, createId, normalizeText, sanitizeHtml, safeObjectMerge } from "../shared/utils.js";
 
 let _ctx;
 
@@ -200,7 +200,7 @@ export function createEmptyArticleDoc() {
 }
 
 export function normalizeArticleDoc(articleDoc) {
-  const meta = { ...buildBaseArticleMeta(), ...(articleDoc?.meta || {}) };
+  const meta = safeObjectMerge(buildBaseArticleMeta(), articleDoc?.meta || {});
   return {
     id: articleDoc?.id || createArticleId(),
     meta: {
@@ -208,7 +208,7 @@ export function normalizeArticleDoc(articleDoc) {
       titleOptions: Array.isArray(meta.titleOptions) ? meta.titleOptions : [],
       keywords: Array.isArray(meta.keywords) ? meta.keywords : []
     },
-    bodyHtml: String(articleDoc?.bodyHtml || "")
+    bodyHtml: sanitizeHtml(String(articleDoc?.bodyHtml || ""))
   };
 }
 

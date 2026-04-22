@@ -40,8 +40,7 @@ import {
   getCoverImageForArticle,
   getSelectedImage,
   deleteSourceImage,
-  reorderSourceImages,
-  appendLocalImages
+  reorderSourceImages
 } from "./workspace-state.js";
 
 import {
@@ -56,7 +55,7 @@ import {
 } from "./workspace-render.js";
 
 import { init as initCapture, captureSource } from "./workspace-capture.js";
-import { init as initRewrite, rewriteArticle, copyManualPrompt, hideRewriteDiffBarUI } from "./workspace-rewrite.js";
+import { init as initRewrite, rewriteArticle, copyManualPrompt } from "./workspace-rewrite.js";
 
 import {
   init as initEditor,
@@ -70,11 +69,7 @@ import {
   toggleOutputPreviewTab,
   cycleEditorTheme,
   insertSourceImage,
-  updateEditorWordCount,
-  resetEditorHistory,
-  pushEditorSnapshotAfterRewrite,
-  editorUndo,
-  editorRedo
+  updateEditorWordCount
 } from "./workspace-editor.js";
 
 import {
@@ -106,10 +101,6 @@ const view = {
   wechatPreview: document.querySelector("#wechatPreview"),
   coverPreview: document.querySelector("#coverPreview"),
   publishResult: document.querySelector("#publishResult"),
-  pollProgress: document.querySelector("#pollProgress"),
-  pollProgressText: document.querySelector("#pollProgressText"),
-  pollProgressRing: document.querySelector("#pollProgressRing"),
-  pollProgressCountdown: document.querySelector("#pollProgressCountdown"),
   webEditorSyncResult: document.querySelector("#webEditorSyncResult"),
   titleSuggestions: document.querySelector("#titleSuggestions"),
   keywordSuggestions: document.querySelector("#keywordSuggestions"),
@@ -120,12 +111,7 @@ const view = {
   emptyPromptCard: document.querySelector("#emptyPromptCard"),
   historyDrawer: document.querySelector("#historyDrawer"),
   historyDrawerBackdrop: document.querySelector("#historyDrawerBackdrop"),
-  historyDrawerList: document.querySelector("#historyDrawerList"),
-  rewriteDiffBar: document.querySelector("#rewriteDiffBar"),
-  rewriteDiffBarTime: document.querySelector("#rewriteDiffBarTime"),
-  rewriteDiffBackdrop: document.querySelector("#rewriteDiffBackdrop"),
-  rewriteDiffLeft: document.querySelector("#rewriteDiffLeft"),
-  rewriteDiffRight: document.querySelector("#rewriteDiffRight")
+  historyDrawerList: document.querySelector("#historyDrawerList")
 };
 
 const controls = {
@@ -153,33 +139,15 @@ const controls = {
 
 // ── 入口级工具 ──
 
-export function showLoading(message = "处理中...", { onCancel } = {}) {
+export function showLoading(message = "处理中...") {
   view.loadingMessage.textContent = message;
   view.loadingOverlay.classList.add("active");
   view.loadingOverlay.setAttribute("aria-hidden", "false");
-
-  view.cancelLoadingButton = view.cancelLoadingButton || document.querySelector("#cancelLoadingButton");
-  if (view.cancelLoadingButton) {
-    if (onCancel) {
-      view.cancelLoadingButton.hidden = false;
-      view.cancelLoadingButton.onclick = () => {
-        onCancel();
-        hideLoading();
-      };
-    } else {
-      view.cancelLoadingButton.hidden = true;
-      view.cancelLoadingButton.onclick = null;
-    }
-  }
 }
 
 export function hideLoading() {
   view.loadingOverlay.classList.remove("active");
   view.loadingOverlay.setAttribute("aria-hidden", "true");
-  if (view.cancelLoadingButton) {
-    view.cancelLoadingButton.hidden = true;
-    view.cancelLoadingButton.onclick = null;
-  }
 }
 
 export function activateTab(name) {
@@ -200,7 +168,6 @@ export function closeOverlays() {
   if (state.isHistoryDrawerOpen) closeHistoryDrawer();
   if (view.firstRunOverlay && !view.firstRunOverlay.hidden) view.firstRunOverlay.hidden = true;
   if (view.emptyPromptCard && !view.emptyPromptCard.hidden) view.emptyPromptCard.hidden = true;
-  if (view.rewriteDiffBackdrop && !view.rewriteDiffBackdrop.hidden) view.rewriteDiffBackdrop.hidden = true;
 }
 
 export function blurEditor() { view.editor.blur(); }
@@ -337,7 +304,7 @@ async function bootstrap() {
     normalizeArticleDoc, createEmptyArticleDoc, hasMeaningfulDraftState,
     buildHistoryLabel, validateCurrentArticleForPublish,
     deriveDigestFromEditor, deriveDigestFromArticle, getCoverImageForArticle, getSelectedImage,
-    deleteSourceImage, reorderSourceImages, appendLocalImages,
+    deleteSourceImage, reorderSourceImages,
     // workspace-render.js
     syncWorkspace, renderSource, renderCoverPreview, renderHistoryDrawer,
     renderArticleStack, fillThemeOptions, applyTheme,
@@ -345,11 +312,10 @@ async function bootstrap() {
     buildExportHtmlForArticle, buildMarkdownDocumentForArticle, buildPreviewDocument,
     copyHtml, copyMarkdown, downloadHtml, downloadMarkdown,
     toggleOutputPreviewTab, cycleEditorTheme, insertSourceImage, updateEditorWordCount,
-    resetEditorHistory, pushEditorSnapshotAfterRewrite, editorUndo, editorRedo,
     // workspace-capture.js
     captureSource,
     // workspace-rewrite.js
-    rewriteArticle, copyManualPrompt, hideRewriteDiffBarUI,
+    rewriteArticle, copyManualPrompt,
     // workspace-publish.js
     publishBundle, pollPublishStatus, syncCurrentToWebEditor, maybeResumePublishPolling,
     openHistoryDrawer, closeHistoryDrawer, refreshHistoryRecords,
@@ -383,6 +349,7 @@ async function bootstrap() {
   updateEditorWordCount();
   maybeResumePublishPolling();
   _loadWechatProfiles();
+  _bindStorageSync();
 
   initWorkspaceShortcuts({
     schedulePersist, setStatus,
@@ -393,9 +360,7 @@ async function bootstrap() {
     openHotTopics: openHotTopicsPage,
     openSettings,
     openWorkspaceHistory: () => void openHistoryDrawer(),
-    closeOverlays, blurEditor, moveCurrentArticle,
-    editorUndo,
-    editorRedo
+    closeOverlays, blurEditor, moveCurrentArticle
   });
 
   const params = new URLSearchParams(location.search);
@@ -423,6 +388,7 @@ async function bootstrap() {
 function _bindGlobalEvents(ctx) {
   document.querySelector("#openOptionsButton")?.addEventListener("click", openSettings);
   document.querySelector("#openHotTopicsButton")?.addEventListener("click", openHotTopicsPage);
+  document.querySelector("#openHelpButton")?.addEventListener("click", openHelp);
 
   const syncTargets = [
     controls.title, controls.subtitle, controls.author, controls.digest,
@@ -449,6 +415,20 @@ function _loadWechatProfiles() {
   if (activeIndex >= 0 && activeIndex < profiles.length) {
     select.value = String(activeIndex);
   }
+}
+
+function _bindStorageSync() {
+  if (!chrome?.storage?.onChanged) return;
+  chrome.storage.onChanged.addListener(async (changes, area) => {
+    if (area !== "local" || !changes.settings) return;
+    try {
+      state.settings = await getSettings();
+      _loadWechatProfiles();
+      hydrateDefaults();
+    } catch (error) {
+      console.warn("[gzh] settings sync failed:", error);
+    }
+  });
 }
 
 function _bindThemeToggle() {

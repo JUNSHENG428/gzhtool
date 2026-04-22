@@ -1,3 +1,5 @@
+import { formatRuntimeError, escapeHtml } from "../shared/utils.js";
+
 const hotContent = document.querySelector("#hotContent");
 const hotMeta = document.querySelector("#hotMeta");
 const hotStatus = document.querySelector("#hotStatus");
@@ -60,13 +62,7 @@ async function loadSource(source, forceRefresh = false) {
   });
 
   if (!response?.ok) {
-    const msg =
-      typeof response?.error === "object" && response.error?.message ?
-        response.error.message
-      : typeof response?.error === "string" ?
-        response.error
-      : "加载失败。";
-    hotStatus.textContent = msg;
+    hotStatus.textContent = formatRuntimeError(response?.error, "加载失败。");
     return;
   }
 
@@ -180,13 +176,13 @@ function renderList(data) {
             payload: { url }
           });
           if (res?.ok && res.data) {
-            showToast("拉取成功，正在打开排版台...", "success");
+            showToast("拉取成功，正在打开排版台...");
             setTimeout(() => {
               chrome.tabs.create({ url: chrome.runtime.getURL("src/workspace/workspace.html") });
               btn.innerHTML = "✅ 成功";
             }, 600);
           } else {
-            throw new Error((res?.error && res.error.message) ? res.error.message : "拉取失败。");
+            throw new Error(formatRuntimeError(res?.error, "拉取失败。"));
           }
         } catch (e) {
           showToast(e.message || "后台抓取失败，建议在此页面点「打开」后尝试标准抓取。");
@@ -266,14 +262,6 @@ async function drawShareCard(item, sourceLabel) {
   } catch (error) {
     showToast("生成卡片失败，由于浏览器安全限制可能无法直接写入剪贴板。");
   }
-}
-
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 function escapeAttr(s) {

@@ -1,16 +1,10 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-page="hot-topics">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>热点捕捉器 - 公众号改写排版台</title>
     <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Noto+Serif+SC:wght@500;600;700&display=swap"
-    />
     <link rel="stylesheet" href="./page.css" />
     <link rel="stylesheet" href="./hot-topics.css" />
   </head>
@@ -19,11 +13,7 @@
     <main id="main" class="page-shell fade-in-children" role="main">
       <header class="topbar">
         <a class="brand" href="./welcome.html" data-product-name>公众号改写排版台</a>
-        <nav class="topnav">
-          <a href="./hot-topics.html" aria-current="page">热点捕捉</a>
-          <a href="./help.html">帮助中心</a>
-          <a href="./welcome.html">欢迎页</a>
-        </nav>
+        <nav class="topnav" data-topnav aria-label="主导航"></nav>
       </header>
 
       <section class="hero hot-hero hero-stagger">
@@ -118,11 +108,7 @@
         </p>
       </section>
 
-      <footer class="page-footer">
-        <a href="./welcome.html">返回欢迎页</a>
-        ·
-        <a href="../workspace/workspace.html" data-open-workspace>打开编辑台</a>
-      </footer>
+      <footer class="page-footer" data-page-footer></footer>
     </main>
     <script type="module" src="./page.js"></script>
     <script type="module" src="./hot-topics.js"></script>

@@ -1,0 +1,171 @@
+/**
+ * 全局设计变量 — 编辑向、纸质感、杂志级层级
+ * 被 page / popup / options / workspace 等样式引用
+ *
+ * 美学方向：暖色纸面 + 墨绿主色 + 衬线标题（Noto Serif SC）+
+ * UI 使用 DM Sans，避免通用系统 UI 字体堆栈的「模板感」。
+ */
+:root {
+  color-scheme: light;
+
+  /* 字体：衬线承担「刊头」层级，无衬线承担界面与正文（woff2 见 fonts.css，离线打包） */
+  --font-sans: "DM Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  /* Noto Serif SC 仅嵌入 700 字重（分片 woff2）；其余字重回退到下列系统衬线 */
+  --font-display: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", serif;
+  --font-serif: var(--font-display);
+  --font-mono: "SF Mono", "Menlo", "Consolas", monospace;
+
+  /* 色板 — 墨绿主色 + 暖纸底 */
+  --ink: #1a2620;
+  --ink-secondary: #3d4f45;
+  --soft-ink: #5a6b62;
+  --muted: #7a6f62;
+  --line: #d4cfc3;
+  --line-strong: #c4bdb0;
+  --surface: rgba(255, 253, 248, 0.92);
+  --surface-elevated: #fffdf8;
+  --surface-glass: rgba(255, 253, 247, 0.88);
+
+  --cream: #f7f5ef;
+  --cream-muted: #f6f4ee;
+  --brand: #173722;
+  --brand-hover: #1f4a2e;
+  --brand-soft: rgba(23, 55, 34, 0.08);
+  --accent: #b8722e;
+  --accent-soft: rgba(198, 132, 61, 0.14);
+  --on-brand-warm: #f0d4b0;
+
+  --shadow-xs: 0 1px 2px rgba(28, 38, 32, 0.04);
+  --shadow-sm: 0 4px 14px rgba(32, 40, 29, 0.06);
+  --shadow-md: 0 12px 32px rgba(32, 40, 29, 0.08);
+  --shadow-lg: 0 20px 48px rgba(28, 36, 30, 0.1);
+
+  /* 页面背景分层（便于各页复用、暗色主题可整体替换） */
+  --bg-base: linear-gradient(168deg, #f9f6ef 0%, #efe8db 45%, #e6dfd2 100%);
+  --bg-bloom-1: radial-gradient(ellipse 120% 85% at 0% -12%, rgba(107, 143, 113, 0.24), transparent 44%);
+  --bg-bloom-2: radial-gradient(ellipse 95% 58% at 100% -5%, var(--accent-soft), transparent 40%);
+  --bg-bloom-3: radial-gradient(ellipse 50% 40% at 80% 100%, rgba(23, 55, 34, 0.06), transparent 55%);
+
+  /* 圆角 */
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+
+  /* 间距（8px 基准） */
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+
+  /* 排版 */
+  --leading-tight: 1.22;
+  --leading-snug: 1.45;
+  --leading-normal: 1.65;
+  --leading-relaxed: 1.75;
+  --measure: 65ch;
+  --tracking-caps: 0.14em;
+
+  /* 动效 — 仅用于 opacity/transform，便于 GPU 合成与减弱动效 */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 220ms;
+  --duration-slow: 380ms;
+
+  /* 入场错开（与 .fade-in-children / .hero-stagger 配合） */
+  --enter-step: 55ms;
+}
+
+/* 轻量入场：避免布局抖动，仅透明度 + 位移 */
+@keyframes ui-fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ui-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in-children > *,
+  .hero-stagger > * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* 主列子区块依次入场（options / 静态页等共用，依赖 ui-fade-rise） */
+.fade-in-children > * {
+  animation: ui-fade-rise var(--duration-slow) var(--ease-out) backwards;
+}
+
+.fade-in-children > *:nth-child(1) {
+  animation-delay: calc(var(--enter-step) * 0);
+}
+.fade-in-children > *:nth-child(2) {
+  animation-delay: calc(var(--enter-step) * 1);
+}
+.fade-in-children > *:nth-child(3) {
+  animation-delay: calc(var(--enter-step) * 2);
+}
+.fade-in-children > *:nth-child(4) {
+  animation-delay: calc(var(--enter-step) * 3);
+}
+.fade-in-children > *:nth-child(5) {
+  animation-delay: calc(var(--enter-step) * 4);
+}
+.fade-in-children > *:nth-child(6) {
+  animation-delay: calc(var(--enter-step) * 5);
+}
+.fade-in-children > *:nth-child(7) {
+  animation-delay: calc(var(--enter-step) * 6);
+}
+.fade-in-children > *:nth-child(8) {
+  animation-delay: calc(var(--enter-step) * 7);
+}
+.fade-in-children > *:nth-child(9) {
+  animation-delay: calc(var(--enter-step) * 8);
+}
+.fade-in-children > *:nth-child(10) {
+  animation-delay: calc(var(--enter-step) * 9);
+}
+.fade-in-children > *:nth-child(11) {
+  animation-delay: calc(var(--enter-step) * 10);
+}
+.fade-in-children > *:nth-child(12) {
+  animation-delay: calc(var(--enter-step) * 11);
+}
+
+/**
+ * 扩展内各独立页面 body 共用：暖色分层背景 + 轻肌理（与 page.css 一致）
+ */
+body.ambient-page {
+  background: var(--bg-bloom-1), var(--bg-bloom-2), var(--bg-bloom-3), var(--bg-base);
+}
+
+body.ambient-page::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.045;
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(42, 36, 28, 0.04) 2px, rgba(42, 36, 28, 0.04) 3px),
+    repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(42, 36, 28, 0.03) 2px, rgba(42, 36, 28, 0.03) 3px);
+  mix-blend-mode: multiply;
+}

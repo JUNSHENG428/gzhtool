@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "114",
   "name": "公众号改写排版台",
   "description": "抓取网页文字和配图，AI 改写排版，热点资讯捕捉，多图文草稿与公众号草稿箱/发布。",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "icons": {
     "16": "src/icons/icon16.png",
     "32": "src/icons/icon32.png",
@@ -26,5 +27,41 @@
     "default_title": "公众号改写排版台",
     "default_popup": "src/popup/popup.html"
   },
-  "options_page": "src/options/options.html"
+  "options_page": "src/options/options.html",
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+Y",
+        "mac": "Alt+Shift+Y"
+      },
+      "description": "打开公众号改写排版台弹窗"
+    },
+    "capture_current_page": {
+      "suggested_key": {
+        "default": "Alt+Shift+C",
+        "mac": "Alt+Shift+C"
+      },
+      "description": "抓取当前页并打开编辑台"
+    },
+    "open_workspace": {
+      "suggested_key": {
+        "default": "Alt+Shift+W",
+        "mac": "Alt+Shift+W"
+      },
+      "description": "直接打开编辑台"
+    },
+    "open_hot_topics": {
+      "suggested_key": {
+        "default": "Alt+Shift+H",
+        "mac": "Alt+Shift+H"
+      },
+      "description": "打开热点捕捉器"
+    },
+    "open_options": {
+      "description": "打开设置页（需手动在 chrome://extensions/shortcuts 绑定）"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: http: blob:; connect-src 'self' https: http: wss: ws:;"
+  }
 }

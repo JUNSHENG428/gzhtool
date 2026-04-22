@@ -1,19 +1,11 @@
-// Apply theme preference
-(function applyThemePreference() {
-  try {
-    const preference = localStorage.getItem("workspace-theme-preference") || "auto";
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const isDark = preference === "dark" || (preference === "auto" && prefersDark);
-    document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
-  } catch {
-    // ignore
-  }
-})();
+import { applyThemePreferenceFromStorage } from "../shared/theme.js";
+
+applyThemePreferenceFromStorage();
 
 import { DEFAULT_SETTINGS } from "../shared/defaults.js";
 import { clearHistory, listSnapshots } from "../shared/history.js";
 import { getSettings, saveSettings } from "../shared/storage.js";
-import { formatRuntimeError } from "../shared/utils.js";
+import { formatRuntimeError, escapeHtml } from "../shared/utils.js";
 
 const fields = {
   productName: document.querySelector("#productName"),
@@ -34,12 +26,10 @@ const fields = {
   wechatDefaultSourceUrl: document.querySelector("#wechatDefaultSourceUrl"),
   wechatDefaultPublishMode: document.querySelector("#wechatDefaultPublishMode"),
   wechatDefaultOpenComment: document.querySelector("#wechatDefaultOpenComment"),
-  wechatDefaultOnlyFansCanComment: document.querySelector("#wechatDefaultOnlyFansCanComment"),
-  rsshubBaseUrl: document.querySelector("#rsshubBaseUrl")
+  wechatDefaultOnlyFansCanComment: document.querySelector("#wechatDefaultOnlyFansCanComment")
 };
 
 const statusElement = document.querySelector("#status");
-let statusFadeTimer = null;
 const testConnectionButton = document.querySelector("#testConnectionButton");
 const testConnectionResult = document.querySelector("#testConnectionResult");
 const testWechatConnectionButton = document.querySelector("#testWechatConnectionButton");
@@ -48,7 +38,15 @@ const exportHistoryButton = document.querySelector("#exportHistoryButton");
 const clearHistoryButton = document.querySelector("#clearHistoryButton");
 
 document.querySelector("#saveButton").addEventListener("click", saveForm);
-document.querySelector("#resetButton").addEventListener("click", resetForm);
+document.querySelector("#resetAiButton")?.addEventListener("click", () =>
+  resetSection("ai")
+);
+document.querySelector("#resetWechatButton")?.addEventListener("click", () =>
+  resetSection("wechat")
+);
+document.querySelector("#resetPreferencesButton")?.addEventListener("click", () =>
+  resetSection("preferences")
+);
 testConnectionButton.addEventListener("click", testAiConnection);
 testWechatConnectionButton.addEventListener("click", testWechatConnection);
 exportHistoryButton.addEventListener("click", exportAllHistory);
@@ -116,7 +114,7 @@ async function saveForm() {
   }
 
   if (invalidFields.length > 0) {
-    setStatus(`请检查以下字段：${invalidFields.join("、")}`, "error");
+    setStatus(`请检查以下字段：${invalidFields.join("、")}`);
     invalidFields.forEach((label) => {
       const field = Object.values(fields).find((f) => f.closest("label")?.querySelector("span")?.textContent === label);
       field?.focus();
@@ -136,43 +134,56 @@ async function saveForm() {
   }
   patch.wechatProfiles = currentProfiles;
 
-  try {
-    await saveSettings(patch);
-    setStatus("设置已保存。", "success");
-  } catch (error) {
-    setStatus(error?.message || "保存失败，请稍后再试。", "error");
-  }
+  await saveSettings(patch);
+  setStatus("设置已保存。");
 }
 
-async function resetForm() {
-  if (
-    !confirm(
-      "确定将所有设置恢复为默认值？将清除已填写的 API 与公众号凭证等信息（草稿历史不受影响）。"
-    )
-  ) {
+const SECTION_KEYS = {
+  ai: ["apiBaseUrl", "apiKey", "model", "temperature"],
+  wechat: [
+    "wechatAppId",
+    "wechatAppSecret",
+    "wechatDefaultAuthor",
+    "wechatDefaultSourceUrl",
+    "wechatDefaultPublishMode",
+    "wechatDefaultOpenComment",
+    "wechatDefaultOnlyFansCanComment"
+  ],
+  preferences: [
+    "defaultAudience",
+    "defaultTone",
+    "defaultAngle",
+    "defaultCta"
+  ]
+};
+
+const SECTION_LABELS = {
+  ai: "AI 接口",
+  wechat: "公众号凭证",
+  preferences: "改写偏好"
+};
+
+async function resetSection(section) {
+  const keys = SECTION_KEYS[section];
+  if (!keys) return;
+  const label = SECTION_LABELS[section];
+  if (!confirm(`确定要重置「${label}」为默认值？多账号列表与其它分区不会被影响。`)) {
     return;
   }
-  await saveSettings(DEFAULT_SETTINGS);
+  const settings = await getSettings();
+  const patch = { ...settings };
+  for (const key of keys) {
+    patch[key] = DEFAULT_SETTINGS[key];
+  }
+  await saveSettings(patch);
   await hydrateForm();
-  clearTestResult(testConnectionResult);
-  clearTestResult(testWechatConnectionResult);
-  setStatus("已恢复默认设置。", "success");
+  if (section === "ai") clearTestResult(testConnectionResult);
+  if (section === "wechat") clearTestResult(testWechatConnectionResult);
+  setStatus(`已重置「${label}」。`);
 }
 
-function setStatus(message, type = "info", { persist = false } = {}) {
-  clearTimeout(statusFadeTimer);
-  const validTypes = new Set(["info", "success", "warning", "error"]);
-  const safeType = validTypes.has(type) ? type : "info";
+function setStatus(message) {
   statusElement.textContent = message;
-  statusElement.setAttribute("data-status-type", safeType);
-  statusElement.classList.remove("is-faded");
-
-  if (persist || !message) return;
-
-  const delayMs = safeType === "error" ? 8000 : 4000;
-  statusFadeTimer = setTimeout(() => {
-    statusElement.classList.add("is-faded");
-  }, delayMs);
 }
 
 async function openInternalPage(path) {
@@ -181,7 +192,7 @@ async function openInternalPage(path) {
 
 async function testAiConnection() {
   testConnectionButton.disabled = true;
-  setTestResult(testConnectionResult, "loading", "测试中...");
+  setTestResult(testConnectionResult, "loading", "正在测试...");
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -216,7 +227,7 @@ async function testAiConnection() {
 
 async function testWechatConnection() {
   testWechatConnectionButton.disabled = true;
-  setTestResult(testWechatConnectionResult, "loading", "测试中...");
+  setTestResult(testWechatConnectionResult, "loading", "正在测试...");
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -231,22 +242,15 @@ async function testWechatConnection() {
       setTestResult(
         testWechatConnectionResult,
         "success",
-        "凭证有效，发布时将自动使用"
+        "验证成功，token 将在发布时使用"
       );
-      return;
-    }
-
-    const error = response?.error || {};
-
-    if (error.code === "WECHAT_IP_NOT_WHITELISTED" && error.ipSeen) {
-      setWechatTestResultIpWhitelistError(testWechatConnectionResult, error);
       return;
     }
 
     setTestResult(
       testWechatConnectionResult,
       "error",
-      formatRuntimeError(error, "验证失败，请检查公众号配置。")
+      formatRuntimeError(response?.error, "验证失败，请检查公众号配置。")
     );
   } catch (error) {
     setTestResult(
@@ -259,31 +263,6 @@ async function testWechatConnection() {
   }
 }
 
-function setWechatTestResultIpWhitelistError(element, error) {
-  element.dataset.state = "error";
-  element.replaceChildren();
-
-  const main = document.createElement("div");
-  main.className = "wechat-test-err-main";
-  main.textContent = formatRuntimeError(error, "验证失败，请检查公众号配置。");
-
-  const copyBtn = document.createElement("button");
-  copyBtn.type = "button";
-  copyBtn.className = "wechat-test-ip-copy";
-  copyBtn.textContent = `当前出口 IP：${error.ipSeen}（点击复制）`;
-
-  copyBtn.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(error.ipSeen);
-      copyBtn.textContent = `已复制：${error.ipSeen}`;
-    } catch {
-      copyBtn.textContent = "复制失败，请手动选择 IP";
-    }
-  });
-
-  element.append(main, copyBtn);
-}
-
 function setTestResult(element, state, message) {
   element.dataset.state = state;
   element.textContent = message;
@@ -291,7 +270,7 @@ function setTestResult(element, state, message) {
 
 function clearTestResult(element) {
   delete element.dataset.state;
-  element.replaceChildren();
+  element.textContent = "";
 }
 
 async function exportAllHistory() {
@@ -300,7 +279,7 @@ async function exportAllHistory() {
   try {
     const historyEntries = await listSnapshots();
     if (historyEntries.length === 0) {
-      setStatus("还没有可导出的草稿记录。", "warning");
+      setStatus("还没有可导出的草稿记录。");
       return;
     }
 
@@ -324,9 +303,9 @@ async function exportAllHistory() {
     anchor.click();
     URL.revokeObjectURL(url);
 
-    setStatus(`已导出 ${historyEntries.length} 条草稿记录。`, "success");
+    setStatus(`已导出 ${historyEntries.length} 条草稿记录。`);
   } catch (error) {
-    setStatus(error.message || "导出失败，请稍后再试。", "error");
+    setStatus(error.message || "导出失败，请稍后再试。");
   } finally {
     exportHistoryButton.disabled = false;
   }
@@ -338,7 +317,7 @@ async function clearAllHistory() {
   try {
     const historyEntries = await listSnapshots();
     if (historyEntries.length === 0) {
-      setStatus("还没有可清空的草稿记录。", "warning");
+      setStatus("还没有可清空的草稿记录。");
       return;
     }
 
@@ -351,12 +330,9 @@ async function clearAllHistory() {
     }
 
     const cleared = await clearHistory();
-    setStatus(
-      cleared ? "已清空所有草稿记录。" : "清空失败，请稍后再试。",
-      cleared ? "success" : "error"
-    );
+    setStatus(cleared ? "已清空所有草稿记录。" : "清空失败，请稍后再试。");
   } catch (error) {
-    setStatus(error.message || "清空失败，请稍后再试。", "error");
+    setStatus(error.message || "清空失败，请稍后再试。");
   } finally {
     clearHistoryButton.disabled = false;
   }
@@ -385,7 +361,7 @@ function renderProfiles() {
       const idx = Number(btn.dataset.deleteProfile);
       currentProfiles.splice(idx, 1);
       renderProfiles();
-      setStatus("账号已删除，记得点「保存设置」才会生效。", "warning");
+      setStatus("账号已删除，记得点「保存设置」才会生效。");
     });
   });
 }
@@ -397,7 +373,7 @@ async function addProfile() {
   const author = profileFields.author?.value.trim();
 
   if (!name || !appId || !appSecret) {
-    setStatus("请填写账号名称、AppID 和 AppSecret。", "error");
+    setStatus("请填写账号名称、AppID 和 AppSecret。");
     return;
   }
 
@@ -409,19 +385,6 @@ async function addProfile() {
   profileFields.author.value = "";
 
   renderProfiles();
-  try {
-    await saveSettings({ wechatProfiles: currentProfiles });
-    setStatus(`已添加账号 "${name}"。`, "success");
-  } catch (error) {
-    setStatus(error?.message || "保存失败，请稍后再试。", "error");
-  }
-}
-
-function escapeHtml(value) {
-  return String(value || "")
-    .replace(/\u0026/g, "\u0026amp;")
-    .replace(/\u003c/g, "\u0026lt;")
-    .replace(/\u003e/g, "\u0026gt;")
-    .replace(/"/g, "\u0026quot;")
-    .replace(/'/g, "\u0026#39;");
+  await saveSettings({ wechatProfiles: currentProfiles });
+  setStatus(`账号「${name}」已添加并保存。`);
 }

@@ -6,7 +6,7 @@
 
 import { composeArticleBodyHtml, decorateHtmlForTheme, htmlToMarkdown } from "../shared/article.js";
 import { THEME_PRESETS } from "../shared/defaults.js";
-import { escapeHtml, escapeAttribute } from "../shared/utils.js";
+import { escapeHtml, escapeAttribute, sanitizeHtml } from "../shared/utils.js";
 import { getSettings, saveSettings } from "../shared/storage.js";
 
 let _ctx;
@@ -39,7 +39,7 @@ function _bindEditorEvents() {
     const html = templates[name];
     if (html) {
       view.editor.focus();
-      document.execCommand("insertHTML", false, html);
+      document.execCommand("insertHTML", false, sanitizeHtml(html));
       _ctx.onWorkspaceInput();
     }
     _ctx.controls.customTemplateSelect.value = "";
@@ -51,6 +51,9 @@ function _bindEditorEvents() {
   // 面板 Tab 切换
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.addEventListener("click", () => _ctx.activateTab(tab.dataset.tab));
+    tab.addEventListener("keydown", (event) => {
+      _handleOutputTabKeydown(event);
+    });
   });
 
   // 复制 / 下载按钮（部分可能由快捷键直接触发，此处绑定按钮）
@@ -61,6 +64,9 @@ function _bindEditorEvents() {
   // 编辑器输入 → 字数统计（onWorkspaceInput 在 workspace.js 的 bindEvents 里额外绑定）
   view.editor.addEventListener("input", updateEditorWordCount);
 
+  // Markdown 粘贴导入
+  view.editor.addEventListener("paste", _handleEditorPaste);
+
   // 工具栏禁用态
   view.editor.addEventListener("keyup", updateToolbarState);
   view.editor.addEventListener("mouseup", updateToolbarState);
@@ -69,6 +75,44 @@ function _bindEditorEvents() {
       updateToolbarState();
     }
   });
+
+  // 阅读进度条
+  view.editor.addEventListener("scroll", updateReadingProgress);
+  window.addEventListener("resize", updateReadingProgress);
+}
+
+function _handleOutputTabKeydown(event) {
+  const supportedKeys = new Set(["ArrowLeft", "ArrowRight", "Home", "End"]);
+  if (!supportedKeys.has(event.key)) {
+    return;
+  }
+
+  const tabs = Array.from(document.querySelectorAll(".editor-tabs [role='tab']"));
+  const currentIndex = tabs.indexOf(event.currentTarget);
+  if (currentIndex < 0 || tabs.length === 0) {
+    return;
+  }
+
+  event.preventDefault();
+
+  let nextIndex = currentIndex;
+  if (event.key === "ArrowRight") {
+    nextIndex = (currentIndex + 1) % tabs.length;
+  } else if (event.key === "ArrowLeft") {
+    nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+  } else if (event.key === "Home") {
+    nextIndex = 0;
+  } else if (event.key === "End") {
+    nextIndex = tabs.length - 1;
+  }
+
+  const nextTab = tabs[nextIndex];
+  if (!nextTab) {
+    return;
+  }
+
+  nextTab.focus();
+  _ctx.activateTab(nextTab.dataset.tab);
 }
 
 // ── 文章 HTML 构建（被 render 和 publish 模块通过 ctx 调用）──
@@ -260,6 +304,20 @@ export function updateEditorWordCount() {
   else el.classList.add("good");
 }
 
+// ── 阅读进度条 ──
+
+export function updateReadingProgress() {
+  const { view } = _ctx;
+  const progressBar = document.querySelector("#readingProgressBar");
+  if (!progressBar || !view.editor) return;
+
+  const editor = view.editor;
+  const scrollTop = editor.scrollTop;
+  const scrollHeight = editor.scrollHeight - editor.clientHeight;
+  const progress = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0;
+  progressBar.style.width = `${Math.min(100, Math.max(0, progress))}%`;
+}
+
 // ── 字段长度提示 ──
 
 export function bindFieldHints() {
@@ -392,4 +450,65 @@ function _loadCustomTemplates() {
     '<option value="">自定义模板...</option>',
     ...names.map((n) => `<option value="${escapeAttribute(n)}">${escapeHtml(n)}</option>`)
   ].join("");
+}
+
+// ── Markdown 粘贴导入 ──
+
+function _handleEditorPaste(event) {
+  const { setStatus, onWorkspaceInput } = _ctx;
+  const text = event.clipboardData.getData("text/plain");
+  if (!text || text.length < 10) return;
+
+  // 简单启发式：如果包含 # 标题或 * 列表，认为是 Markdown
+  const looksLikeMarkdown = /^#+\s/m.test(text) || /^[\-*+]\s/m.test(text) || /\[.*?\]\(.*?\)/.test(text);
+  if (!looksLikeMarkdown) return;
+
+  event.preventDefault();
+  const html = _simpleMarkdownToHtml(text);
+  document.execCommand("insertHTML", false, html);
+  onWorkspaceInput();
+  setStatus("已识别 Markdown 并转换为富文本插入。", "success");
+}
+
+function _simpleMarkdownToHtml(md) {
+  let html = escapeHtml(md);
+
+  // 代码块
+  html = html.replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>");
+
+  // 标题
+  html = html.replace(/^####\s+(.*)$/gm, "<h4>$1</h4>");
+  html = html.replace(/^###\s+(.*)$/gm, "<h3>$1</h3>");
+  html = html.replace(/^##\s+(.*)$/gm, "<h2>$1</h2>");
+  html = html.replace(/^#\s+(.*)$/gm, "<h1>$1</h1>");
+
+  // 粗体 / 斜体
+  html = html.replace(/\*\*\*(.+?)\*\*\*/g, "<strong><em>$1</em></strong>");
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+
+  // 引用
+  html = html.replace(/^&gt;\s+(.*)$/gm, "<blockquote>$1</blockquote>");
+
+  // 无序列表
+  html = html.replace(/^[\-*+]\s+(.*)$/gm, "<li>$1</li>");
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ul>${match}</ul>`);
+
+  // 链接 — 只允许 http/https 协议
+  html = html.replace(/\[(.+?)\]\((.+?)\)/g, (match, text, url) => {
+    const trimmed = (url || "").trim();
+    if (!/^https?:\/\//i.test(trimmed)) {
+      return escapeHtml(match);
+    }
+    return `<a href="${escapeAttribute(trimmed)}">${escapeHtml(text)}</a>`;
+  });
+
+  // 分隔线
+  html = html.replace(/^---$/gm, "<hr />");
+
+  // 段落
+  html = html.replace(/\n\n/g, "</p><p>");
+  html = html.replace(/\n/g, "<br />");
+
+  return `<p>${html}</p>`;
 }

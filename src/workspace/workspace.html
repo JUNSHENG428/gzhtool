@@ -18,7 +18,6 @@
     >
       <div class="loading-spinner" aria-hidden="true"></div>
       <p id="loadingMessage" aria-live="polite">加载中...</p>
-      <button id="cancelLoadingButton" class="ghost loading-cancel-button" hidden>立即停止</button>
     </div>
 
     <div id="firstRunOverlay" class="first-run-overlay" hidden>
@@ -51,7 +50,11 @@
           <button id="firstRunOptionsButton" class="primary">去设置</button>
           <button id="firstRunCaptureButton">已经配置好，抓一篇试试</button>
         </div>
-        <a href="#" id="firstRunHelpLink" class="first-run-help">查看帮助中心</a>
+        <div class="first-run-help-row">
+          <a href="#" id="firstRunHelpLink" class="first-run-help">查看帮助中心</a>
+          <span aria-hidden="true"> · </span>
+          <a href="../pages/welcome.html" class="first-run-help">完整使用指南</a>
+        </div>
       </div>
     </div>
 
@@ -87,6 +90,7 @@
           </button>
           <button id="openOptionsButton" aria-label="打开设置页面">设置</button>
           <button id="openHotTopicsButton" class="ghost" aria-label="打开热点捕捉器页面">热点捕捉</button>
+          <button id="openHelpButton" class="ghost" aria-label="打开帮助中心">帮助</button>
           <button id="historyButton" class="ghost" aria-label="查看历史草稿记录">历史记录</button>
           <button id="captureButton" aria-label="抓取当前浏览器标签页的内容">抓取最近浏览页</button>
           <button id="rewriteButton" class="primary" aria-label="使用 AI 改写当前文章">AI 改写当前篇</button>
@@ -217,9 +221,6 @@
 
             <div class="toolbar-strip">
               <div class="editor-toolbar" role="toolbar" aria-label="正文格式工具栏">
-                <button type="button" data-command="undo" aria-label="撤销">↶ 撤销</button>
-                <button type="button" data-command="redo" aria-label="重做">↷ 重做</button>
-                <span class="editor-toolbar-sep" aria-hidden="true"></span>
                 <button data-command="formatBlock" data-value="h2" aria-label="设为二级标题">H2</button>
                 <button data-command="formatBlock" data-value="h3" aria-label="设为三级标题">H3</button>
                 <button data-command="formatBlock" data-value="p" aria-label="设为正文段落">正文</button>
@@ -240,14 +241,6 @@
                 </select>
                 <button id="saveTemplateButton" class="ghost" title="保存当前选区为新模板" aria-label="保存当前选区为自定义模板">+ 保存模板</button>
               </div>
-            </div>
-
-            <div id="rewriteDiffBar" class="rewrite-diff-bar" hidden>
-              <span class="rewrite-diff-bar-text"
-                >AI 已改写（<span id="rewriteDiffBarTime">0</span> 秒前） ·
-              </span>
-              <button type="button" id="rewriteDiffViewBtn" class="ghost sm">查看改动</button>
-              <button type="button" id="rewriteDiffUndoBtn" class="ghost sm">撤销改写</button>
             </div>
 
             <div
@@ -312,26 +305,6 @@
             </div>
 
             <div id="publishResult" class="publish-result"></div>
-            <div
-              id="pollProgress"
-              class="publish-result poll-progress"
-              hidden
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-            >
-              <div class="poll-progress-header">
-                <span class="poll-progress-text" id="pollProgressText">正在查询发布状态</span>
-                <div class="poll-progress-ring-wrap" aria-hidden="true">
-                  <div class="poll-progress-ring" id="pollProgressRing"></div>
-                  <span class="poll-progress-countdown" id="pollProgressCountdown">8</span>
-                </div>
-              </div>
-              <div class="poll-progress-actions">
-                <button id="pollManualButton" class="ghost" style="padding:7px 12px;font-size:13px">手动查询</button>
-                <button id="pollStopButton" class="ghost" style="padding:7px 12px;font-size:13px;color:#c0392b">停止自动查询</button>
-              </div>
-            </div>
             <div id="webEditorSyncResult" class="publish-result secondary-result"></div>
           </section>
 
@@ -409,31 +382,6 @@
       </main>
 
       <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
-    </div>
-
-    <div id="rewriteDiffBackdrop" class="command-palette-backdrop" hidden>
-      <div
-        id="rewriteDiffDialog"
-        class="command-palette panel rewrite-diff-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="rewriteDiffTitle"
-      >
-        <div class="rewrite-diff-dialog-head">
-          <h2 id="rewriteDiffTitle" class="rewrite-diff-title">改写对比</h2>
-          <button type="button" id="rewriteDiffCloseBtn" class="ghost">关闭</button>
-        </div>
-        <div class="rewrite-diff-columns">
-          <div class="rewrite-diff-col">
-            <span class="rewrite-diff-col-label">改写前</span>
-            <div id="rewriteDiffLeft" class="rewrite-diff-pane"></div>
-          </div>
-          <div class="rewrite-diff-col">
-            <span class="rewrite-diff-col-label">改写后</span>
-            <div id="rewriteDiffRight" class="rewrite-diff-pane"></div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <div id="historyDrawerBackdrop" class="drawer-backdrop" hidden></div>

@@ -5,7 +5,7 @@
  */
 
 import { WECHAT_WEB_EDITOR_URL, THEME_PRESETS } from "../shared/defaults.js";
-import { escapeHtml, escapeAttribute, normalizeText } from "../shared/utils.js";
+import { escapeHtml, escapeAttribute, normalizeText, sanitizeHtml } from "../shared/utils.js";
 
 let _ctx;
 
@@ -156,7 +156,7 @@ export function renderCoverPreview() {
   const { view } = _ctx;
   const image = _ctx.getCoverImageForArticle(_ctx.getCurrentArticle());
   if (!image?.src) {
-    view.coverPreview.innerHTML = "<p>还没有封面图。请在左侧来源图片里点"设为封面"。</p>";
+    view.coverPreview.innerHTML = '<p>还没有封面图。请在左侧来源图片里点“设为封面”。</p>';
     return;
   }
   view.coverPreview.innerHTML = `
@@ -232,6 +232,20 @@ function renderPublishResult() {
   if (statusInfo?.failIndex?.length) {
     lines.push(`失败篇目：第 ${statusInfo.failIndex.join("、")} 篇`);
   }
+
+  const failedImages = state.lastPublishResult.failedImages || [];
+  if (failedImages.length > 0) {
+    lines.push(
+      `<strong style="color:#c0392b">以下图片上传失败：</strong>` +
+      failedImages
+        .map(
+          (f) =>
+            `<br/>· 第 ${f.articleIndex} 篇 · ${f.type === "cover" ? "封面" : "正文图片"}：${escapeHtml(f.error || "上传失败")}`
+        )
+        .join("")
+    );
+  }
+
   view.publishResult.innerHTML = lines.join("<br />");
 }
 
@@ -265,7 +279,7 @@ function renderWebEditorSyncResult() {
 function renderPreview() {
   const { view, state } = _ctx;
   const article = _ctx.getCurrentArticle();
-  const bodyHtml = _ctx.buildExportHtmlForArticle(article);
+  const bodyHtml = sanitizeHtml(_ctx.buildExportHtmlForArticle(article));
   view.wechatPreview.innerHTML = `
     <header class="preview-header">
       <h1>${escapeHtml(article.meta.title || "未命名文章")}</h1>

@@ -1,19 +1,10 @@
 import { requestRewrite, testAiConnection } from "../shared/ai.js";
 import { getSession, getSettings, saveSession } from "../shared/storage.js";
 import { WECHAT_WEB_EDITOR_URL } from "../shared/defaults.js";
-import { classifyError, ErrorCode } from "../shared/errors.js";
-import { publishToWechat, queryPublishStatus, validateWechatCredentials } from "../shared/wechat.js";
+import { classifyError } from "../shared/errors.js";
+import { publishToWechat, queryPublishStatus, testWechatConnection } from "../shared/wechat.js";
 import { sleep } from "../shared/utils.js";
-import {
-  DEFAULT_HOT_TOPIC_SOURCE_IDS,
-  HOT_TOPIC_SOURCE_MAP,
-  HOT_TOPICS_CACHE_STORAGE_KEY,
-  buildHotTopicsCacheKey,
-  fetchHotTopicSourceItems,
-  getFreshHotTopicsCacheEntry,
-  normalizeHotTopicsLimit,
-  pruneHotTopicsCache
-} from "../shared/hot-topics-sources.js";
+import { fetchHotTopics } from "../shared/hot-topics.js";
 
 const MAX_RETRIES = 2;
 
@@ -26,6 +17,41 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     });
   }
 });
+
+if (chrome.commands?.onCommand) {
+  chrome.commands.onCommand.addListener(async (command) => {
+    try {
+      switch (command) {
+        case "capture_current_page": {
+          const tab = await getCurrentActiveTab();
+          if (tab?.id) {
+            await rememberTab(tab.id);
+          }
+          await openWorkspace(true);
+          break;
+        }
+        case "open_workspace": {
+          await openWorkspace(false);
+          break;
+        }
+        case "open_hot_topics": {
+          await chrome.tabs.create({
+            url: chrome.runtime.getURL("src/pages/hot-topics.html")
+          });
+          break;
+        }
+        case "open_options": {
+          await chrome.runtime.openOptionsPage();
+          break;
+        }
+        default:
+          break;
+      }
+    } catch (error) {
+      console.warn("[gzh] command failed:", command, error);
+    }
+  });
+}
 
 chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   await rememberTab(tabId);
@@ -57,25 +83,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "PREPARE_SOURCE_AND_OPEN_WORKSPACE": {
-        const prefetchUrl = String(message.payload?.prefetchUrl || "").trim();
-        if (prefetchUrl) {
-          try {
-            const capture = await scrapeBackgroundSilent(prefetchUrl);
-            await openWorkspace(false);
-            sendResponse({
-              ok: true,
-              data: {
-                opened: true,
-                title: capture?.title || "",
-                url: prefetchUrl
-              }
-            });
-          } catch (e) {
-            sendResponse({ ok: false, error: classifyError(e, { stage: "scrape" }) });
-          }
-          break;
-        }
-
         const tab = await getCurrentActiveTab();
         if (tab?.id) {
           await rememberTab(tab.id);
@@ -90,174 +97,83 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "SCRAPE_BACKGROUND_AND_IMPORT": {
-        try {
-          const capture = await scrapeBackgroundSilent(message.payload.url);
-          sendResponse({ ok: true, data: capture });
-        } catch (e) {
-          sendResponse({ ok: false, error: classifyError(e, { stage: "scrape" }) });
-        }
+        const capture = await scrapeBackgroundSilent(message.payload.url);
+        sendResponse({ ok: true, data: capture });
         break;
       }
       case "SCRAPE_LAST_SOURCE_TAB": {
-        try {
-          const capture = await scrapeLastSourceTab();
-          await saveSession({ lastCapture: capture });
-          sendResponse({ ok: true, data: capture });
-        } catch (e) {
-          sendResponse({ ok: false, error: classifyError(e, { stage: "scrape" }) });
-        }
+        const capture = await scrapeLastSourceTab();
+        await saveSession({ lastCapture: capture });
+        sendResponse({ ok: true, data: capture });
         break;
       }
       case "REWRITE_ARTICLE": {
-        try {
-          const settings = await getSettings();
-          const article = await withRetry(
-            () =>
-              requestRewrite(
-                settings,
-                message.payload.source,
-                message.payload.preferences || {}
-              ),
-            MAX_RETRIES,
-            "AI 改写"
-          );
-          await saveSession({ lastDraft: article });
-          sendResponse({ ok: true, data: article });
-        } catch (e) {
-          sendResponse({ ok: false, error: classifyError(e, { stage: "rewrite" }) });
-        }
+        const settings = await getSettings();
+        const article = await withRetry(
+          () =>
+            requestRewrite(
+              settings,
+              message.payload.source,
+              message.payload.preferences || {}
+            ),
+          MAX_RETRIES,
+          "AI 改写"
+        );
+        await saveSession({ lastDraft: article });
+        sendResponse({ ok: true, data: article });
         break;
       }
       case "TEST_AI_CONNECTION": {
-        try {
-          const result = await testAiConnection(message.payload || {});
-          sendResponse(result);
-        } catch (e) {
-          sendResponse({ ok: false, error: classifyError(e, { stage: "test-ai" }) });
-        }
+        const result = await testAiConnection(message.payload || {});
+        sendResponse(result);
         break;
       }
       case "TEST_WECHAT_CONNECTION": {
-        const appId = String(message.payload?.appId ?? "").trim();
-        const appSecret = String(message.payload?.appSecret ?? "").trim();
-        if (!appId) {
-          sendResponse({
-            ok: false,
-            error: { code: ErrorCode.UNKNOWN, message: "请先填写公众号 AppID。", retryable: false }
-          });
-          break;
-        }
-        if (!appSecret) {
-          sendResponse({
-            ok: false,
-            error: { code: ErrorCode.UNKNOWN, message: "请先填写公众号 AppSecret。", retryable: false }
-          });
-          break;
-        }
-
-        const result = await validateWechatCredentials({ appId, appSecret });
-
-        if (result.ok) {
-          sendResponse({
-            ok: true,
-            data: { message: "凭证有效", ipSeen: result.ipSeen }
-          });
-          break;
-        }
-
-        const errmsg = String(result.errmsg || "");
-        const ipSeen = result.ipSeen;
-
-        if (result.errcode === 40013 || result.errcode === 40125) {
-          sendResponse({
-            ok: false,
-            error: classifyError(
-              new Error(`微信验证失败：${errmsg}（errcode ${result.errcode}）`),
-              { stage: "test-wechat" }
-            )
-          });
-          break;
-        }
-
-        if (result.errcode === 40164) {
-          sendResponse({
-            ok: false,
-            error: {
-              code: ErrorCode.WECHAT_IP_NOT_WHITELISTED,
-              message:
-                "公众号后台开启了 IP 白名单限制，请将当前出口 IP 加入公众号「开发 → 基本配置 → IP 白名单」。",
-              retryable: false,
-              ipSeen
-            }
-          });
-          break;
-        }
-
-        if (result.errcode != null) {
-          sendResponse({
-            ok: false,
-            error: {
-              code: ErrorCode.UNKNOWN,
-              message: errmsg || "微信接口返回错误。",
-              retryable: false
-            }
-          });
-          break;
-        }
-
-        sendResponse({
-          ok: false,
-          error: {
-            code: ErrorCode.UNKNOWN,
-            message: errmsg || "微信验证失败。",
-            retryable: false
-          }
+        const result = await testWechatConnection({
+          appId: message.payload?.appId,
+          appSecret: message.payload?.appSecret
         });
+        sendResponse(result);
         break;
       }
       case "PUBLISH_TO_WECHAT": {
-        try {
-          const settings = await getSettings();
-          const result = await publishToWechat(settings, message.payload);
-          sendResponse({ ok: true, data: result });
-        } catch (e) {
-          const errorObj = classifyError(e, { stage: "publish" });
-          if (e.publishState) {
-            errorObj.publishState = e.publishState;
-          }
-          if (e.failedImages) {
-            errorObj.failedImages = e.failedImages;
-          }
-          sendResponse({ ok: false, error: errorObj });
-        }
+        const settings = await getSettings();
+        const result = await withRetry(
+          () => publishToWechat(settings, message.payload),
+          MAX_RETRIES,
+          "公众号发布"
+        );
+        sendResponse({ ok: true, data: result });
         break;
       }
       case "GET_WECHAT_PUBLISH_STATUS": {
-        try {
-          const settings = await getSettings();
-          const result = await queryPublishStatus(settings, message.payload.publishId);
-          sendResponse({ ok: true, data: result });
-        } catch (e) {
-          sendResponse({ ok: false, error: classifyError(e, { stage: "publish" }) });
-        }
+        const settings = await getSettings();
+        const result = await queryPublishStatus(settings, message.payload.publishId);
+        sendResponse({ ok: true, data: result });
         break;
       }
       case "SYNC_TO_WECHAT_WEB_EDITOR": {
-        try {
-          const result = await withRetry(
-            () => syncToWechatWebEditor(message.payload),
-            MAX_RETRIES,
-            "网页编辑器同步"
-          );
-          sendResponse({ ok: true, data: result });
-        } catch (e) {
-          sendResponse({ ok: false, error: classifyError(e, { stage: "sync-web-editor" }) });
-        }
+        const result = await withRetry(
+          () => syncToWechatWebEditor(message.payload),
+          MAX_RETRIES,
+          "网页编辑器同步"
+        );
+        sendResponse({ ok: true, data: result });
         break;
       }
       case "FETCH_HOT_TOPICS": {
-        const result = await fetchGroupedHotTopics(message.payload || {});
-        sendResponse({ ok: true, data: result });
+        const result = await fetchHotTopics(
+          message.payload?.source || "zhihu",
+          message.payload?.forceRefresh || false
+        );
+        if (result.ok) {
+          sendResponse({ ok: true, data: result.payload });
+        } else {
+          sendResponse({
+            ok: false,
+            error: { code: "HOT_TOPICS", message: result.message, retryable: true }
+          });
+        }
         break;
       }
       default:
@@ -364,89 +280,6 @@ async function waitForTabComplete(tabId, timeoutMs = 25000) {
     throw new Error("公众号网页编辑器标签页不可用。");
   }
   return tab;
-}
-
-async function fetchGroupedHotTopics(payload = {}) {
-  const requestedSourceIds =
-    Array.isArray(payload.sourceIds) && payload.sourceIds.length > 0
-      ? payload.sourceIds.filter((sourceId) => HOT_TOPIC_SOURCE_MAP[sourceId])
-      : DEFAULT_HOT_TOPIC_SOURCE_IDS;
-  const sourceIds = [...new Set(requestedSourceIds)];
-  const limit = normalizeHotTopicsLimit(payload.limit, 12);
-  const now = new Date();
-  const settings = await getSettings();
-  const stored = await chrome.storage.local.get(HOT_TOPICS_CACHE_STORAGE_KEY);
-  const cacheStore =
-    stored?.[HOT_TOPICS_CACHE_STORAGE_KEY] && typeof stored[HOT_TOPICS_CACHE_STORAGE_KEY] === "object"
-      ? { ...stored[HOT_TOPICS_CACHE_STORAGE_KEY] }
-      : {};
-  const nextCacheStore = { ...cacheStore };
-
-  const settled = await Promise.allSettled(
-    sourceIds.map(async (sourceId) => {
-      const source = HOT_TOPIC_SOURCE_MAP[sourceId];
-      const cached = getFreshHotTopicsCacheEntry(cacheStore, sourceId, now);
-      if (cached) {
-        return {
-          sourceId,
-          sourceName: cached.sourceName || source?.name || sourceId,
-          items: (cached.items || []).slice(0, limit),
-          fetchedAt: cached.fetchedAt || "",
-          fromCache: true,
-          error: ""
-        };
-      }
-
-      const fresh = await fetchHotTopicSourceItems(sourceId, settings, limit);
-      const cacheKey = buildHotTopicsCacheKey(sourceId, now);
-      nextCacheStore[cacheKey] = {
-        cacheKey,
-        sourceId,
-        sourceName: fresh.sourceName,
-        items: fresh.items,
-        fetchedAt: fresh.fetchedAt,
-        endpoint: fresh.endpoint
-      };
-
-      return {
-        sourceId,
-        sourceName: fresh.sourceName,
-        items: fresh.items,
-        fetchedAt: fresh.fetchedAt,
-        fromCache: false,
-        error: ""
-      };
-    })
-  );
-
-  const groups = {};
-  sourceIds.forEach((sourceId, index) => {
-    const source = HOT_TOPIC_SOURCE_MAP[sourceId];
-    const result = settled[index];
-    if (result?.status === "fulfilled") {
-      groups[sourceId] = result.value;
-      return;
-    }
-
-    groups[sourceId] = {
-      sourceId,
-      sourceName: source?.name || sourceId,
-      items: [],
-      fetchedAt: "",
-      fromCache: false,
-      error: "该源暂时不可用"
-    };
-  });
-
-  await chrome.storage.local
-    .set({ [HOT_TOPICS_CACHE_STORAGE_KEY]: pruneHotTopicsCache(nextCacheStore, now) })
-    .catch(() => {});
-
-  return {
-    groups,
-    sourceOrder: sourceIds,
-    fetchedAt: now.toISOString()
-  };
 }
 
 async function rememberTab(tabId) {

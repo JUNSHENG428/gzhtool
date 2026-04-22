@@ -1,0 +1,23 @@
+{
+  "name": "gzh-extension",
+  "private": true,
+  "version": "0.3.2",
+  "description": "Chrome Manifest V3 扩展：抓取网页、AI 改写、公众号多图文草稿与发布、热点捕捉。版本号由 manifest.json 驱动，发布前请执行 npm run version:sync。",
+  "scripts": {
+    "check:js": "node scripts/check-js.mjs",
+    "test:smoke": "node scripts/smoke.mjs",
+    "test": "npm run test:smoke",
+    "fonts:sync": "bash scripts/sync-fonts.sh",
+    "version:sync": "node scripts/version-sync.mjs"
+  },
+  "keywords": ["chrome-extension", "wechat", "mp", "manifest-v3"],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@fontsource/dm-sans": "^5.2.8",
+    "@fontsource/noto-serif-sc": "^5.2.9"
+  }
+}

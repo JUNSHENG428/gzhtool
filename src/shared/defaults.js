@@ -26,8 +26,7 @@ export const DEFAULT_SETTINGS = {
   wechatDefaultOpenComment: false,
   wechatDefaultOnlyFansCanComment: false,
   wechatProfiles: [],
-  activeWechatProfileIndex: -1,
-  rsshubBaseUrl: "https://rsshub.app"
+  activeWechatProfileIndex: -1
 };
 
 export const DEFAULT_ARTICLE_META = {
