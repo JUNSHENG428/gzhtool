@@ -43,7 +43,12 @@ else:
     candidate = None
 icon_path = str(candidate) if candidate and candidate.exists() else None
 if candidate and not candidate.exists():
-    print(f"⚠  未找到图标文件 {candidate}，使用系统默认图标。要换图标请把 icns/ico 放到 desktop/assets/。")
+    # 这里必须用纯 ASCII：Windows runner 的 cmd 默认 codepage 是 cp1252/cp936，
+    # 写非 ASCII 字符到 stdout 会抛 UnicodeEncodeError 让整个 PyInstaller 挂掉。
+    sys.stderr.write(
+        f"WARN: icon file not found at {candidate}, falling back to system default. "
+        "Drop an icns (mac) / ico (win) into desktop/assets/ to override.\n"
+    )
 
 # —— 资源文件（PyInstaller 解压后会落到 sys._MEIPASS 下 src/content-scripts/...） —— #
 datas = [

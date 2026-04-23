@@ -10,6 +10,14 @@ REM   pip install -r desktop\requirements.txt
 
 setlocal enabledelayedexpansion
 
+REM 把 cmd codepage 切成 UTF-8（65001），这样 echo 的中文 + PyInstaller 的
+REM 任何非 ASCII 输出都不会触发 UnicodeEncodeError。> nul 抑制 chcp 自身打印。
+chcp 65001 > nul
+
+REM 让 Python 默认按 UTF-8 编码处理 stdout/stderr，pip / PyInstaller 输出更稳
+set PYTHONIOENCODING=utf-8
+set PYTHONUTF8=1
+
 REM 切到仓库根
 cd /d "%~dp0\..\.."
 
