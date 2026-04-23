@@ -67,10 +67,10 @@ formEl?.addEventListener("submit", async (e) => {
       // worker 重置成功后会直接发新 JWT，自动登录 + 跳 dashboard
       setToken(data.token);
       setFeedback("密码已更新，正在跳转到控制台…", "success");
-      setTimeout(() => { location.href = "./dashboard.html"; }, 500);
+      setTimeout(() => { location.href = "./dashboard"; }, 500);
     } else {
       setFeedback("已重置，请使用新密码登录。", "success");
-      setTimeout(() => { location.href = "./login.html"; }, 800);
+      setTimeout(() => { location.href = "./login"; }, 800);
     }
   } catch (error) {
     setFeedback(error?.message || "重置失败，请重新申请链接。", "error");

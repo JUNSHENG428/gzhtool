@@ -39,7 +39,7 @@ let mode = "login";
 document.addEventListener("DOMContentLoaded", () => {
   // 已登录直接跳 dashboard，避免重复登录
   if (getToken()) {
-    location.href = "./dashboard.html";
+    location.href = "./dashboard";
     return;
   }
   if (location.search.includes("from=expired")) {
@@ -129,7 +129,7 @@ formEl.addEventListener("submit", async (event) => {
       }
       setFeedback(mode === "register" ? "注册成功，正在跳转…" : "登录成功，正在跳转…", "success");
       setTimeout(() => {
-        location.href = "./dashboard.html";
+        location.href = "./dashboard";
       }, 380);
     } else {
       setFeedback("服务器未返回 token，请稍后重试。", "error");

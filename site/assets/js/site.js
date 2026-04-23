@@ -61,8 +61,8 @@ async function renderNavCta() {
   const token = getToken();
   if (!token) {
     cta.innerHTML = `
-      <a class="btn btn-ghost" href="./login.html">登录</a>
-      <a class="btn btn-primary" href="./pricing.html">购买 Pro</a>
+      <a class="btn btn-ghost" href="./login">登录</a>
+      <a class="btn btn-primary" href="./pricing">购买 Pro</a>
     `;
     return;
   }
@@ -70,7 +70,7 @@ async function renderNavCta() {
     const data = await auth.me();
     const email = data?.user?.email || "我的账号";
     cta.innerHTML = `
-      <a class="btn btn-ghost" href="./dashboard.html" title="${escapeAttr(email)}">控制台</a>
+      <a class="btn btn-ghost" href="./dashboard" title="${escapeAttr(email)}">控制台</a>
       <button class="btn btn-primary" type="button" data-action="logout">退出</button>
     `;
     cta.querySelector('[data-action="logout"]')?.addEventListener("click", () => {
@@ -80,8 +80,8 @@ async function renderNavCta() {
   } catch {
     // token 失效已经被 api.js 处理（自动跳转），这里直接显示未登录
     cta.innerHTML = `
-      <a class="btn btn-ghost" href="./login.html">登录</a>
-      <a class="btn btn-primary" href="./pricing.html">购买 Pro</a>
+      <a class="btn btn-ghost" href="./login">登录</a>
+      <a class="btn btn-primary" href="./pricing">购买 Pro</a>
     `;
   }
 }

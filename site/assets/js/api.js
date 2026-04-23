@@ -47,8 +47,10 @@ export function clearToken() {
 
 let _onUnauthorized = () => {
   clearToken();
-  if (typeof window !== "undefined" && !location.pathname.endsWith("/login.html")) {
-    location.href = "./login.html?from=expired";
+  // pathname 在 Cloudflare Pages 上既可能是 /login 也可能是 /login.html
+  // （取决于用户是不是直接输的带后缀地址），两种都不要再循环跳。
+  if (typeof window !== "undefined" && !/\/login(\.html)?$/.test(location.pathname)) {
+    location.href = "./login?from=expired";
   }
 };
 

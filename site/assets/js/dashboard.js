@@ -42,7 +42,7 @@ const els = {
 
 document.addEventListener("DOMContentLoaded", () => {
   if (!getToken()) {
-    location.href = "./login.html";
+    location.href = "./login";
     return;
   }
   void hydrate();
@@ -54,7 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
 function bindGlobalActions() {
   els.logoutBtn?.addEventListener("click", () => {
     clearToken();
-    location.href = "./login.html";
+    location.href = "./login";
   });
   els.changePwBtn?.addEventListener("click", () => openModal(els.changePwModal));
 
@@ -152,7 +152,7 @@ function renderLicenseList(lic) {
   if (!keys.length) {
     els.list.innerHTML = `
       <div class="empty-state">
-        还没有 License。<a href="./pricing.html">购买 Pro</a> 后会立即出现在这里。
+        还没有 License。<a href="./pricing">购买 Pro</a> 后会立即出现在这里。
       </div>
     `;
     return;
