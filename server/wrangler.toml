@@ -37,11 +37,11 @@ id      = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
 # ---------------- 公开变量（可明文） ----------------
 [vars]
 # 允许跨域访问的 Origin。多个用逗号分隔；插件端 chrome-extension://xxx 也写在这里。
-# 部署生产前一定要把 chrome-extension://* 替换成你正式扩展的 ID。
-ALLOWED_ORIGINS = "https://your-marketing-site.pages.dev,chrome-extension://*"
+# 上线前请把 chrome-extension://* 替换成你正式扩展 ID（chrome://extensions 里能看到）。
+ALLOWED_ORIGINS = "https://docuearn.com,https://www.docuearn.com,chrome-extension://*"
 
 # 官网 dashboard 域名（用于注册/重置密码邮件、Lemon Squeezy 回跳）
-SITE_URL = "https://your-marketing-site.pages.dev"
+SITE_URL = "https://docuearn.com"
 
 # Lemon Squeezy store id 和 product/variant id（webhook 里用作过滤）
 LS_STORE_ID    = ""

@@ -18,10 +18,10 @@ export const SITE_CONFIG = {
   /** 当前站点自身域名（用于 success / cancel URL 回流；也写死在 worker 的 SITE_BASE 环境变量） */
   SITE_BASE:
     (typeof location !== "undefined" && location.origin) ||
-    "https://gzh.example.com",
+    "https://docuearn.com",
 
   /** Cloudflare Worker 的对外完整 URL；同时被 api.js 读取（meta 优先级更高） */
-  WORKER_BASE: "https://gzh-license.workers.dev",
+  WORKER_BASE: "https://api.docuearn.com",
 
   /** Lemon Squeezy checkout 链接；按 variant 维度对应到 [data-checkout="xxx"] 按钮 */
   LEMON_LINKS: {
@@ -36,6 +36,6 @@ export const SITE_CONFIG = {
   CHECKOUT_SUCCESS_URL: "/dashboard.html?from=checkout&result=success",
   CHECKOUT_CANCEL_URL: "/pricing.html?from=checkout&result=cancel",
 
-  /** 客服 / 反馈邮箱 */
-  SUPPORT_EMAIL: "hello@example.com"
+  /** 客服 / 反馈邮箱 —— 上线前替换 */
+  SUPPORT_EMAIL: "hello@docuearn.com"
 };

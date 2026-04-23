@@ -33,7 +33,7 @@ const STORAGE_DEVICE = "wechatWriterLicenseDevice";
 // 兼容老的导出，避免外部代码 import 报错
 export const LICENSE_STORAGE_KEY = STORAGE_LICENSE;
 
-const DEFAULT_API_BASE = "https://gzh-license.example.workers.dev";
+const DEFAULT_API_BASE = "https://api.docuearn.com";
 const VERIFY_INTERVAL_MS = 24 * 60 * 60 * 1000;       // 24h 主动复验
 const STALE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;        // 7 天宽限期
 const FREE_DAILY_REWRITE_QUOTA = 5;                    // 与 worker FREE_DAILY_AI_QUOTA 对齐
