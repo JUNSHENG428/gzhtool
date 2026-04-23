@@ -2,16 +2,12 @@ export const HOT_TOPICS_CACHE_STORAGE_KEY = "hotTopicsCache";
 export const HOT_TOPICS_CACHE_TTL_MS = 15 * 60 * 1000;
 
 const DEFAULT_RSSHUB_BASE_URL = "https://rsshub.app";
-const TOPHUB_HOT_ENDPOINT = "https://open.tophub.today/hot?limit=500";
-const FREEJK_ZHIHU_ENDPOINT = "https://api.freejk.com/shuju/hotlist/zhihu";
-const GUIGUI_WEIBO_ENDPOINT = "https://api.guiguiya.com/api/hotlist?type=weibo";
-const GUIGUI_JUEJIN_ENDPOINT = "https://api.guiguiya.com/api/hotlist?type=juejin";
-const IYUNS_WEIBO_ENDPOINT = "https://api.iyuns.com/api/weibohot";
-const XXAPI_WEIBO_ENDPOINT = "https://v2.xxapi.cn/api/weibohot";
-const KR36_ENDPOINT = "https://api.iyuns.com/api/hot36kr";
-const KR36_BACKUP_ENDPOINT = "https://v2.xxapi.cn/api/hot36kr";
 
-// AI & Tech RSS feeds
+// AI & Tech RSS feeds —— 这是本文件唯一被外部触发的路径
+// （仅当 HOT_SOURCE_META[id].rss === true 时进入；
+//  zhihu/weibo/juejin 等中文聚合源走 hot-topics.js → DailyHotApi 链路，
+//  原本写在这里的 freejk/iyuns/xxapi/guiguiya 野鸡接口已确认是死代码，
+//  在 2026-04 清理掉了。再加新源请走 DailyHotApi 自托或 RSS。）
 const TECHCRUNCH_RSS = "https://techcrunch.com/feed/";
 const THE_VERGE_RSS = "https://www.theverge.com/rss/index.xml";
 const ARXIV_AI_RSS = "https://rss.arxiv.org/rss/cs.AI";
@@ -23,48 +19,6 @@ const LEIPHONE_RSS = "https://www.leiphone.com/feed";
 const HACKER_NEWS_RSS = "https://hnrss.org/newest?points=100";
 
 export const HOT_TOPIC_SOURCES = [
-  {
-    id: "zhihu",
-    name: "知乎热榜",
-    endpoint: FREEJK_ZHIHU_ENDPOINT,
-    parser: parseFreeJkZhihu,
-    fallbacks: [{ endpoint: TOPHUB_HOT_ENDPOINT, parser: parseTophubZhihu }]
-  },
-  {
-    id: "weibo",
-    name: "微博热搜",
-    endpoint: IYUNS_WEIBO_ENDPOINT,
-    parser: parseIyunsWeibo,
-    fallbacks: [
-      { endpoint: XXAPI_WEIBO_ENDPOINT, parser: parseIyunsWeibo },
-      { endpoint: GUIGUI_WEIBO_ENDPOINT, parser: parseGuiguiWeibo }
-    ]
-  },
-  {
-    id: "juejin",
-    name: "掘金热榜",
-    endpoint: GUIGUI_JUEJIN_ENDPOINT,
-    parser: parseGuiguiJuejin
-  },
-  {
-    id: "v2ex",
-    name: "V2EX Hot",
-    endpoint: "https://www.v2ex.com/api/topics/hot.json",
-    parser: parseV2exTopics
-  },
-  {
-    id: "hackernews",
-    name: "Hacker News",
-    endpoint: "https://hn.algolia.com/api/v1/search?tags=front_page",
-    parser: parseHackerNews
-  },
-  {
-    id: "36kr",
-    name: "36 氪快讯",
-    endpoint: KR36_ENDPOINT,
-    parser: parse36KrHot,
-    fallbacks: [{ endpoint: KR36_BACKUP_ENDPOINT, parser: parse36KrHot }]
-  },
   {
     id: "techcrunch",
     name: "TechCrunch",
@@ -328,183 +282,6 @@ function readAtomLinkHref(xml) {
   return match?.[1] || "";
 }
 
-function parseTophubZhihu(payload, source) {
-  const json = safeJsonParse(payload?.bodyText);
-  const rawItems = Array.isArray(json?.data?.items) ? json.data.items : [];
-  const items = rawItems.filter(
-    (item) =>
-      (item?.sitename === "知乎" || item?.domain === "zhihu.com") &&
-      String(item?.nodeids || "")
-        .split(",")
-        .includes("6")
-  );
-
-  if (items.length === 0) {
-    throw new Error("知乎热榜聚合结果为空。");
-  }
-
-  return items.map((item) => ({
-    title: item.title,
-    url: item.url,
-    hotScore: item.extra || item.views || "",
-    summary: trimText(item.description || item.views || "", 140),
-    source: source.name,
-    publishedAt: normalizeDateValue(Number(item.time) ? Number(item.time) * 1000 : "")
-  }));
-}
-
-function parseFreeJkZhihu(payload, source) {
-  const json = safeJsonParse(payload?.bodyText);
-  const rawItems = Array.isArray(json?.data) ? json.data : [];
-  if (rawItems.length === 0) {
-    throw new Error("知乎热榜暂时不可用。");
-  }
-
-  return rawItems.map((item) => ({
-    title: item.title,
-    url: item.mobileUrl || item.url,
-    hotScore: formatLargeCount(item.hot),
-    summary: trimText(item.desc || "", 140),
-    source: source.name,
-    publishedAt: normalizeDateValue(item.timestamp)
-  }));
-}
-
-function parseIyunsWeibo(payload, source) {
-  const json = safeJsonParse(payload?.bodyText);
-  const rawItems = Array.isArray(json?.data) ? json.data : [];
-  if (rawItems.length === 0) {
-    throw new Error("微博热搜暂时不可用。");
-  }
-
-  const publishedAt = new Date().toISOString();
-  return rawItems.map((item) => ({
-    title: item.title,
-    url: item.url,
-    hotScore: item.hot || "",
-    summary: `微博热搜第 ${item.index || "-"} 位`,
-    source: source.name,
-    publishedAt
-  }));
-}
-
-function parseGuiguiWeibo(payload, source) {
-  const json = safeJsonParse(payload?.bodyText);
-  const rawItems = Array.isArray(json?.data) ? json.data : [];
-  if (!json?.success || rawItems.length === 0) {
-    throw new Error("微博热搜暂时不可用。");
-  }
-
-  const publishedAt = normalizeDateValue(json.update_time);
-  return rawItems.map((item) => ({
-    title: item.title,
-    url: item.mobilUrl || item.url,
-    hotScore: item.hot || "",
-    summary: `微博热搜第 ${item.index || "-"} 位`,
-    source: source.name,
-    publishedAt
-  }));
-}
-
-function parseGuiguiJuejin(payload, source) {
-  const json = safeJsonParse(payload?.bodyText);
-  const rawItems = Array.isArray(json?.data) ? json.data : [];
-  if (!json?.success || rawItems.length === 0) {
-    throw new Error("掘金热榜暂时不可用。");
-  }
-
-  const publishedAt = normalizeDateValue(json.update_time);
-  return rawItems.map((item) => ({
-    title: item.title,
-    url: item.url,
-    hotScore: item.hot_rank ? `${item.hot_rank}` : "",
-    summary: [
-      item.author && `作者 ${item.author}`,
-      item.view && `${item.view} 阅读`,
-      item["点赞"] && `${item["点赞"]} 赞`,
-      item["收藏"] && `${item["收藏"]} 收藏`,
-      item["评论"] && `${item["评论"]} 评论`
-    ]
-      .filter(Boolean)
-      .join(" · "),
-    source: source.name,
-    publishedAt
-  }));
-}
-
-function parse36KrHot(payload, source) {
-  const json = safeJsonParse(payload?.bodyText);
-  const rawItems = Array.isArray(json?.data) ? json.data : [];
-  if (rawItems.length === 0) {
-    throw new Error("36 氪快讯暂时不可用。");
-  }
-
-  return rawItems.map((item) => {
-    const material = item?.templateMaterial || {};
-    const itemId = material.itemId || item.itemId;
-    return {
-      title: material.widgetTitle || "",
-      url: itemId ? `https://36kr.com/p/${itemId}` : "",
-      hotScore: material.statFormat || "",
-      summary: [
-        material.authorName && `作者 ${material.authorName}`,
-        material.statRead && `${material.statRead} 阅读`,
-        material.statPraise && `${material.statPraise} 赞`,
-        material.statComment && `${material.statComment} 评论`
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      source: source.name,
-      publishedAt: normalizeDateValue(material.publishTime || item.publishTime)
-    };
-  });
-}
-
-function parseV2exTopics(payload, source) {
-  const rawItems = safeJsonParse(payload?.bodyText);
-  if (!Array.isArray(rawItems) || rawItems.length === 0) {
-    throw new Error("V2EX 暂时不可用。");
-  }
-
-  return rawItems.map((item) => ({
-    title: item.title,
-    url: item.url,
-    hotScore: item.replies ? `${item.replies} 回复` : "",
-    summary: [
-      item.node?.title,
-      item.member?.username && `作者 ${item.member.username}`,
-      trimText(item.content || "", 90)
-    ]
-      .filter(Boolean)
-      .join(" · "),
-    source: source.name,
-    publishedAt: normalizeDateValue(Number(item.created) ? Number(item.created) * 1000 : "")
-  }));
-}
-
-function parseHackerNews(payload, source) {
-  const json = safeJsonParse(payload?.bodyText);
-  const rawItems = Array.isArray(json?.hits) ? json.hits : [];
-  if (rawItems.length === 0) {
-    throw new Error("Hacker News 暂时不可用。");
-  }
-
-  return rawItems.map((item) => ({
-    title: item.title || item.story_title || "",
-    url: item.url || `https://news.ycombinator.com/item?id=${item.objectID}`,
-    hotScore: item.points ? `${item.points} points` : "",
-    summary: [
-      item.author && `作者 ${item.author}`,
-      item.num_comments && `${item.num_comments} comments`,
-      trimText(stripHtml(item.story_text || ""), 100)
-    ]
-      .filter(Boolean)
-      .join(" · "),
-    source: source.name,
-    publishedAt: normalizeDateValue(item.created_at || item.created_at_i)
-  }));
-}
-
 function normalizeHotTopicItem(item, source) {
   const title = trimText(item?.title || "", 120);
   const url = String(item?.url || "").trim();
@@ -536,24 +313,6 @@ function dedupeItems(items) {
   }
 
   return result;
-}
-
-function safeJsonParse(rawText) {
-  const text = String(rawText || "").trim();
-  const objectStart = text.indexOf("{");
-  const arrayStart = text.indexOf("[");
-  const start =
-    objectStart === -1
-      ? arrayStart
-      : arrayStart === -1
-        ? objectStart
-        : Math.min(objectStart, arrayStart);
-
-  if (start === -1) {
-    throw new Error("返回内容不是 JSON。");
-  }
-
-  return JSON.parse(text.slice(start));
 }
 
 function readXmlTag(xml, tagName) {
@@ -617,18 +376,4 @@ function trimText(value, maxLength) {
 
 function pad2(value) {
   return String(value).padStart(2, "0");
-}
-
-function formatLargeCount(value) {
-  const count = Number(value);
-  if (!Number.isFinite(count) || count <= 0) {
-    return "";
-  }
-  if (count >= 100000000) {
-    return `${(count / 100000000).toFixed(1).replace(/\.0$/, "")} 亿`;
-  }
-  if (count >= 10000) {
-    return `${(count / 10000).toFixed(1).replace(/\.0$/, "")} 万`;
-  }
-  return `${count}`;
 }

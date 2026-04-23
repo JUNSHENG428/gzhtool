@@ -1,9 +1,9 @@
 # 端到端 user journey 报告
 
-生成时间：2026-04-23T08:17:28.551Z
+生成时间：2026-04-23T08:37:41.149Z
 真实抓取的 URL：https://sspai.com/a/JZbWkJ
 
-**总计**：✓ 30 ・ ! 1 ・ ✗ 0
+**总计**：✓ 31 ・ ! 0 ・ ✗ 0
 
 所有截图存在：`dist/journey-shots/`
 
@@ -18,13 +18,13 @@
 | J2-quality | block 数量 | ✅ | 37 块 |
 | J2-quality | 图片识别 | ✅ | 8 张 |
 | J2-quality | 正文字数 | ✅ | 1441 字 |
-| J3 | 编辑器加载 + 内容回填耗时 14809ms | ⚠️ |  |
+| J3 | 编辑器加载 + 内容回填耗时 3225ms | ✅ |  |
 | J3 | 标题输入框被自动填入 | ✅ | "原来你对写作是真爱：少数派 2025 年度征文结果公布 - …" (32/32) |
 | J3 | 副标题输入框被自动填入 | ✅ | "少数派 - 高品质数字消费指南" |
 | J3 | 作者输入框被自动填入 | ✅ | "少数派编辑部" (6/16) |
 | J3 | 公众号预览有内容（≥500 字符 HTML） | ✅ | 8343 chars |
 | J3 | 字数面板显示 HTML 字符 / 20000 | ✅ | 正文 0 字 · HTML 0 / 20,000 |
-| J4 | 切到「发布」视图后预览面板可见 | ✅ | {"found":true,"w":294,"h":860,"top":-670.9140625} |
+| J4 | 切到「发布」视图后预览面板可见 | ✅ | {"found":true,"w":294,"h":860,"top":250.0859375} |
 | J4 | themeSelect 总数 = 11 | ✅ | editorial-green, modern-amber, minimal-mono, warm-rose, tech-blue, editorial-newyorker, kinfolk-quiet, wired-neon, monocle-soft, vogue-didone, paper-zine |
 | J4 | 主题 新刊衬线 · The New Yorker（editorial-newyorker） | ✅ | inline-style 56 节点 / sig=21c9a954 |
 | J4 | 主题 静语生活 · Kinfolk（kinfolk-quiet） | ✅ | inline-style 56 节点 / sig=265920a8 |
@@ -36,7 +36,7 @@
 | J4 | 6 套主题截图视觉差异 | ✅ | 6/6 张图视觉不同 |
 | J5 | AI 改写按钮可见 | ✅ |  |
 | J5 | mock LLM 命中次数 | ✅ | 1 次 |
-| J5 | AI 改写流程完成 | ✅ | 耗时 525ms |
+| J5 | AI 改写流程完成 | ✅ | 耗时 524ms |
 | J5 | mock 导语渲染到 preview | ✅ |  |
 | J5 | mock 章节标题渲染到 preview | ✅ |  |
 | J5 | 整个 J3-J5 过程 console 干净 | ✅ |  |

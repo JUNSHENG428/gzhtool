@@ -315,14 +315,29 @@
           <span>DailyHotApi 地址（留空使用公共地址）</span>
           <input id="hotTopicsDailyHotBase" type="url" placeholder="https://api-hot.imsyy.top/" />
         </label>
+        <div class="row" style="margin: -6px 0 12px; gap: 8px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="testHotTopicsDailyHot">
+            测试 DailyHotApi 连接
+          </button>
+          <span class="muted" id="testHotTopicsDailyHotResult" aria-live="polite"></span>
+        </div>
 
         <label class="split-full">
           <span>NewsNow 备用地址（留空使用公共地址）</span>
           <input id="hotTopicsNewsnowBase" type="url" placeholder="https://newsnow.busiyi.world/" />
         </label>
+        <div class="row" style="margin: -6px 0 12px; gap: 8px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="testHotTopicsNewsnow">
+            测试 NewsNow 连接
+          </button>
+          <span class="muted" id="testHotTopicsNewsnowResult" aria-live="polite"></span>
+        </div>
 
         <p class="muted">
           抓取顺序：先 DailyHotApi，失败时自动回退到 NewsNow，再失败才提示错误。
+          某个后端连续 3 次失败会自动冷却 10 分钟，避免反复轰炸已挂掉的服务。
+          公共服务限流频繁，强烈推荐部署自己的版本（一行 Docker 或一键 Vercel，
+          见 <code>docs/SELFHOST_HOTTOPICS.md</code>）。
         </p>
       </section>
 

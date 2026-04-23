@@ -10,7 +10,7 @@ import { WECHAT_WEB_EDITOR_URL } from "../shared/defaults.js";
 import { classifyError } from "../shared/errors.js";
 import { publishToWechat, queryPublishStatus, testWechatConnection } from "../shared/wechat.js";
 import { normalizeCaptureMode, sleep } from "../shared/utils.js";
-import { fetchHotTopics } from "../shared/hot-topics.js";
+import { fetchHotTopics, testHotTopicsBackend } from "../shared/hot-topics.js";
 import {
   getPlatformCookieStatuses,
   openPlatformLoginTab
@@ -254,6 +254,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           appId: message.payload?.appId,
           appSecret: message.payload?.appSecret
         });
+        sendResponse(result);
+        break;
+      }
+      case "TEST_HOT_TOPICS_BACKEND": {
+        const result = await testHotTopicsBackend(
+          message.payload?.kind === "newsnow" ? "newsnow" : "dailyhot",
+          message.payload?.baseUrl || ""
+        );
         sendResponse(result);
         break;
       }

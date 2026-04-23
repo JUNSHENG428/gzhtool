@@ -14,6 +14,16 @@
  */
 
 import { fetchHotTopicSourceItems } from "./hot-topics-sources.js";
+import {
+  readCachedPayload,
+  writeCachedPayload,
+  clearCachedPayload,
+  isBaseCoolingDown,
+  recordBaseFailure,
+  recordBaseSuccess,
+  getHealthSnapshot,
+  COOLDOWN_MS
+} from "./hot-topics-cache.js";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
@@ -84,9 +94,6 @@ export const HOT_SOURCE_META = {
   "hackernews-rss": { id: "hackernews-rss", label: "HN 100+ 高分", detail: "Hacker News 100 分以上", category: "ai", rss: true, rssSourceId: "hackernews-rss" }
 };
 
-const CACHE_TTL_MS = 3 * 60 * 1000;
-const _cache = new Map();
-
 const BACKEND_LABEL = {
   dailyhot: "DailyHotApi",
   newsnow: "NewsNow",
@@ -112,29 +119,28 @@ export async function fetchHotTopics(sourceId, opts = {}) {
     return { ok: false, message: "未知的热点来源。" };
   }
 
+  // 1) 命中持久缓存
   if (!forceRefresh) {
-    const cached = _cache.get(sourceId);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-      return { ok: true, payload: cached.payload };
-    }
+    const cached = await readCachedPayload(sourceId);
+    if (cached) return { ok: true, payload: cached };
   }
 
   const fetchedAt = new Date().toISOString();
   const errors = [];
 
-  // X / 小红书：门户引导
+  // 2) 门户类（X / 小红书）：没有 API，仅做引导卡片
   if (sourceId === "x") {
     const payload = portalPayload(fetchedAt, meta, xPortal());
-    _cache.set(sourceId, { timestamp: Date.now(), payload });
+    await writeCachedPayload(sourceId, payload);
     return { ok: true, payload };
   }
   if (sourceId === "xiaohongshu") {
     const payload = portalPayload(fetchedAt, meta, xhsPortal());
-    _cache.set(sourceId, { timestamp: Date.now(), payload });
+    await writeCachedPayload(sourceId, payload);
     return { ok: true, payload };
   }
 
-  // RSS / RSSHub 直连
+  // 3) RSS / RSSHub 直连
   if (meta.rss) {
     try {
       const result = await fetchHotTopicSourceItems(
@@ -161,79 +167,102 @@ export async function fetchHotTopics(sourceId, opts = {}) {
         backend: "rss",
         notice: ""
       };
-      _cache.set(sourceId, { timestamp: Date.now(), payload });
+      await writeCachedPayload(sourceId, payload);
       return { ok: true, payload };
     } catch (e) {
       return { ok: false, message: friendlyMessage(meta.label, e) };
     }
   }
 
-  // Reddit：独立通道
+  // 4) Reddit 直连通道
   if (sourceId === "reddit") {
+    const redditUrl = "https://www.reddit.com";
+    if (await isBaseCoolingDown(redditUrl)) {
+      return { ok: false, message: coolingMessage("Reddit") };
+    }
     try {
       const payload = await fetchRedditHot(fetchedAt, meta);
       if (payload.items.length >= MIN_VALID_ITEMS) {
-        _cache.set(sourceId, { timestamp: Date.now(), payload });
+        await recordBaseSuccess(redditUrl);
+        await writeCachedPayload(sourceId, payload);
         return { ok: true, payload };
       }
+      await recordBaseFailure(redditUrl, "返回空列表");
       return { ok: false, message: friendlyEmpty("Reddit", meta) };
     } catch (e) {
+      await recordBaseFailure(redditUrl, shortMessage(e));
       return { ok: false, message: friendlyMessage("Reddit", e) };
     }
   }
 
-  // 主链路：DailyHot → 直连 API → NewsNow
+  // 5) 主链路：DailyHot → 官方直连 → NewsNow，带后端健康度
   let payload = null;
 
   if (meta.dailyhot) {
-    try {
-      const candidate = await fetchDailyHotApi(
-        fetchedAt,
-        meta,
-        normalizeBase(dailyhotBase, DEFAULT_DAILYHOT_BASE)
-      );
-      if (candidate.items.length >= MIN_VALID_ITEMS) {
-        payload = candidate;
-      } else {
-        errors.push("DailyHotApi: 返回空列表");
+    const base = normalizeBase(dailyhotBase, DEFAULT_DAILYHOT_BASE);
+    if (await isBaseCoolingDown(base)) {
+      errors.push(`DailyHotApi: 上次失败后冷却中（${COOLDOWN_MS / 60000} 分钟）`);
+    } else {
+      try {
+        const candidate = await fetchDailyHotApi(fetchedAt, meta, base);
+        if (candidate.items.length >= MIN_VALID_ITEMS) {
+          payload = candidate;
+          await recordBaseSuccess(base);
+        } else {
+          errors.push("DailyHotApi: 返回空列表");
+          await recordBaseFailure(base, "空列表");
+        }
+      } catch (e) {
+        errors.push(`DailyHotApi: ${shortMessage(e)}`);
+        await recordBaseFailure(base, shortMessage(e));
       }
-    } catch (e) {
-      errors.push(`DailyHotApi: ${shortMessage(e)}`);
     }
   }
 
   if (!payload && meta.direct === "bilibili-ranking") {
-    try {
-      const candidate = await fetchBilibiliRanking(fetchedAt, meta);
-      if (candidate.items.length >= MIN_VALID_ITEMS) {
-        payload = candidate;
-      } else {
-        errors.push("Bilibili 官方接口: 返回空列表");
+    const biliBase = "https://api.bilibili.com";
+    if (await isBaseCoolingDown(biliBase)) {
+      errors.push("Bilibili 官方接口: 冷却中");
+    } else {
+      try {
+        const candidate = await fetchBilibiliRanking(fetchedAt, meta);
+        if (candidate.items.length >= MIN_VALID_ITEMS) {
+          payload = candidate;
+          await recordBaseSuccess(biliBase);
+        } else {
+          errors.push("Bilibili 官方接口: 返回空列表");
+          await recordBaseFailure(biliBase, "空列表");
+        }
+      } catch (e) {
+        errors.push(`Bilibili 官方接口: ${shortMessage(e)}`);
+        await recordBaseFailure(biliBase, shortMessage(e));
       }
-    } catch (e) {
-      errors.push(`Bilibili 官方接口: ${shortMessage(e)}`);
     }
   }
 
   if (!payload && meta.newsNow) {
-    try {
-      const candidate = await fetchNewsNowHot(
-        fetchedAt,
-        meta,
-        normalizeBase(newsnowBase, DEFAULT_NEWSNOW_BASE)
-      );
-      if (candidate.items.length >= MIN_VALID_ITEMS) {
-        payload = candidate;
-      } else {
-        errors.push("NewsNow: 返回空列表");
+    const base = normalizeBase(newsnowBase, DEFAULT_NEWSNOW_BASE);
+    if (await isBaseCoolingDown(base)) {
+      errors.push(`NewsNow: 冷却中（${COOLDOWN_MS / 60000} 分钟）`);
+    } else {
+      try {
+        const candidate = await fetchNewsNowHot(fetchedAt, meta, base);
+        if (candidate.items.length >= MIN_VALID_ITEMS) {
+          payload = candidate;
+          await recordBaseSuccess(base);
+        } else {
+          errors.push("NewsNow: 返回空列表");
+          await recordBaseFailure(base, "空列表");
+        }
+      } catch (e) {
+        errors.push(`NewsNow: ${shortMessage(e)}`);
+        await recordBaseFailure(base, shortMessage(e));
       }
-    } catch (e) {
-      errors.push(`NewsNow: ${shortMessage(e)}`);
     }
   }
 
   if (payload) {
-    _cache.set(sourceId, { timestamp: Date.now(), payload });
+    await writeCachedPayload(sourceId, payload);
     return { ok: true, payload };
   }
 
@@ -244,11 +273,16 @@ export async function fetchHotTopics(sourceId, opts = {}) {
     };
   }
 
-  // 区分「全员失败」「全员返回空」「部分失败部分空」三种情况
   const allEmpty = errors.every((line) => line.includes("返回空列表"));
-  const advice = allEmpty
-    ? `当前时段「${meta.label}」榜单可能没有新数据，可以稍后再试或换个源（推荐：知乎热榜 / GitHub Trending / 36氪）。`
-    : `公共聚合服务可能限流或暂时不可达。建议在「设置 → 热点接口」里改成自托 DailyHotApi（github.com/imsyy/DailyHotApi）。`;
+  const allCooling = errors.every((line) => line.includes("冷却"));
+  let advice;
+  if (allCooling) {
+    advice = `所有候选后端都在冷却。建议在「设置 → 热点接口 → 测试连接」检查你的自托地址，或先换个源。`;
+  } else if (allEmpty) {
+    advice = `当前时段「${meta.label}」榜单可能没有新数据，可以稍后再试或换个源（推荐：知乎热榜 / GitHub Trending / 36氪）。`;
+  } else {
+    advice = `公共聚合服务可能限流或暂时不可达。强烈建议在「设置 → 热点接口」里改成自托 DailyHotApi（部署指南见 docs/SELFHOST_HOTTOPICS.md）。`;
+  }
 
   return {
     ok: false,
@@ -529,10 +563,77 @@ async function fetchWithTimeout(url, init = {}) {
   }
 }
 
-export function clearHotTopicsCache() {
-  _cache.clear();
+export async function clearHotTopicsCache() {
+  await clearCachedPayload();
 }
 
 export function backendLabel(id) {
   return BACKEND_LABEL[id] || id || "";
+}
+
+export async function getHotTopicsHealth() {
+  return getHealthSnapshot();
+}
+
+/**
+ * 测试一个热点接口 base URL 是否可用。
+ * - kind: "dailyhot" | "newsnow"
+ * - 用一个一定存在的轻量端点（DailyHot: zhihu，NewsNow: zhihu）
+ * - 成功会清掉该 base 的失败计数；失败不计入冷却（避免用户测试本身把它点进冷却）
+ */
+export async function testHotTopicsBackend(kind, baseUrl) {
+  const targetBase = normalizeBase(
+    baseUrl,
+    kind === "newsnow" ? DEFAULT_NEWSNOW_BASE : DEFAULT_DAILYHOT_BASE
+  );
+  const startedAt = Date.now();
+
+  let url;
+  if (kind === "newsnow") {
+    url = `${targetBase}api/s?id=zhihu&latest`;
+  } else {
+    url = `${targetBase}zhihu?cache=true`;
+  }
+
+  try {
+    const res = await fetchWithTimeout(url, {
+      headers: { "User-Agent": UA, Accept: "application/json" }
+    });
+    const latencyMs = Date.now() - startedAt;
+    if (!res.ok) {
+      return { ok: false, latencyMs, base: targetBase, message: `HTTP ${res.status}` };
+    }
+    const json = await res.json().catch(() => null);
+    if (!json) {
+      return { ok: false, latencyMs, base: targetBase, message: "响应不是合法 JSON" };
+    }
+    const items = json?.data;
+    const count = Array.isArray(items) ? items.length : 0;
+    if (count === 0) {
+      return {
+        ok: false,
+        latencyMs,
+        base: targetBase,
+        message: "接口连通但返回空列表，可能是上游被限流或路径不对"
+      };
+    }
+    await recordBaseSuccess(targetBase);
+    return {
+      ok: true,
+      latencyMs,
+      base: targetBase,
+      message: `OK · 共 ${count} 条数据`
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      base: targetBase,
+      message: shortMessage(e)
+    };
+  }
+}
+
+function coolingMessage(label) {
+  return `${label} 上次拉取连续失败，已临时冷却 ${COOLDOWN_MS / 60000} 分钟避免请求轰炸。可以先换个源，或到「设置 → 热点接口」点测试连接。`;
 }

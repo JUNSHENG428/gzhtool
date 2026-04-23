@@ -63,6 +63,10 @@ const testConnectionButton = document.querySelector("#testConnectionButton");
 const testConnectionResult = document.querySelector("#testConnectionResult");
 const testWechatConnectionButton = document.querySelector("#testWechatConnectionButton");
 const testWechatConnectionResult = document.querySelector("#testWechatConnectionResult");
+const testHotTopicsDailyHotButton = document.querySelector("#testHotTopicsDailyHot");
+const testHotTopicsDailyHotResult = document.querySelector("#testHotTopicsDailyHotResult");
+const testHotTopicsNewsnowButton = document.querySelector("#testHotTopicsNewsnow");
+const testHotTopicsNewsnowResult = document.querySelector("#testHotTopicsNewsnowResult");
 const testDrissionConnectionButton = document.querySelector("#testDrissionConnectionButton");
 const testDrissionConnectionResult = document.querySelector("#testDrissionConnectionResult");
 const exportHistoryButton = document.querySelector("#exportHistoryButton");
@@ -80,6 +84,16 @@ document.querySelector("#resetPreferencesButton")?.addEventListener("click", () 
 );
 testConnectionButton.addEventListener("click", testAiConnection);
 testWechatConnectionButton.addEventListener("click", testWechatConnection);
+if (testHotTopicsDailyHotButton) {
+  testHotTopicsDailyHotButton.addEventListener("click", () =>
+    testHotTopicsBackend("dailyhot")
+  );
+}
+if (testHotTopicsNewsnowButton) {
+  testHotTopicsNewsnowButton.addEventListener("click", () =>
+    testHotTopicsBackend("newsnow")
+  );
+}
 testDrissionConnectionButton?.addEventListener("click", testDrissionConnection);
 exportHistoryButton.addEventListener("click", exportAllHistory);
 clearHistoryButton.addEventListener("click", clearAllHistory);
@@ -326,6 +340,45 @@ async function testWechatConnection() {
     );
   } finally {
     testWechatConnectionButton.disabled = false;
+  }
+}
+
+async function testHotTopicsBackend(kind) {
+  const button =
+    kind === "newsnow" ? testHotTopicsNewsnowButton : testHotTopicsDailyHotButton;
+  const resultEl =
+    kind === "newsnow" ? testHotTopicsNewsnowResult : testHotTopicsDailyHotResult;
+  const baseField =
+    kind === "newsnow" ? fields.hotTopicsNewsnowBase : fields.hotTopicsDailyHotBase;
+  if (!button || !resultEl) return;
+
+  button.disabled = true;
+  setTestResult(resultEl, "loading", "正在测试...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "TEST_HOT_TOPICS_BACKEND",
+      payload: { kind, baseUrl: baseField?.value?.trim() || "" }
+    });
+
+    if (response?.ok) {
+      setTestResult(
+        resultEl,
+        "success",
+        `${response.message || "OK"} · ${Number(response.latencyMs || 0)} ms · ${response.base || ""}`
+      );
+      return;
+    }
+
+    setTestResult(
+      resultEl,
+      "error",
+      `${response?.message || "测试失败"}（${response?.base || "?"}，${Number(response?.latencyMs || 0)} ms）`
+    );
+  } catch (error) {
+    setTestResult(resultEl, "error", error.message || "测试失败，请稍后再试。");
+  } finally {
+    button.disabled = false;
   }
 }
 
