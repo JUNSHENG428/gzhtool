@@ -187,10 +187,11 @@ code {
 .site-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   font-family: var(--font-serif);
-  font-size: 1.05rem;
+  font-size: 1.2rem;
   font-weight: 700;
+  letter-spacing: 0.04em;
   color: var(--ink);
   border: none;
 }
@@ -202,8 +203,8 @@ code {
 
 .site-brand-mark {
   display: inline-block;
-  width: 36px;
-  height: 36px;
+  width: 48px;
+  height: 48px;
   background-image: url("../img/favicon-192.png");
   background-size: contain;
   background-repeat: no-repeat;
@@ -212,11 +213,12 @@ code {
   font-size: 0;
   color: transparent;
   flex-shrink: 0;
+  margin: -6px 0;
   transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .site-brand:hover .site-brand-mark {
-  transform: scale(1.06) rotate(-3deg);
+  transform: scale(1.05) rotate(-3deg);
 }
 
 .site-nav-links {
