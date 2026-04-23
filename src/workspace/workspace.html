@@ -691,23 +691,118 @@
             </div>
           </section>
 
-          <!-- ============ 会员中心（Phase 3 真正实现） ============ -->
+          <!-- ============ 会员中心 ============ -->
           <section class="workspace-view" data-view="member" aria-label="会员中心">
-            <section class="ui-section">
-              <header class="ui-section-head">
-                <div class="ui-section-head-text">
-                  <h2 class="ui-section-title">会员中心</h2>
-                  <p class="ui-section-sub">付费授权系统正在开发中，请稍后</p>
+
+            <!-- 顶部状态卡 -->
+            <section class="ui-section member-hero" id="memberHeroSection" data-status="loading">
+              <div class="member-hero-main">
+                <div class="member-hero-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="32" height="32">
+                    <path fill="currentColor" d="M12 2.7l2.6 5.27 5.82.85-4.21 4.1.99 5.78L12 15.96l-5.2 2.74.99-5.78L3.58 8.82l5.82-.85L12 2.7z"/>
+                  </svg>
                 </div>
-              </header>
-              <div class="ui-empty">
-                <div class="ui-empty-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="36" height="36"><path fill="currentColor" d="M5 16 3 5l5.5 4L12 4l3.5 5L21 5l-2 11H5Zm0 2h14v2H5v-2Z"/></svg>
+                <div class="member-hero-meta">
+                  <h2 id="memberHeroLabel" class="member-hero-label">正在读取会员状态…</h2>
+                  <p id="memberHeroHint" class="member-hero-hint">请稍候，从本地缓存读取</p>
+                  <div class="member-hero-tags">
+                    <span id="memberHeroEmail" class="member-hero-tag" hidden></span>
+                    <span id="memberHeroExpire" class="member-hero-tag" hidden></span>
+                    <span id="memberHeroKey" class="member-hero-tag is-mono" hidden></span>
+                    <span id="memberHeroDevice" class="member-hero-tag" hidden></span>
+                  </div>
                 </div>
-                <p class="ui-empty-title">会员体系正在搭建</p>
-                <p class="ui-empty-desc">扩展即将支持登录账号 / 绑定 License Key / 在线续费等功能。</p>
+              </div>
+              <div class="member-hero-actions">
+                <button id="memberPrimaryBtn" type="button" class="member-btn member-btn-primary">
+                  <span id="memberPrimaryBtnLabel">升级 Pro</span>
+                </button>
+                <button id="memberSecondaryBtn" type="button" class="member-btn member-btn-ghost">
+                  <span id="memberSecondaryBtnLabel">完整管理</span>
+                </button>
               </div>
             </section>
+
+            <!-- 今日额度 + 公众号绑定 -->
+            <section class="ui-section member-quota">
+              <header class="ui-section-head">
+                <div class="ui-section-head-text">
+                  <h2 class="ui-section-title">今日额度 / 资源</h2>
+                  <p class="ui-section-sub">每天 0 点重置；Pro 不限次数。</p>
+                </div>
+              </header>
+              <div class="member-quota-grid">
+                <article class="member-quota-card" id="memberQuotaRewrite">
+                  <div class="member-quota-card-head">
+                    <span class="member-quota-card-icon" aria-hidden="true">✍️</span>
+                    <h3 class="member-quota-card-title">AI 改写次数</h3>
+                  </div>
+                  <p class="member-quota-card-num"><strong id="memberQuotaRewriteUsed">—</strong><span id="memberQuotaRewriteCap"> / —</span></p>
+                  <div class="member-quota-bar">
+                    <span id="memberQuotaRewriteBar" class="member-quota-bar-fill" style="width:0%"></span>
+                  </div>
+                  <p id="memberQuotaRewriteHint" class="member-quota-card-hint">今日剩余配额</p>
+                </article>
+
+                <article class="member-quota-card" id="memberQuotaAccount">
+                  <div class="member-quota-card-head">
+                    <span class="member-quota-card-icon" aria-hidden="true">📮</span>
+                    <h3 class="member-quota-card-title">公众号账号</h3>
+                  </div>
+                  <p class="member-quota-card-num"><strong id="memberQuotaAccountUsed">—</strong><span id="memberQuotaAccountCap"> / —</span></p>
+                  <div class="member-quota-bar">
+                    <span id="memberQuotaAccountBar" class="member-quota-bar-fill" style="width:0%"></span>
+                  </div>
+                  <p id="memberQuotaAccountHint" class="member-quota-card-hint">已绑定公众号数量</p>
+                </article>
+              </div>
+            </section>
+
+            <!-- 付费功能解锁清单 -->
+            <section class="ui-section member-features">
+              <header class="ui-section-head">
+                <div class="ui-section-head-text">
+                  <h2 class="ui-section-title">能力解锁清单</h2>
+                  <p class="ui-section-sub">免费版可用 / Pro 解锁，一目了然。</p>
+                </div>
+                <a href="https://docuearn.com/pricing" id="memberPricingLink" class="member-link" target="_blank" rel="noopener">查看 Pro 套餐 →</a>
+              </header>
+              <ul id="memberFeatureList" class="member-feature-list" aria-live="polite"></ul>
+            </section>
+
+            <!-- 快捷入口 -->
+            <section class="ui-section member-actions">
+              <header class="ui-section-head">
+                <div class="ui-section-head-text">
+                  <h2 class="ui-section-title">账号操作</h2>
+                  <p class="ui-section-sub">登录、绑定 License、设备管理在「设置」页完成。</p>
+                </div>
+              </header>
+              <div class="member-actions-grid">
+                <button id="memberOpenSettingsBtn" type="button" class="member-action-tile">
+                  <span class="member-action-tile-icon" aria-hidden="true">⚙️</span>
+                  <span class="member-action-tile-title">完整会员管理</span>
+                  <span class="member-action-tile-desc">登录注册 / 绑定 License Key / 设备解绑 / 切换账号</span>
+                </button>
+                <a id="memberOpenPricingBtn" class="member-action-tile" href="https://docuearn.com/pricing" target="_blank" rel="noopener">
+                  <span class="member-action-tile-icon" aria-hidden="true">💰</span>
+                  <span class="member-action-tile-title">查看套餐与定价</span>
+                  <span class="member-action-tile-desc">免费版 / Pro 月付 / Pro 年付，支持微信 / 支付宝</span>
+                </a>
+                <button id="memberRefreshBtn" type="button" class="member-action-tile">
+                  <span class="member-action-tile-icon" aria-hidden="true">🔄</span>
+                  <span class="member-action-tile-title">向服务器复验</span>
+                  <span class="member-action-tile-desc">手动触发一次远程 License 验证（每 24h 自动一次）</span>
+                </button>
+                <a id="memberOpenHelpBtn" class="member-action-tile" href="https://docuearn.com" target="_blank" rel="noopener">
+                  <span class="member-action-tile-icon" aria-hidden="true">📖</span>
+                  <span class="member-action-tile-title">帮助 / 客服</span>
+                  <span class="member-action-tile-desc">常见问题 / 退款政策 / 联系作者</span>
+                </a>
+              </div>
+            </section>
+
+            <p id="memberRefreshFeedback" class="member-refresh-feedback" hidden></p>
           </section>
         </main>
 

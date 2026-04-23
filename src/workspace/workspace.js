@@ -9,6 +9,7 @@ import { getSession, getSettings, saveSettings } from "../shared/storage.js";
 import { escapeHtml } from "../shared/utils.js";
 import { initWorkspaceShortcuts } from "./shortcuts.js";
 import { initWorkspaceRouter } from "./workspace-router.js";
+import { initWorkspaceMember } from "./workspace-member.js";
 
 import {
   init as initState,
@@ -320,6 +321,7 @@ async function bootstrap() {
 
   // 初始化左侧导航 + hash 路由（依赖 openOptionsButton/openHelpButton 已绑事件）
   initWorkspaceRouter();
+  initWorkspaceMember();
 
   const params = new URLSearchParams(location.search);
   const wantAutoCapture = params.get("autocapture") === "1";
