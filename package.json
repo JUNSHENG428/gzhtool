@@ -11,6 +11,11 @@
     "version:sync": "node scripts/version-sync.mjs",
     "build:zip": "node scripts/build-zip.mjs",
     "capture:cws": "node scripts/cws-capture.mjs",
+    "dev:fixture": "node scripts/dev-fixtures.mjs",
+    "check:ext": "node scripts/check-extension.mjs",
+    "check:features": "node scripts/check-features.mjs",
+    "check:journey": "node scripts/check-journey.mjs",
+    "check:all": "npm run test:smoke && npm run check:ext && npm run check:features",
     "release:cws": "npm run test && npm run build:zip"
   },
   "keywords": [
