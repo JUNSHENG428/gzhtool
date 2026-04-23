@@ -21,12 +21,16 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (
   id              TEXT PRIMARY KEY,
   email           TEXT NOT NULL,                 -- 小写存储，已在 worker 端 toLowerCase
-  password_hash   TEXT NOT NULL,                 -- PBKDF2-SHA256 base64
-  password_salt   TEXT NOT NULL,                 -- 16 字节 salt base64
+  password_hash   TEXT NOT NULL,                 -- PBKDF2-SHA256 base64；OAuth-only 用户存 dummy 值
+  password_salt   TEXT NOT NULL,                 -- 16 字节 salt base64；OAuth-only 用户存 dummy 值
+  google_sub      TEXT,                          -- Google ID Token 的 sub 字段（已绑 Google 时填）
+  oauth_provider  TEXT,                          -- 'google' / 'github' / NULL=邮箱密码
   created_at      INTEGER NOT NULL,
   last_login_at   INTEGER
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email          ON users(email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub     ON users(google_sub);
+CREATE INDEX        IF NOT EXISTS idx_users_oauth_provider ON users(oauth_provider);
 
 -- ---------- license_keys ----------
 CREATE TABLE IF NOT EXISTS license_keys (

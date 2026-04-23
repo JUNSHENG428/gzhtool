@@ -53,5 +53,20 @@ export const SITE_CONFIG = {
   CHECKOUT_CANCEL_URL: "/pricing.html?from=checkout&result=cancel",
 
   /** 客服 / 反馈邮箱 */
-  SUPPORT_EMAIL: "hello@docuearn.com"
+  SUPPORT_EMAIL: "hello@docuearn.com",
+
+  /**
+   * Google OAuth 2.0 Web Client ID
+   * --------------------------------------------------------------
+   * 在 https://console.cloud.google.com/apis/credentials 新建一个
+   * "OAuth 2.0 Client ID" → 类型选 "Web application"，把当前域名
+   * （如 https://docuearn.com）填到 "Authorized JavaScript origins"，
+   * 拿到的 client id 形如 "1234567890-abc.apps.googleusercontent.com"。
+   *
+   * - 留空 → 登录页不显示 Google 按钮（对用户完全透明，老的邮箱密码登录不受影响）。
+   * - 填入正确值 → 登录/注册页面显示 "使用 Google 继续" 按钮。
+   *
+   * 详细 step-by-step：见 docs/GOOGLE_OAUTH_SETUP.md
+   */
+  GOOGLE_CLIENT_ID: ""
 };

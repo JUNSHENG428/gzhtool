@@ -50,7 +50,18 @@ LS_VARIANT_IDS = ""   # 多个 variant 用逗号分隔；为空表示该 store �
 # License key 前缀（不要带连字符）；用于 worker 端生成时区分环境
 LICENSE_KEY_PREFIX = "GZHT"
 
+# Google OAuth 2.0 Web Client ID
+#   - 在 https://console.cloud.google.com/apis/credentials 新建 "OAuth 2.0 Client ID"
+#     → 类型 "Web application"
+#     → "Authorized JavaScript origins" 填 https://docuearn.com（以及任意要支持的域名）
+#   - 拿到形如 1234567890-abc.apps.googleusercontent.com 的字符串填到这里
+#   - 留空 → /api/auth/google 会返回 503，前端 Google 按钮不显示
+#   - 这里和 site/assets/js/site-config.js 里的 GOOGLE_CLIENT_ID 必须保持一致
+#     （前端用它去发起授权，后端用它校验返回的 ID Token aud 字段是否匹配）
+GOOGLE_CLIENT_ID = ""
+
 # ---------------- 私密变量（必须用 wrangler secret put） ----------------
 # JWT_SECRET             —— 长度 ≥ 32 的随机字符串，用于 HS256
 # LS_WEBHOOK_SECRET      —— Lemon Squeezy webhook 的 signing secret
 # LICENSE_SIGNING_SECRET —— 用于 license key 校验位运算（与插件端无关，仅服务端用）
+# GOOGLE_CLIENT_ID 是公开值（前端也会用），不需要 secret，可直接放上面 [vars]

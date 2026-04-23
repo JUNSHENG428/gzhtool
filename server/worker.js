@@ -90,6 +90,7 @@ const ROUTES = {
   "POST /api/account/change-password": handleChangePassword,
   "POST /api/auth/request-reset": handleRequestReset,
   "POST /api/auth/reset": handleReset,
+  "POST /api/auth/google": handleGoogleAuth,
   "POST /api/license/bind": handleLicenseBind,
   "POST /api/license/unbind": handleLicenseUnbind,
   "POST /api/license/device/unbind": handleDeviceUnbind,
@@ -134,11 +135,20 @@ async function handleRegister(request, env) {
     );
 
   const existing = await env.DB.prepare(
-    "SELECT id FROM users WHERE email = ?"
+    "SELECT id, oauth_provider FROM users WHERE email = ?"
   )
     .bind(email)
     .first();
   if (existing) {
+    if (existing.oauth_provider === "google") {
+      return jsonResponse(
+        {
+          ok: false,
+          error: "该邮箱已通过 Google 登录注册。请直接点「使用 Google 登录」。"
+        },
+        409
+      );
+    }
     return jsonResponse({ ok: false, error: "该邮箱已注册" }, 409);
   }
 
@@ -181,12 +191,23 @@ async function handleLogin(request, env) {
   }
 
   const user = await env.DB.prepare(
-    "SELECT id, email, password_hash, password_salt FROM users WHERE email = ?"
+    "SELECT id, email, password_hash, password_salt, oauth_provider FROM users WHERE email = ?"
   )
     .bind(email)
     .first();
   if (!user) {
     return jsonResponse({ ok: false, error: "邮箱或密码错误" }, 401);
+  }
+
+  // OAuth-only 账号（注册时是用 Google/GitHub 一键登录建的）走密码登录路径，
+  // 直接告诉用户去用对应的 OAuth 入口，避免他对着 dummy hash 试到天荒地老。
+  // 用户如果想要密码登录，也可以走「忘记密码」流程主动给账号设一个密码。
+  if (user.oauth_provider && !isUsablePasswordHash(user.password_salt)) {
+    const hint =
+      user.oauth_provider === "google"
+        ? "该账号通过 Google 登录，请点击页面上的「使用 Google 登录」按钮。"
+        : `该账号通过 ${user.oauth_provider} 登录，请用对应入口登录。`;
+    return jsonResponse({ ok: false, error: hint }, 401);
   }
 
   const expected = await pbkdf2Hash(password, base64Decode(user.password_salt));
@@ -501,6 +522,283 @@ async function handleReset(request, env) {
     token: token2,
     user: { id: row.user_id, email: row.email }
   });
+}
+
+// ============================================================
+// /api/auth/google
+// body: { credential }
+// credential = Google Identity Services 返回的 ID Token (JWT, RS256)
+//
+// 行为：
+//   1. 用 Google 公开 JWKS 验签该 ID Token；
+//   2. 校验 iss、aud（=GOOGLE_CLIENT_ID）、exp、email_verified；
+//   3. 用 google_sub 找已绑定用户；找不到则用 email 找已注册用户并补绑 google_sub；
+//      都没有则创建一个 oauth-only 新用户（password_hash/salt 存 dummy 值，
+//      永远走不到密码登录路径，handleLogin 会拦截并提示"请用 Google 登录"）；
+//   4. 如果该邮箱有已发但未绑定的 license（webhook 先到 → 后注册场景），自动认领；
+//   5. 返回我们自己的 JWT（与邮箱密码登录完全等价）。
+// ============================================================
+async function handleGoogleAuth(request, env) {
+  if (!env.GOOGLE_CLIENT_ID) {
+    return jsonResponse(
+      { ok: false, error: "服务端未配置 Google 登录（缺少 GOOGLE_CLIENT_ID）" },
+      503
+    );
+  }
+
+  const body = await readJson(request);
+  const credential = String(body.credential || "");
+  if (!credential) {
+    return jsonResponse({ ok: false, error: "缺少 credential" }, 400);
+  }
+
+  // —— 限速：避免有人拿伪造 token 高频打 JWKS 验签 —— //
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const limit = await rateLimit(env, `google-auth:${ip}`, 20, 60);
+  if (!limit.allowed) {
+    return jsonResponse(
+      { ok: false, error: "请求过于频繁，请稍后重试" },
+      429
+    );
+  }
+
+  let payload;
+  try {
+    payload = await verifyGoogleIdToken(credential, env.GOOGLE_CLIENT_ID, env);
+  } catch (error) {
+    return jsonResponse(
+      { ok: false, error: `Google 凭据校验失败：${error?.message || "未知错误"}` },
+      401
+    );
+  }
+
+  const email = normalizeEmail(payload.email);
+  const googleSub = String(payload.sub || "");
+  if (!email || !googleSub) {
+    return jsonResponse({ ok: false, error: "Google 凭据缺少 email/sub" }, 400);
+  }
+  // email_verified 是字符串或布尔，统一处理
+  const emailVerified =
+    payload.email_verified === true || payload.email_verified === "true";
+  if (!emailVerified) {
+    return jsonResponse(
+      { ok: false, error: "Google 邮箱尚未验证，无法用于登录" },
+      403
+    );
+  }
+
+  // ——— 1. 通过 google_sub 查已绑用户 ———
+  let user = await env.DB.prepare(
+    "SELECT id, email FROM users WHERE google_sub = ?"
+  )
+    .bind(googleSub)
+    .first();
+
+  // ——— 2. 通过 email 查已存在用户（之前用邮箱密码注册过，这次第一次用 Google 登录）———
+  if (!user) {
+    const byEmail = await env.DB.prepare(
+      "SELECT id, email, google_sub FROM users WHERE email = ?"
+    )
+      .bind(email)
+      .first();
+    if (byEmail) {
+      // 同邮箱已经绑过另一个 Google 账号，拒绝（防止账号被劫持）
+      if (byEmail.google_sub && byEmail.google_sub !== googleSub) {
+        return jsonResponse(
+          {
+            ok: false,
+            error: "该邮箱已绑定其它 Google 账号，请联系客服解绑后再试。"
+          },
+          409
+        );
+      }
+      // 把 google_sub 关联过来（首次绑定 Google）
+      if (!byEmail.google_sub) {
+        await env.DB.prepare(
+          "UPDATE users SET google_sub = ? WHERE id = ?"
+        )
+          .bind(googleSub, byEmail.id)
+          .run();
+      }
+      user = { id: byEmail.id, email: byEmail.email };
+    }
+  }
+
+  // ——— 3. 全新用户 → 创建 oauth-only 账号 ———
+  if (!user) {
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    // dummy password_hash/salt：用确定性的非 base64 字符串占位，
+    // 任何 PBKDF2 都不可能算出 = 这两个值的输出 → 密码登录永远失败；
+    // 同时 handleLogin 里会先看 oauth_provider 字段，提前给出友好提示。
+    await env.DB.prepare(
+      `INSERT INTO users (id, email, password_hash, password_salt, google_sub, oauth_provider, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(id, email, "oauth:google", "oauth:google", googleSub, "google", now)
+      .run();
+
+    // 自动认领该邮箱已发但未绑定的 license（webhook 先到、后注册的场景）
+    await env.DB.prepare(
+      `UPDATE license_keys
+          SET user_id = ?, updated_at = ?
+        WHERE user_id IS NULL AND lower(ls_customer_email) = ?`
+    )
+      .bind(id, now, email)
+      .run();
+
+    user = { id, email };
+  }
+
+  await env.DB.prepare("UPDATE users SET last_login_at = ? WHERE id = ?")
+    .bind(Date.now(), user.id)
+    .run();
+
+  const token = await issueJwt(env, { sub: user.id, email: user.email });
+  return jsonResponse({
+    ok: true,
+    token,
+    user: { id: user.id, email: user.email },
+    provider: "google"
+  });
+}
+
+/**
+ * isUsablePasswordHash —— 判断某条用户记录是不是可以走密码登录路径。
+ * OAuth-only 账号在创建时把 password_salt 存成 "oauth:google"（非 base64），
+ * 我们以此作为"该账号没有可用密码"的标记。
+ */
+function isUsablePasswordHash(passwordSalt) {
+  const salt = String(passwordSalt || "");
+  if (!salt) return false;
+  if (salt.startsWith("oauth:")) return false;
+  return true;
+}
+
+// ============================================================
+// Google ID Token 验签（RS256 + JWKS）
+// ============================================================
+
+const GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
+const GOOGLE_JWKS_KV_KEY = "google:jwks:v3";
+const GOOGLE_JWKS_TTL = 60 * 60; // 1 小时（Google 实际 max-age 通常 6h，我们更保守）
+const GOOGLE_ALLOWED_ISS = new Set([
+  "accounts.google.com",
+  "https://accounts.google.com"
+]);
+
+/**
+ * 校验 Google 颁发的 ID Token（GIS 的 credential 字段）。
+ * 步骤：
+ *   1. 解 header 拿 kid + alg；只接受 alg=RS256；
+ *   2. 拉 JWKS（KV 缓存 1h），找到 kid 对应的 RSA 公钥 (n, e)；
+ *   3. 用 Web Crypto 导入公钥并 verify 签名；
+ *   4. 校验 payload：iss / aud / exp / iat（带 60s 容差）；
+ *   5. 返回 payload。
+ */
+async function verifyGoogleIdToken(idToken, expectedAud, env) {
+  const parts = String(idToken || "").split(".");
+  if (parts.length !== 3) throw new Error("ID Token 格式不正确");
+
+  const [headerB64, payloadB64, sigB64] = parts;
+  const header = safeJsonDecode(base64UrlDecode(headerB64));
+  const payload = safeJsonDecode(base64UrlDecode(payloadB64));
+  if (!header || !payload) throw new Error("ID Token 解析失败");
+  if (header.alg !== "RS256") throw new Error(`不支持的算法 ${header.alg}`);
+  if (!header.kid) throw new Error("ID Token 缺少 kid");
+
+  // —— 拿 JWKS：先 KV 缓存，缓存里没有 / 没找到 kid 才回源 —— //
+  let jwks = await loadGoogleJwksFromCache(env);
+  let jwk = jwks?.keys?.find((k) => k.kid === header.kid);
+  if (!jwk) {
+    // kid 没命中说明 Google 滚了一次密钥，强制刷新一次
+    jwks = await fetchAndCacheGoogleJwks(env);
+    jwk = jwks?.keys?.find((k) => k.kid === header.kid);
+  }
+  if (!jwk) throw new Error("找不到匹配 kid 的 Google 公钥");
+
+  const cryptoKey = await crypto.subtle.importKey(
+    "jwk",
+    {
+      kty: jwk.kty,
+      n: jwk.n,
+      e: jwk.e,
+      alg: "RS256",
+      ext: true
+    },
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+
+  const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+  const sig = base64UrlDecode(sigB64);
+  const valid = await crypto.subtle.verify(
+    "RSASSA-PKCS1-v1_5",
+    cryptoKey,
+    sig,
+    data
+  );
+  if (!valid) throw new Error("ID Token 签名无效");
+
+  // —— claim 校验 —— //
+  const now = Math.floor(Date.now() / 1000);
+  if (!GOOGLE_ALLOWED_ISS.has(payload.iss)) {
+    throw new Error(`非法的 iss：${payload.iss}`);
+  }
+  // aud 可能是字符串或数组
+  const audOk = Array.isArray(payload.aud)
+    ? payload.aud.includes(expectedAud)
+    : payload.aud === expectedAud;
+  if (!audOk) {
+    throw new Error("aud 与 GOOGLE_CLIENT_ID 不匹配");
+  }
+  if (typeof payload.exp !== "number" || payload.exp + 60 < now) {
+    throw new Error("ID Token 已过期");
+  }
+  if (typeof payload.iat === "number" && payload.iat - 60 > now) {
+    throw new Error("ID Token iat 在未来时间");
+  }
+
+  return payload;
+}
+
+async function loadGoogleJwksFromCache(env) {
+  if (!env.RATE_LIMIT_KV) return null;
+  try {
+    const raw = await env.RATE_LIMIT_KV.get(GOOGLE_JWKS_KV_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAndCacheGoogleJwks(env) {
+  const res = await fetch(GOOGLE_JWKS_URL, {
+    cf: { cacheTtl: GOOGLE_JWKS_TTL, cacheEverything: true }
+  });
+  if (!res.ok) throw new Error(`拉取 Google JWKS 失败：HTTP ${res.status}`);
+  const jwks = await res.json();
+  if (!jwks?.keys?.length) throw new Error("Google JWKS 为空");
+  if (env.RATE_LIMIT_KV) {
+    try {
+      await env.RATE_LIMIT_KV.put(GOOGLE_JWKS_KV_KEY, JSON.stringify(jwks), {
+        expirationTtl: GOOGLE_JWKS_TTL
+      });
+    } catch {
+      // KV 写失败不影响验签，下一次再尝试缓存
+    }
+  }
+  return jwks;
+}
+
+function safeJsonDecode(bytes) {
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================

@@ -14,6 +14,7 @@
  * 登录成功后直接跳 dashboard.html。
  */
 import { auth, getToken, setToken } from "./api.js";
+import { SITE_CONFIG } from "./site-config.js";
 
 const tabs = document.querySelectorAll(".auth-tabs button[data-tab]");
 const titleEl = document.getElementById("authTitle");
@@ -51,6 +52,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // 把上次填的邮箱预填回来（仅"记住我"路径，体验类增强）
   const remembered = safeReadLocal("gzh_site_remember_email");
   if (remembered) emailEl.value = remembered;
+
+  // Google 登录初始化（异步，与表单完全解耦：失败/未配置不影响邮箱密码登录）
+  initGoogleSignIn();
 });
 
 tabs.forEach((btn) => {
@@ -245,4 +249,131 @@ function safeWriteLocal(key, value) {
     if (value) localStorage.setItem(key, value);
     else localStorage.removeItem(key);
   } catch { /* ignore */ }
+}
+
+/* ============================================================
+ * Google Sign-In（GIS）接入
+ * ----------------------------------------------------------------
+ * 设计原则：
+ *  1. **零侵入**：未配置 GOOGLE_CLIENT_ID 时整段静默跳过，老用户的邮箱密码
+ *     登录路径完全不受影响；
+ *  2. **异步加载**：login.html 里 `<script async defer>` 加载 GIS SDK，
+ *     这里用 polling 等 window.google.accounts 出现后再渲染按钮，
+ *     不阻塞首屏；
+ *  3. **回调统一**：Google credential 拿到后 → POST /api/auth/google →
+ *     拿我们自己的 JWT → 走和邮箱登录完全一致的 setToken + 跳 dashboard。
+ *
+ * 关键点：
+ *  - GIS 的 callback 必须是顶层函数，不能是闭包内的 const，所以这里用
+ *    google.accounts.id.initialize({ callback: handler })，handler 里直接用
+ *    模块作用域的函数引用，绕开 window 注入污染；
+ *  - "记住我"：Google 登录走的就是 OAuth 信任路径，这里始终把邮箱写到
+ *    localStorage（方便用户下次切回邮箱密码模式时邮箱已预填）。
+ * ============================================================ */
+
+const GIS_READY_TIMEOUT_MS = 10_000;
+const GIS_POLL_INTERVAL_MS = 80;
+
+function getGoogleClientId() {
+  // 优先 meta（部署时可在 HTML 里覆盖；不破坏 site-config.js）
+  if (typeof document !== "undefined") {
+    const meta = document.querySelector('meta[name="google-client-id"]');
+    if (meta?.content) return meta.content.trim();
+  }
+  return (SITE_CONFIG?.GOOGLE_CLIENT_ID || "").trim();
+}
+
+async function initGoogleSignIn() {
+  const clientId = getGoogleClientId();
+  const block = document.getElementById("oauthBlock");
+  const host = document.getElementById("googleSignInBtn");
+  if (!clientId || !block || !host) return; // 没配 / 没节点 → 静默放弃
+
+  let ready;
+  try {
+    ready = await waitForGoogleSdk(GIS_READY_TIMEOUT_MS);
+  } catch {
+    // SDK 加载超时（用户网络拦截了 accounts.google.com）：保持隐藏，不打扰
+    return;
+  }
+  if (!ready) return;
+
+  try {
+    window.google.accounts.id.initialize({
+      client_id: clientId,
+      callback: handleGoogleCredential,
+      // ux_mode=popup → 无跳转，弹窗内完成
+      ux_mode: "popup",
+      // 关闭 FedCM 之外的传统 cookie 检查兼容性问题（2024+ 默认行为）
+      use_fedcm_for_prompt: true,
+      auto_select: false,
+      itp_support: true
+    });
+    // 用 GIS 标准按钮（带 G 图标 + 多语言），宽度跟随容器
+    window.google.accounts.id.renderButton(host, {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      shape: "rectangular",
+      text: "continue_with",
+      logo_alignment: "left",
+      width: Math.max(280, Math.min(host.offsetWidth || 320, 360)),
+      locale: "zh_CN"
+    });
+    // SDK 渲染成功后再揭示整个 OAuth 区，避免空白闪烁
+    block.hidden = false;
+  } catch (error) {
+    console.warn("[google-signin] init failed", error);
+  }
+}
+
+function waitForGoogleSdk(timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    if (window.google?.accounts?.id) {
+      resolve(true);
+      return;
+    }
+    const timer = setInterval(() => {
+      if (window.google?.accounts?.id) {
+        clearInterval(timer);
+        resolve(true);
+        return;
+      }
+      if (Date.now() - start > timeoutMs) {
+        clearInterval(timer);
+        reject(new Error("GIS SDK timeout"));
+      }
+    }, GIS_POLL_INTERVAL_MS);
+  });
+}
+
+async function handleGoogleCredential(response) {
+  const credential = response?.credential || "";
+  if (!credential) {
+    setFeedback("Google 登录返回为空，请重试。", "error");
+    return;
+  }
+  setFeedback("正在用 Google 验证…", "muted");
+  setBusy(true);
+  try {
+    const data = await auth.google(credential);
+    if (!data?.token) {
+      setFeedback("服务器未返回 token，请稍后重试。", "error");
+      return;
+    }
+    setToken(data.token);
+    if (data?.user?.email) {
+      // Google 登录的用户也把邮箱记下来，下次切回邮箱密码模式时已预填
+      safeWriteLocal("gzh_site_remember_email", data.user.email);
+    }
+    setFeedback("登录成功，正在跳转…", "success");
+    setTimeout(() => {
+      location.href = "./dashboard";
+    }, 380);
+  } catch (error) {
+    setFeedback(humanizeAuthError(error), "error");
+  } finally {
+    setBusy(false);
+  }
 }

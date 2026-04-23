@@ -129,7 +129,18 @@ export const auth = {
   requestReset: (email) =>
     api("/api/auth/request-reset", { method: "POST", body: { email }, auth: false }),
   reset: (token, newPassword) =>
-    api("/api/auth/reset", { method: "POST", body: { token, newPassword }, auth: false })
+    api("/api/auth/reset", { method: "POST", body: { token, newPassword }, auth: false }),
+  /**
+   * Google 登录：把 GIS 回调里的 ID Token (credential) 发到后端。
+   * 后端会验签、自动关联同邮箱已注册账号、新邮箱直接建账号，并下发我们自己的 JWT。
+   * 失败场景由 api() 抛 Error，调用方 catch 后走通用 humanizeAuthError。
+   */
+  google: (credential) =>
+    api("/api/auth/google", {
+      method: "POST",
+      body: { credential },
+      auth: false
+    })
 };
 
 export const license = {

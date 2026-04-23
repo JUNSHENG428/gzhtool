@@ -16,6 +16,12 @@
   <link rel="apple-touch-icon" sizes="180x180" href="./assets/img/apple-touch-icon.png" />
   <link rel="stylesheet" href="./assets/css/site.css" />
   <meta name="api-base" content="https://api.docuearn.com" />
+  <!--
+    Google Identity Services（GIS）SDK。
+    异步加载，不阻塞首屏；login.js 里通过 polling/onload 检测 window.google.accounts。
+    只在 site-config.js 配置了 GOOGLE_CLIENT_ID 时才会真正渲染 Google 按钮。
+  -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <nav class="site-nav">
@@ -55,6 +61,16 @@
         <div class="auth-tabs" role="tablist">
           <button type="button" class="active" data-tab="login" role="tab">登录</button>
           <button type="button" data-tab="register" role="tab">注册</button>
+        </div>
+
+        <!--
+          Google 登录区：默认隐藏；只有 site-config.js 里 GOOGLE_CLIENT_ID
+          配置了，且 GIS SDK 加载成功后才显示。这样未配置时老用户完全无感。
+        -->
+        <div id="oauthBlock" class="oauth-block" hidden>
+          <div id="googleSignInBtn" class="oauth-btn-host" aria-label="使用 Google 登录"></div>
+          <p class="oauth-tip" id="oauthTip">用 Google 登录将自动用同邮箱关联已有账号；新用户会以 Google 邮箱直接创建账号，无需设密码。</p>
+          <div class="oauth-divider"><span>或使用邮箱</span></div>
         </div>
 
         <form id="authForm" autocomplete="on" novalidate>

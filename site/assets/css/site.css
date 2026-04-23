@@ -726,6 +726,59 @@ code {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
+/* ---------- OAuth 区域（Google 登录等）---------- */
+/*
+  设计意图：
+  - 默认隐藏（HTML 上加了 hidden）；只有 site-config.js 里配了 GOOGLE_CLIENT_ID
+    且 SDK 加载成功，login.js 才会摘掉 hidden；
+  - 跟 .auth-tabs 之间留 18px 上下气流，避免按钮挤在一起；
+  - 分隔线 "或使用邮箱" 走 flex + ::before/::after 画两条横线，比 hr 更可控；
+  - Google 自渲染的按钮容器用 .oauth-btn-host 作为定位锚点，宽度自适应。
+*/
+.oauth-block {
+  margin: 18px 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.oauth-btn-host {
+  display: flex;
+  justify-content: center;
+  min-height: 44px;
+}
+
+.oauth-tip {
+  font-size: 0.78rem;
+  color: var(--ink-secondary);
+  text-align: center;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.oauth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.8rem;
+  color: var(--ink-tertiary, var(--ink-secondary));
+  margin-top: 6px;
+}
+
+.oauth-divider::before,
+.oauth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.oauth-divider span {
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+  opacity: 0.78;
+}
+
 .field {
   display: flex;
   flex-direction: column;
