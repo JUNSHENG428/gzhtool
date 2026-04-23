@@ -1,63 +1,109 @@
 /**
  * src/shared/template-generator.js
  * ====================================================================
- * AI 模板生成器（Pro 专享）
+ * AI 模板生成器（Pro 专享） · 问卷驱动版 v0.4
  *
  * ---- 它做什么 ----
- * 用户用大白话描述自己的公众号需求（比如"我做的是科技测评号，开头喜欢一段
- * punchline 抓眼球，正文要密集小标题，结尾留下期钩子"），调用用户已配置的
- * LLM，让它吐出一个完整可用的改写模板对象，写入模板库。
+ * 用户答 7 道选择题 + 2 个选填补充，调用用户已配置的 LLM，吐出一个
+ * 完整可用的"改写模板对象"，并附带一个**杂志级排版主题建议**
+ * （suggestedTheme），让生成的文章既有写作个性、又有视觉调性。
  *
- * ---- 为什么要单独一个文件 ----
- * 1. meta-prompt（让 AI 生成另一段 prompt）逻辑跟普通改写完全不同，独立文件
- *    更好维护、更好测试。
- * 2. AI 永远不能破坏 改写 JSON 输出 contract（COMMON_OUTPUT_RULES）。所以
- *    AI 只负责生成"创意性的风格指令 + defaults"，contract 由我们的代码
- *    自动拼回去——AI 想改也改不了。
- * 3. 客户端做 strict schema 校验，不合规的回包直接报错（让用户重试或调
- *    模型），坚决不让坏数据落进模板库。
+ * ---- 为什么把"自由 textarea"换成"问卷" ----
+ * 1. 大多数用户描述不出自己想要的风格 —— 选项卡比 textarea 高效得多。
+ * 2. 结构化输入让 meta-prompt 大幅简化，AI 不再瞎扩展。
+ * 3. 视觉主题由用户**直接从 6+1 套手工杂志母版里选**，AI 不写一行 CSS
+ *    （AI 写 CSS 一定土），下限是杂志级，上限可由用户在 extraNotes
+ *    里要求"再克制点 / 再大胆点"等微调建议（影响 styleInstruction 措辞）。
  *
  * ---- 防 AI slop ----
- * meta-prompt 里塞了一份"避免 AI 套话"的禁令清单（参考了写作圈反 AI 味
- * 的常见经验），免得生成出来的模板自己就是"AI 味浓郁"的样板文字。
+ * meta-prompt 里塞了一份"避免 AI 套话"的禁令清单，并要求 LLM 把这些
+ * 禁令也写进 styleInstruction 里 —— 让生成出来的模板自己会拒绝 AI 味。
  */
 
 import {
   COMMON_OUTPUT_RULES,
-  COMMON_USER_PAYLOAD
+  COMMON_USER_PAYLOAD,
+  MAGAZINE_THEMES
 } from "./defaults.js";
 import { getSettings } from "./storage.js";
 
+// ---------------------------------------------------------------------
+// 问卷选项 schema（同时给 UI 和 meta-prompt 用，确保两端一致）
+// ---------------------------------------------------------------------
+
+export const QUIZ_OPTIONS = Object.freeze({
+  contentPillar: [
+    { id: "tech-review",  label: "科技测评 / AI / 数码", hint: "评测、行业评论、产品发布稿" },
+    { id: "finance",      label: "财经商业 / 行业观察",   hint: "商业分析、宏观、品牌研究" },
+    { id: "knowledge",    label: "知识科普 / 教程拆解",   hint: "硬知识、教程、深度科普" },
+    { id: "lifestyle",    label: "情感生活 / 故事叙述",   hint: "故事、随笔、情绪、日常" },
+    { id: "fashion",      label: "时尚美学 / 视觉艺术",   hint: "时尚、美学、设计、艺术评论" },
+    { id: "culture",      label: "文化评论 / 深度专栏",   hint: "人物特稿、文化批评、深度长文" },
+    { id: "other",        label: "其他（自己写）",        hint: "在备注里告诉我们" }
+  ],
+  tone: [
+    { id: "restrained", label: "克制 · 有判断",   hint: "适合科技、财经、深度（推荐）" },
+    { id: "warm",       label: "温暖 · 有人情味", hint: "适合生活、情感、品牌故事" },
+    { id: "sharp",      label: "锋利 · 有态度",   hint: "适合评论、专栏、文化批评" },
+    { id: "casual",     label: "轻松 · 有梗",     hint: "适合年轻向、潮流、亚文化" },
+    { id: "academic",   label: "学术 · 严谨",     hint: "适合科普、研究综述、教程" }
+  ],
+  opening: [
+    { id: "punchline", label: "punchline · 反常识结论", hint: "一句话先定调" },
+    { id: "scene",     label: "场景 · 画面感开头",      hint: "一个细节带读者入场" },
+    { id: "data",      label: "数据 · 现象切入",        hint: "一个事实把读者钉在屏幕前" },
+    { id: "story",     label: "故事 · 个人代入",        hint: "用第一人称或人物事件破冰" },
+    { id: "question",  label: "钩子 · 提问反问",        hint: "用一个真问题逼读者读下去" }
+  ],
+  rhythm: [
+    { id: "short",    label: "短促 · 1–2 句一段",  hint: "节奏快、像 Twitter 串" },
+    { id: "standard", label: "标准 · 2–4 句一段",  hint: "公众号最常用的节奏（推荐）" },
+    { id: "long",     label: "从容 · 3–6 句一段",  hint: "深度长文 / 文学随笔" }
+  ],
+  cta: [
+    { id: "action",  label: "明确的行动建议", hint: "「现在就去试试 / 文末领取」" },
+    { id: "thought", label: "留一个思考问题", hint: "邀请读者评论区聊" },
+    { id: "next",    label: "下期钩子",       hint: "「下篇我们聊 XXX」" },
+    { id: "quote",   label: "金句 / 观点收尾", hint: "用一句话立住" }
+  ]
+  // visualTheme 选项直接复用 MAGAZINE_THEMES（避免两边漂移）
+});
+
+// ---------------------------------------------------------------------
+// meta-prompt
+// ---------------------------------------------------------------------
+
 const META_SYSTEM_PROMPT = `你是一名给"公众号改写工具"设计 prompt 模板的资深内容编辑。
 
-你的任务：根据用户描述的公众号风格 / 受众 / 写作习惯，生成一段可以直接喂给 GPT 类模型用来"把来源材料改写成公众号文章"的 prompt 模板（中文）。
+你的任务：根据用户问卷的结构化答案，生成一段可以直接喂给 GPT 类模型用来"把来源材料改写成公众号文章"的 prompt 模板（中文）。
 
 【硬约束 · 必须遵守】
 1. 只输出合法 JSON，且只输出 JSON。不要 Markdown 代码块、不要解释、不要前后缀文字。
 2. 输出的 JSON 必须严格符合下面的 schema：
 {
-  "name": string,                  // 模板名，6-14 个汉字以内，要有辨识度，禁用"高级版/专业版"等空话
+  "name": string,                  // 模板名，6–14 个汉字以内，要有辨识度，禁用"高级版/专业版"等空话
   "icon": string,                  // 一个 emoji，与风格契合
-  "styleInstruction": string,      // 200-450 字，给 LLM 的"角色 + 写作风格 + 段落节奏 + 风格雷区"指令，不要包含输出格式约束（格式由系统自动追加）
-  "userIntro": string,             // 30-80 字，userTemplate 的开头引导句，告诉 LLM "请将下面的来源材料改写成 XXX 风格的公众号稿"
+  "styleInstruction": string,      // 280–520 字，给 LLM 的"角色 + 写作风格 + 段落节奏 + 风格雷区"指令，不要包含输出格式约束（格式由系统自动追加）
+  "userIntro": string,             // 30–80 字，userTemplate 的开头引导句
   "defaults": {
-    "tone": string,                // 8-30 字，描述行文调性
-    "angle": string,               // 10-40 字，描述切入角度
+    "tone": string,                // 8–30 字，描述行文调性
+    "angle": string,               // 10–40 字，描述切入角度
     "length": "short" | "medium" | "long",
-    "cta": string,                 // 8-30 字，描述结尾行动建议
-    "audience": string             // 10-40 字，描述目标读者
+    "cta": string,                 // 8–30 字，描述结尾行动建议
+    "audience": string             // 10–40 字，描述目标读者
   },
   "temperature": number            // 0.3 ~ 1.0 之间，与风格匹配（冷静分析偏低，故事/创意偏高）
 }
 
 【styleInstruction 写作要点】
-- 第一句给"你是 XXX"的角色设定，第二段开始给具体写作纪律。
-- 必须包含：开头怎么写、段落节奏（句子长短 / 单段句数）、可用与不可用的修辞。
-- 必须显式列出"事实约束"段落：只能基于来源事实、不得编造数据/人物/数字、关键名词与来源一致。
+- 第一句给"你是 XXX"的角色设定，要有身份感、有审美主张。
+- 第二段开始给具体写作纪律：开头怎么写、段落节奏、可用与不可用的修辞。
+- 必须包含"事实约束"段落：只能基于来源事实、不得编造数据/人物/数字、关键名词与来源一致。
+- 必须包含"反 AI 味"段落：把下面的禁令清单完整复述给 LLM 听。
 - 不要去定义 JSON 输出字段（系统会自动追加 OUTPUT_RULES）。
 
 【避坑 · AI 套话黑名单】
-styleInstruction 中**不允许使用**也**禁止让生成出的文章使用**以下表达，并要在 styleInstruction 里明确告诫 LLM 也不要用：
+styleInstruction 中**不允许使用**也**禁止生成出的文章使用**以下表达：
 - "随着…的不断发展" / "在当今时代" / "在数字化浪潮下" / "拥抱变革" / "赋能"
 - "首先…其次…最后" 这类机械三段式串场
 - 大量排比（"不是…而是…"、"既要…也要…"等连续 3 句以上）
@@ -65,50 +111,62 @@ styleInstruction 中**不允许使用**也**禁止让生成出的文章使用**�
 - 滥用破折号、问号反问、收尾感叹号
 - emoji 堆砌（除非用户明确说要走活泼路线，否则正文里禁用 emoji）
 
-【其他要求】
+【杂志感 / 反"土" 要求】
+用户已经在问卷里选定了一套杂志级视觉主题（你在【用户问卷】里能看到 visualTheme 的名字和气质）。
+请让你写的 styleInstruction **匹配那套视觉主题的气质**。例如：
+- 选了 The New Yorker / Monocle / Vogue → 文风要"有编辑判断、克制不卖弄、敢用长句、不堆 emoji"。
+- 选了 Wired → 文风要"硬、快、有态度、用具体数字和产品名钉死论点"。
+- 选了 Kinfolk → 文风要"慢、留白、用具体的小细节代替大词"。
+- 选了 Zine → 文风要"有立场、敢锋利、不端着、可以口语化但不油腻"。
+不要在 styleInstruction 里描述 CSS / 视觉样式 —— 视觉由系统自动套用，你只负责写作风格。
+
+【其他】
 - 输出整体语言：中文。
-- defaults.length 默认建议 "medium"，除非用户明确说"短小快"或"长文深度"。
-- 如果用户描述很简略，按"专业、可信、有判断力"的默认走，不要瞎扩展用户没说过的需求。
-- 不要在任何字段里出现 "{{变量名}}" 这种占位符（系统会负责所有变量插值）。`;
+- defaults.length 默认参考用户问卷里的 rhythm（short→short, standard→medium, long→long），用户没特别说就跟随。
+- 不要在任何字段里出现 "{{变量名}}"（系统会负责所有变量插值）。
+- name 不要包含"模板""prompt""GPT""AI"这种字眼，要像一个真正的编辑栏目名（例如"深海观察日志""午后随感""硬核拆机"）。`;
 
-const META_USER_TEMPLATE = `用户描述了他想要的公众号改写风格，请按 schema 生成模板：
+const META_USER_TEMPLATE = `用户在问卷里给出了如下答案，请按 schema 生成模板：
 
-【用户原话】
-{{userBrief}}
+【内容定位】{{contentPillar}}
+【写作语气】{{tone}}
+【开头方式】{{opening}}
+【段落节奏】{{rhythm}}
+【结尾方式】{{cta}}
+【视觉主题】{{visualTheme}}（{{visualThemeInspiration}} 风格 · {{visualThemeSummary}}）
 
-【附加偏好】
-- 期望长度：{{length}}
-- 目标读者（用户填的）：{{audience}}
-- 期望调性（用户填的）：{{tone}}
-- 期望模板图标：{{iconHint}}
+【目标读者补充】{{audience}}
+【特别风格细节补充】{{extraNotes}}
 
 请直接输出 JSON。`;
 
 const ALLOWED_LENGTHS = new Set(["short", "medium", "long"]);
+const RHYTHM_TO_LENGTH = { short: "short", standard: "medium", long: "long" };
+const VALID_THEME_IDS = new Set(MAGAZINE_THEMES.map((t) => t.id));
+
+// ---------------------------------------------------------------------
+// 主入口
+// ---------------------------------------------------------------------
 
 /**
- * 调用 LLM 生成模板。返回标准化的模板对象（id 已生成，可直接 push 进 _templates）。
+ * 调用 LLM 根据问卷答案生成模板。
  *
  * @param {object} input
- * @param {string} input.userBrief        用户的需求描述（必填）
- * @param {string} [input.length]         "short" | "medium" | "long"
- * @param {string} [input.audience]
- * @param {string} [input.tone]
- * @param {string} [input.iconHint]
+ * @param {object} input.quiz                 必填，结构见下方
+ * @param {string} input.quiz.contentPillar
+ * @param {string} [input.quiz.contentPillarOther]
+ * @param {string} input.quiz.tone
+ * @param {string} input.quiz.opening
+ * @param {string} input.quiz.rhythm
+ * @param {string} input.quiz.cta
+ * @param {string} input.quiz.visualTheme     必填，必须是 MAGAZINE_THEMES 之一
+ * @param {string} [input.quiz.audience]
+ * @param {string} [input.quiz.extraNotes]
  * @param {AbortSignal} [input.signal]
  * @returns {Promise<{template: object, raw: string}>}
  */
 export async function generateTemplate(input) {
-  const userBrief = String(input?.userBrief || "").trim();
-  if (!userBrief) {
-    throw new Error("请先描述你的公众号风格 / 写作偏好。");
-  }
-  if (userBrief.length < 12) {
-    throw new Error("描述太短了。多说几句你想要的开头方式、段落节奏、读者画像，效果会好很多。");
-  }
-  if (userBrief.length > 1500) {
-    throw new Error("描述过长（>1500 字）。把核心需求精简一下再试。");
-  }
+  const quiz = validateQuizInput(input?.quiz);
 
   const settings = await getSettings();
   if (!settings.apiKey?.trim()) {
@@ -121,13 +179,7 @@ export async function generateTemplate(input) {
     throw new Error("请先在「设置」里填好 Model 名再来生成模板。");
   }
 
-  const userPrompt = renderUserPrompt({
-    userBrief,
-    length: normalizeLength(input?.length),
-    audience: orDash(input?.audience),
-    tone: orDash(input?.tone),
-    iconHint: orDash(input?.iconHint)
-  });
+  const userPrompt = renderUserPrompt(quiz);
 
   const response = await fetch(settings.apiBaseUrl.trim(), {
     method: "POST",
@@ -139,7 +191,6 @@ export async function generateTemplate(input) {
       model: settings.model.trim(),
       // 偏低温度 → meta-prompt 输出更稳定、不会瞎发挥
       temperature: 0.4,
-      // 部分 OpenAI 兼容服务支持 response_format，传上不影响其它服务（多余字段一般会被忽略）
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: META_SYSTEM_PROMPT },
@@ -164,20 +215,93 @@ export async function generateTemplate(input) {
   }
 
   const parsed = parseJsonStrict(content);
-  const validated = validateAndShape(parsed);
-  const template = composeTemplate(validated);
+  // 把问卷的 length 偏好作为兜底，AI 没填或填错时用问卷答案
+  const validated = validateAndShape(parsed, {
+    fallbackLength: RHYTHM_TO_LENGTH[quiz.rhythm] || "medium"
+  });
+  const template = composeTemplate(validated, { suggestedTheme: quiz.visualTheme });
   return { template, raw: content };
 }
 
 // ---------------------------------------------------------------------
-// 内部工具
+// 输入校验 / 渲染
 // ---------------------------------------------------------------------
 
-function renderUserPrompt(vars) {
+export function validateQuizInput(rawQuiz) {
+  if (!rawQuiz || typeof rawQuiz !== "object") {
+    throw new Error("缺少问卷答案。");
+  }
+
+  const enums = QUIZ_OPTIONS;
+  const must = (field, allowed) => {
+    const v = String(rawQuiz[field] || "").trim();
+    if (!v) throw new Error(`问卷未完成：缺少「${field}」。`);
+    if (!allowed.some((opt) => opt.id === v)) {
+      throw new Error(`问卷字段 ${field} 的取值不在允许列表内：${v}`);
+    }
+    return v;
+  };
+
+  const contentPillar = must("contentPillar", enums.contentPillar);
+  const tone = must("tone", enums.tone);
+  const opening = must("opening", enums.opening);
+  const rhythm = must("rhythm", enums.rhythm);
+  const cta = must("cta", enums.cta);
+
+  const visualTheme = String(rawQuiz.visualTheme || "").trim();
+  if (!VALID_THEME_IDS.has(visualTheme)) {
+    throw new Error("问卷未完成：缺少视觉主题（visualTheme），或选了一个未知主题。");
+  }
+
+  const contentPillarOther = trimToLength(rawQuiz.contentPillarOther, 80);
+  if (contentPillar === "other" && !contentPillarOther) {
+    throw new Error("「内容定位」选了「其他」，请在备注里写一句你的方向。");
+  }
+
+  return {
+    contentPillar,
+    contentPillarOther,
+    tone,
+    opening,
+    rhythm,
+    cta,
+    visualTheme,
+    audience: trimToLength(rawQuiz.audience, 200),
+    extraNotes: trimToLength(rawQuiz.extraNotes, 400)
+  };
+}
+
+function renderUserPrompt(quiz) {
+  const enums = QUIZ_OPTIONS;
+  const labelOf = (list, id) => list.find((o) => o.id === id)?.label || id;
+  const themeMeta = MAGAZINE_THEMES.find((t) => t.id === quiz.visualTheme);
+
+  const contentPillarLabel =
+    quiz.contentPillar === "other" && quiz.contentPillarOther
+      ? `其他 · ${quiz.contentPillarOther}`
+      : labelOf(enums.contentPillar, quiz.contentPillar);
+
+  const vars = {
+    contentPillar: contentPillarLabel,
+    tone: labelOf(enums.tone, quiz.tone),
+    opening: labelOf(enums.opening, quiz.opening),
+    rhythm: labelOf(enums.rhythm, quiz.rhythm),
+    cta: labelOf(enums.cta, quiz.cta),
+    visualTheme: themeMeta?.label || quiz.visualTheme,
+    visualThemeInspiration: themeMeta?.inspiration || "",
+    visualThemeSummary: themeMeta?.summary || "",
+    audience: quiz.audience || "（未填，按对应内容定位的典型读者来设想）",
+    extraNotes: quiz.extraNotes || "（未填）"
+  };
+
   return META_USER_TEMPLATE.replace(/\{\{(\w+)\}\}/g, (_, key) =>
     vars[key] != null ? String(vars[key]) : "（未填）"
   );
 }
+
+// ---------------------------------------------------------------------
+// 解析 / 校验 LLM 输出
+// ---------------------------------------------------------------------
 
 function extractContent(payload) {
   return (
@@ -190,11 +314,9 @@ function extractContent(payload) {
 
 function parseJsonStrict(text) {
   const trimmed = String(text || "").trim();
-  // 先直接尝试
   try {
     return JSON.parse(trimmed);
   } catch {
-    // 兜底：从 ```json``` 代码块或第一段 { ... } 中抠
     const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
     if (fenceMatch?.[1]) {
       try {
@@ -217,11 +339,13 @@ function parseJsonStrict(text) {
 }
 
 /**
- * 校验 + 规整 LLM 返回的对象。返回的 shape 是"半成品"——
- * styleInstruction / userIntro / defaults 已确认有效，
- * 但还没拼成最终的 systemTemplate / userTemplate。
+ * 校验 + 规整 LLM 返回的对象。
+ *
+ * @param {*} raw
+ * @param {object} [opts]
+ * @param {"short"|"medium"|"long"} [opts.fallbackLength]
  */
-export function validateAndShape(raw) {
+export function validateAndShape(raw, opts = {}) {
   if (!raw || typeof raw !== "object") {
     throw new Error("LLM 返回的不是 JSON 对象。");
   }
@@ -229,7 +353,7 @@ export function validateAndShape(raw) {
   const name = trimToLength(raw.name, 24);
   if (!name) throw new Error("LLM 返回的模板缺少 name。");
 
-  const styleInstruction = trimToLength(raw.styleInstruction, 1600);
+  const styleInstruction = trimToLength(raw.styleInstruction, 1800);
   if (!styleInstruction || styleInstruction.length < 80) {
     throw new Error("LLM 返回的 styleInstruction 太短或缺失，请重试。");
   }
@@ -240,10 +364,13 @@ export function validateAndShape(raw) {
   }
 
   const defaults = raw.defaults && typeof raw.defaults === "object" ? raw.defaults : {};
+  const fallbackLength = ALLOWED_LENGTHS.has(opts.fallbackLength)
+    ? opts.fallbackLength
+    : "medium";
   const shapedDefaults = {
     tone: trimToLength(defaults.tone, 60) || "",
     angle: trimToLength(defaults.angle, 80) || "",
-    length: ALLOWED_LENGTHS.has(defaults.length) ? defaults.length : "medium",
+    length: ALLOWED_LENGTHS.has(defaults.length) ? defaults.length : fallbackLength,
     cta: trimToLength(defaults.cta, 60) || "",
     audience: trimToLength(defaults.audience, 80) || ""
   };
@@ -267,11 +394,19 @@ export function validateAndShape(raw) {
 /**
  * 把 LLM 返回的"创意部分"拼回我们自己控制的 OUTPUT contract，
  * 组成一个完整的、立刻可用的模板对象。
+ *
+ * @param {object} shaped
+ * @param {object} [opts]
+ * @param {string} [opts.suggestedTheme]   推荐的视觉主题 id（来自问卷）
  */
-export function composeTemplate(shaped) {
+export function composeTemplate(shaped, opts = {}) {
   const id = `custom-ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const systemTemplate = `${shaped.styleInstruction}\n\n${COMMON_OUTPUT_RULES}`;
   const userTemplate = `${shaped.userIntro}\n\n${COMMON_USER_PAYLOAD}`;
+
+  const suggestedTheme = VALID_THEME_IDS.has(opts.suggestedTheme)
+    ? opts.suggestedTheme
+    : null;
 
   return {
     id,
@@ -284,14 +419,18 @@ export function composeTemplate(shaped) {
     temperature: shaped.temperature,
     model: "",
     aiGenerated: true,
-    aiBriefHash: undefined  // 留给上层填，避免重复生成完全一致的模板
+    suggestedTheme,
+    aiBriefHash: undefined
   };
 }
+
+// ---------------------------------------------------------------------
+// 工具
+// ---------------------------------------------------------------------
 
 function pickIcon(raw) {
   const value = String(raw || "").trim();
   if (!value) return "✨";
-  // 限制 1-2 个 codepoint，防止用户拼了一句话
   const codepoints = Array.from(value);
   if (codepoints.length > 2) return codepoints.slice(0, 2).join("");
   return value;
@@ -308,18 +447,11 @@ function truncate(value, max) {
   return str.length > max ? `${str.slice(0, max - 1)}…` : str;
 }
 
-function normalizeLength(value) {
-  return ALLOWED_LENGTHS.has(value) ? value : "medium";
-}
-
-function orDash(value) {
-  const str = String(value || "").trim();
-  return str || "（未填）";
-}
-
-// 暴露 meta-prompt 给 smoke 测试 / 调试用
+// 暴露给 smoke 测试 / 调试用
 export const __INTERNAL = Object.freeze({
   META_SYSTEM_PROMPT,
   META_USER_TEMPLATE,
-  ALLOWED_LENGTHS
+  ALLOWED_LENGTHS,
+  RHYTHM_TO_LENGTH,
+  VALID_THEME_IDS
 });

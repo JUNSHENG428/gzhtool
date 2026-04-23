@@ -1035,6 +1035,259 @@ button.ghost {
 }
 
 /* ────────────────────────────────────────────────────────────
+ * AI 模板生成器 v0.4 · 问卷化 UI
+ * ──────────────────────────────────────────────────────────── */
+
+.ai-gen-quiz-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px 18px;
+  border-top: 1px solid var(--line);
+}
+
+.ai-gen-quiz-block:first-of-type {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.ai-gen-quiz-q {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ai-gen-quiz-num {
+  font-family: 'Helvetica Neue', 'Arial', sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: #2c6e54;
+  padding: 2px 8px;
+  background: rgba(44, 110, 84, 0.08);
+  border-radius: 4px;
+}
+
+.ai-gen-quiz-title {
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.005em;
+}
+
+.ai-gen-quiz-hint {
+  flex: 1 1 100%;
+  font-size: 0.76rem;
+  color: var(--soft-ink);
+  line-height: 1.55;
+  padding-left: 38px;  /* 与 num 对齐缩进 */
+}
+
+.ai-gen-quiz-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-left: 38px;
+}
+
+.ai-gen-quiz-option {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 9px 14px;
+  background: var(--surface-soft, rgba(0, 0, 0, 0.02));
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+  text-align: left;
+}
+
+.ai-gen-quiz-option:hover {
+  border-color: rgba(44, 110, 84, 0.55);
+  background: rgba(44, 110, 84, 0.04);
+}
+
+.ai-gen-quiz-option.is-selected {
+  border-color: #1f4f3a;
+  background: rgba(44, 110, 84, 0.1);
+  box-shadow: 0 0 0 2px rgba(44, 110, 84, 0.18);
+}
+
+.ai-gen-quiz-option-label {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ai-gen-quiz-option-hint {
+  font-size: 0.72rem;
+  color: var(--soft-ink);
+  line-height: 1.45;
+}
+
+.ai-gen-quiz-other {
+  margin-left: 38px;
+  margin-top: 2px;
+  width: calc(100% - 38px);
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft, rgba(255, 255, 255, 0.6));
+  color: var(--ink);
+}
+
+.ai-gen-quiz-other:focus {
+  outline: none;
+  border-color: #2c6e54;
+}
+
+/* 视觉主题卡片网格 */
+
+.ai-gen-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  padding-left: 38px;
+}
+
+.ai-gen-theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px 13px;
+  text-align: left;
+  background: var(--surface-soft, rgba(0, 0, 0, 0.02));
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
+  min-height: 110px;
+}
+
+.ai-gen-theme-card:hover {
+  border-color: rgba(44, 110, 84, 0.55);
+  background: rgba(44, 110, 84, 0.04);
+}
+
+.ai-gen-theme-card.is-selected {
+  border-color: #1f4f3a;
+  background: linear-gradient(135deg, rgba(31, 79, 58, 0.08), rgba(240, 212, 176, 0.16));
+  box-shadow: 0 0 0 2px rgba(44, 110, 84, 0.2);
+}
+
+.ai-gen-theme-name {
+  font-family: 'Source Han Serif SC', 'Noto Serif SC', serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.ai-gen-theme-from {
+  font-family: 'Helvetica Neue', 'Arial', sans-serif;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #c08e3d;
+}
+
+.ai-gen-theme-summary {
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--soft-ink);
+}
+
+.ai-gen-theme-pairs {
+  font-size: 0.7rem;
+  color: var(--soft-ink);
+  opacity: 0.85;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+}
+
+/* Q7 选填补充区 */
+
+.ai-gen-quiz-extra {
+  gap: 8px;
+}
+
+.ai-gen-quiz-extra .ai-gen-field-inline {
+  width: 100%;
+  padding-left: 38px;
+}
+
+.ai-gen-quiz-extra .ai-gen-field-inline textarea {
+  resize: vertical;
+  min-height: 70px;
+  padding: 10px 12px;
+  font-size: 0.86rem;
+  line-height: 1.6;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft, rgba(255, 255, 255, 0.6));
+  color: var(--ink);
+  font-family: inherit;
+}
+
+.ai-gen-quiz-extra .ai-gen-field-inline textarea:focus,
+.ai-gen-quiz-extra .ai-gen-field-inline input[type="text"]:focus {
+  outline: none;
+  border-color: #2c6e54;
+  box-shadow: 0 0 0 3px rgba(44, 110, 84, 0.12);
+}
+
+/* 预览区 · 视觉主题建议卡 */
+
+.ai-gen-preview-theme {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(192, 142, 61, 0.12), rgba(31, 79, 58, 0.06));
+  border: 1px solid rgba(192, 142, 61, 0.35);
+  border-radius: 12px;
+}
+
+.ai-gen-preview-theme-tag {
+  font-family: 'Helvetica Neue', 'Arial', sans-serif;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #c08e3d;
+  padding: 2px 8px;
+  background: rgba(192, 142, 61, 0.15);
+  border-radius: 4px;
+}
+
+#aiGenPreviewThemeName {
+  font-family: 'Source Han Serif SC', 'Noto Serif SC', serif;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+#aiGenPreviewThemeSummary {
+  flex: 1 1 100%;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--soft-ink);
+}
+
+/* 对话框整体在小屏可滚 */
+
+.ai-gen-dialog {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* ────────────────────────────────────────────────────────────
  * 小白友好增强：模式切换 / 上手清单 / 字段提示 / 浮动保存条
  * ──────────────────────────────────────────────────────────── */
 

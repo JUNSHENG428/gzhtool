@@ -540,15 +540,22 @@ console.log("\n运行 agent-store task-history 单测 …");
 }
 
 // =====================================================================
-// AI 模板生成器 · schema 校验 + 模板组装
+// AI 模板生成器 v0.4 · 问卷 schema + 模板组装 + 主题元数据
 // =====================================================================
-console.log("\n运行 template-generator schema 校验单测 …");
+console.log("\n运行 template-generator v0.4 问卷 schema 校验单测 …");
 {
-  const { validateAndShape, composeTemplate, __INTERNAL } = await import(
-    "../src/shared/template-generator.js"
+  const {
+    validateAndShape,
+    composeTemplate,
+    validateQuizInput,
+    QUIZ_OPTIONS,
+    __INTERNAL
+  } = await import("../src/shared/template-generator.js");
+  const { MAGAZINE_THEMES, THEME_PRESETS } = await import(
+    "../src/shared/defaults.js"
   );
 
-  // meta-prompt 必须包含核心硬约束（拼写错了会让 AI 偏题）
+  // ---- meta-prompt 必须包含核心硬约束 ----
   assert(
     __INTERNAL.META_SYSTEM_PROMPT.includes("只输出合法 JSON"),
     "meta-prompt 必须包含 JSON-only 约束"
@@ -557,10 +564,87 @@ console.log("\n运行 template-generator schema 校验单测 …");
     __INTERNAL.META_SYSTEM_PROMPT.includes("styleInstruction"),
     "meta-prompt 必须包含 styleInstruction 字段说明"
   );
+  assert(
+    __INTERNAL.META_SYSTEM_PROMPT.includes("杂志感"),
+    "meta-prompt 必须显式要求杂志气质（防 AI slop）"
+  );
 
-  // 合法返回 → shape + compose
-  const valid = {
-    name: "测评派叙述",
+  // ---- QUIZ_OPTIONS 完备性 ----
+  for (const field of ["contentPillar", "tone", "opening", "rhythm", "cta"]) {
+    assert(
+      Array.isArray(QUIZ_OPTIONS[field]) && QUIZ_OPTIONS[field].length >= 3,
+      `QUIZ_OPTIONS.${field} 至少要有 3 个选项`
+    );
+    for (const opt of QUIZ_OPTIONS[field]) {
+      assert(
+        typeof opt.id === "string" && typeof opt.label === "string",
+        `QUIZ_OPTIONS.${field} 的每个选项必须有 id 和 label`
+      );
+    }
+  }
+
+  // ---- MAGAZINE_THEMES 完备性 + 与 THEME_PRESETS 对齐 ----
+  assert(
+    Array.isArray(MAGAZINE_THEMES) && MAGAZINE_THEMES.length >= 6,
+    "至少要 6 套杂志级母版"
+  );
+  for (const theme of MAGAZINE_THEMES) {
+    assert(
+      theme.id && theme.label && theme.inspiration && theme.summary,
+      `主题元数据 ${theme.id} 缺字段`
+    );
+    assert(
+      THEME_PRESETS[theme.id],
+      `主题 ${theme.id} 在 MAGAZINE_THEMES 里有，但 THEME_PRESETS 缺实现`
+    );
+    // 反 AI slop：禁圆角色块、禁 border-left 装饰条
+    const root = THEME_PRESETS[theme.id].root || "";
+    if (theme.id !== "editorial-green") {
+      // editorial-green 是兼容老用户的"润笔默认"，允许圆角；新增的 6 套必须杂志级
+      assert(
+        !/border-radius:\s*(?:1[2-9]|2\d|3\d)/.test(root),
+        `主题 ${theme.id} 不应有 12px+ 圆角（杂志级偏好直角 / hairline）`
+      );
+    }
+  }
+
+  // ---- validateQuizInput ----
+  const okQuiz = {
+    contentPillar: "tech-review",
+    tone: "restrained",
+    opening: "punchline",
+    rhythm: "standard",
+    cta: "next",
+    visualTheme: "wired-neon",
+    audience: "25–35 岁的科技产品决策者",
+    extraNotes: "少用形容词，多用具体数字"
+  };
+  const validatedQuiz = validateQuizInput(okQuiz);
+  assert(validatedQuiz.contentPillar === "tech-review", "validateQuizInput 应通过合法问卷");
+
+  let threw = false;
+  try { validateQuizInput({ ...okQuiz, contentPillar: "" }); } catch { threw = true; }
+  assert(threw, "缺 contentPillar 应被拒绝");
+
+  threw = false;
+  try { validateQuizInput({ ...okQuiz, visualTheme: "fancy-bling" }); } catch { threw = true; }
+  assert(threw, "未知 visualTheme 应被拒绝");
+
+  threw = false;
+  try {
+    validateQuizInput({ ...okQuiz, contentPillar: "other", contentPillarOther: "" });
+  } catch {
+    threw = true;
+  }
+  assert(threw, "contentPillar=other 但没写备注应被拒绝");
+
+  threw = false;
+  try { validateQuizInput(null); } catch { threw = true; }
+  assert(threw, "null quiz 应被拒绝");
+
+  // ---- LLM 返回的 shape + compose（含 suggestedTheme） ----
+  const validLlmReturn = {
+    name: "硬核拆机",
     icon: "🧪",
     styleInstruction:
       "你是一名科技测评号编辑。开头用一句反常识结论抓住读者，比如「这台手机让我把另外两台都退了」。\n\n写作纪律：\n- 段落短、句子短，单段不超过 3 句。\n- 不允许使用「随着…的不断发展」「拥抱变革」「赋能」等 AI 套话。\n- 关键参数 / 价格 / 型号必须与来源完全一致。\n\n事实约束：\n- 只能使用来源中明确出现的人物、对话、地点、时间。\n- 不允许编造跑分、续航、价格等数字。",
@@ -570,19 +654,22 @@ console.log("\n运行 template-generator schema 校验单测 …");
       angle: "用反常识结论开头，正文密集小标题，结尾给购买建议",
       length: "medium",
       cta: "在结尾给出明确的购买/不推荐判断",
-      audience: "25-35 岁的科技产品决策者"
+      audience: "25–35 岁的科技产品决策者"
     },
     temperature: 0.7
   };
-  const shaped = validateAndShape(valid);
-  assert(shaped.name === "测评派叙述", "validateAndShape 应保留 name");
+  const shaped = validateAndShape(validLlmReturn);
+  assert(shaped.name === "硬核拆机", "validateAndShape 应保留 name");
   assert(shaped.defaults.length === "medium", "validateAndShape 应认 length");
   assert(shaped.temperature === 0.7, "validateAndShape 应认 temperature");
 
-  const tpl = composeTemplate(shaped);
-  assert(typeof tpl.id === "string" && tpl.id.startsWith("custom-ai-"), "compose 出的 id 应带 custom-ai- 前缀");
+  const tpl = composeTemplate(shaped, { suggestedTheme: "wired-neon" });
   assert(
-    tpl.systemTemplate.includes(valid.styleInstruction),
+    typeof tpl.id === "string" && tpl.id.startsWith("custom-ai-"),
+    "compose 出的 id 应带 custom-ai- 前缀"
+  );
+  assert(
+    tpl.systemTemplate.includes(validLlmReturn.styleInstruction),
     "compose 后 systemTemplate 应保留 styleInstruction"
   );
   assert(
@@ -594,27 +681,52 @@ console.log("\n运行 template-generator schema 校验单测 …");
     "compose 后 userTemplate 应自动追加 COMMON_USER_PAYLOAD（含变量占位符）"
   );
   assert(tpl.aiGenerated === true, "compose 出的模板应标记 aiGenerated=true");
+  assert(
+    tpl.suggestedTheme === "wired-neon",
+    "compose 应正确写入 suggestedTheme 字段"
+  );
 
-  // 防御：styleInstruction 里塞 {{var}} 应被拒绝（否则会被 buildRewriteMessages 当变量插值）
-  let threw = false;
+  // suggestedTheme 非法 → 应被静默丢弃（null）
+  const tpl2 = composeTemplate(shaped, { suggestedTheme: "fancy-bling" });
+  assert(tpl2.suggestedTheme === null, "未知 suggestedTheme 应被丢弃为 null");
+
+  // 不传 opts 也不应崩
+  const tpl3 = composeTemplate(shaped);
+  assert(tpl3.suggestedTheme === null, "不传 suggestedTheme 时应为 null");
+
+  // 防御：styleInstruction 里塞 {{var}} 应被拒绝
+  threw = false;
   try {
-    validateAndShape({ ...valid, styleInstruction: valid.styleInstruction + "\n\n{{audience}}" });
+    validateAndShape({
+      ...validLlmReturn,
+      styleInstruction: validLlmReturn.styleInstruction + "\n\n{{audience}}"
+    });
   } catch {
     threw = true;
   }
   assert(threw, "styleInstruction 里出现 {{...}} 必须被拒绝");
 
-  // length 非法 → 兜底 medium（不抛错）
+  // length 非法 → 兜底 medium（默认）
   const fallback = validateAndShape({
-    ...valid,
-    defaults: { ...valid.defaults, length: "tiny" }
+    ...validLlmReturn,
+    defaults: { ...validLlmReturn.defaults, length: "tiny" }
   });
-  assert(fallback.defaults.length === "medium", "非法 length 应兜底为 medium");
+  assert(fallback.defaults.length === "medium", "非法 length 默认应兜底为 medium");
+
+  // length 非法 + 显式 fallbackLength="long" → 应认 fallbackLength
+  const fallback2 = validateAndShape(
+    { ...validLlmReturn, defaults: { ...validLlmReturn.defaults, length: "tiny" } },
+    { fallbackLength: "long" }
+  );
+  assert(
+    fallback2.defaults.length === "long",
+    "validateAndShape 应优先使用 opts.fallbackLength"
+  );
 
   // styleInstruction 太短 → 拒绝
   threw = false;
   try {
-    validateAndShape({ ...valid, styleInstruction: "太短了" });
+    validateAndShape({ ...validLlmReturn, styleInstruction: "太短了" });
   } catch {
     threw = true;
   }

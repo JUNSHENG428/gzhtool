@@ -566,44 +566,85 @@
           </div>
 
           <p class="prompt-preview-meta ai-gen-tagline">
-            用大白话描述你的公众号风格，几秒钟拿到一个量身定做的改写模板。AI 只负责"角色 + 风格 + 默认偏好"，输出 contract（JSON 字段、保留图片等）由系统自动锁死，不会破坏改写链路。
+            7 道选择题，AI 帮你写出一份**有编辑判断 + 有杂志气质**的改写模板。视觉主题来自 The New Yorker / Wired / Monocle / Vogue 等杂志的手工母版，AI 不写一行 CSS——下限就是杂志级。
           </p>
 
-          <!-- 步骤 1：填需求 -->
+          <!-- 步骤 1：问卷 -->
           <div id="aiGenStepInput" class="ai-gen-step">
-            <label class="ai-gen-field">
-              <span class="ai-gen-label">
-                你想要的公众号写作风格
-                <span class="ai-gen-label-hint">越具体越好：开头怎么写、段落节奏、可以/不能用什么修辞、读者是谁</span>
-              </span>
-              <textarea id="aiGenBrief" rows="6" placeholder="举例：我做的是科技测评号，开头喜欢一段 punchline 抓住读者，比如「这台手机让我把另外两台都退了」；正文要有密集的小标题，每段不超过 3 句；不要排比，不要『随着…的不断发展』这种 AI 套话；结尾留一个『下期讲什么』的钩子。读者是 25-35 岁的科技爱好者。"></textarea>
-              <span id="aiGenBriefStats" class="ai-gen-stats">0 字</span>
-            </label>
-
-            <div class="ai-gen-field-row">
-              <label class="ai-gen-field-inline">
-                <span class="ai-gen-label-sm">期望长度</span>
-                <select id="aiGenLength">
-                  <option value="short">短小快（&lt; 800 字）</option>
-                  <option value="medium" selected>中等（800-1500 字）</option>
-                  <option value="long">长文深度（&gt; 1500 字）</option>
-                </select>
-              </label>
-
-              <label class="ai-gen-field-inline">
-                <span class="ai-gen-label-sm">图标 emoji</span>
-                <input id="aiGenIconHint" type="text" maxlength="2" placeholder="✨" />
-              </label>
+            <!-- Q1 内容定位 -->
+            <div class="ai-gen-quiz-block">
+              <div class="ai-gen-quiz-q">
+                <span class="ai-gen-quiz-num">01</span>
+                <span class="ai-gen-quiz-title">你的公众号在写什么？</span>
+                <span class="ai-gen-quiz-hint">决定 AI 给你设定的"编辑身份"</span>
+              </div>
+              <div class="ai-gen-quiz-options" data-quiz="contentPillar"></div>
+              <input id="aiGenContentPillarOther" class="ai-gen-quiz-other" type="text" placeholder="如果选了「其他」，请用一句话告诉我们" hidden />
             </div>
 
-            <div class="ai-gen-field-row">
+            <!-- Q2 写作语气 -->
+            <div class="ai-gen-quiz-block">
+              <div class="ai-gen-quiz-q">
+                <span class="ai-gen-quiz-num">02</span>
+                <span class="ai-gen-quiz-title">你想要的写作语气？</span>
+                <span class="ai-gen-quiz-hint">决定整篇文章的"温度"和"立场感"</span>
+              </div>
+              <div class="ai-gen-quiz-options" data-quiz="tone"></div>
+            </div>
+
+            <!-- Q3 开头方式 -->
+            <div class="ai-gen-quiz-block">
+              <div class="ai-gen-quiz-q">
+                <span class="ai-gen-quiz-num">03</span>
+                <span class="ai-gen-quiz-title">文章开头你偏好哪种方式？</span>
+                <span class="ai-gen-quiz-hint">前三秒决定读者是不是滑走</span>
+              </div>
+              <div class="ai-gen-quiz-options" data-quiz="opening"></div>
+            </div>
+
+            <!-- Q4 段落节奏 -->
+            <div class="ai-gen-quiz-block">
+              <div class="ai-gen-quiz-q">
+                <span class="ai-gen-quiz-num">04</span>
+                <span class="ai-gen-quiz-title">段落节奏的偏好？</span>
+                <span class="ai-gen-quiz-hint">决定文章的"呼吸感"</span>
+              </div>
+              <div class="ai-gen-quiz-options" data-quiz="rhythm"></div>
+            </div>
+
+            <!-- Q5 结尾方式 -->
+            <div class="ai-gen-quiz-block">
+              <div class="ai-gen-quiz-q">
+                <span class="ai-gen-quiz-num">05</span>
+                <span class="ai-gen-quiz-title">文章怎么收尾？</span>
+                <span class="ai-gen-quiz-hint">决定读者读完做什么</span>
+              </div>
+              <div class="ai-gen-quiz-options" data-quiz="cta"></div>
+            </div>
+
+            <!-- Q6 视觉主题 -->
+            <div class="ai-gen-quiz-block ai-gen-quiz-theme">
+              <div class="ai-gen-quiz-q">
+                <span class="ai-gen-quiz-num">06</span>
+                <span class="ai-gen-quiz-title">视觉排版风（杂志级母版）</span>
+                <span class="ai-gen-quiz-hint">每一套都是参照真实高级杂志手工调的，AI 不写 CSS，下限就是杂志级</span>
+              </div>
+              <div class="ai-gen-quiz-options ai-gen-theme-grid" data-quiz="visualTheme"></div>
+            </div>
+
+            <!-- Q7 选填补充 -->
+            <div class="ai-gen-quiz-block ai-gen-quiz-extra">
+              <div class="ai-gen-quiz-q">
+                <span class="ai-gen-quiz-num">07</span>
+                <span class="ai-gen-quiz-title">补充信息（选填，但写了效果更好）</span>
+              </div>
               <label class="ai-gen-field-inline grow">
-                <span class="ai-gen-label-sm">目标读者（可选）</span>
-                <input id="aiGenAudience" type="text" placeholder="比如：25-35 岁的科技产品决策者" />
+                <span class="ai-gen-label-sm">目标读者画像</span>
+                <input id="aiGenAudience" type="text" placeholder="例：25–35 岁、有判断力的科技产品决策者" />
               </label>
               <label class="ai-gen-field-inline grow">
-                <span class="ai-gen-label-sm">期望调性（可选）</span>
-                <input id="aiGenTone" type="text" placeholder="比如：克制、幽默、有判断" />
+                <span class="ai-gen-label-sm">特别想要的风格细节</span>
+                <textarea id="aiGenExtraNotes" rows="3" placeholder="例：少用形容词，多用具体数字；不要出现「赋能」「拥抱变革」这种词；如果用反讽，要克制不油腻"></textarea>
               </label>
             </div>
 
@@ -633,6 +674,12 @@
               </div>
             </div>
 
+            <div id="aiGenPreviewTheme" class="ai-gen-preview-theme" hidden>
+              <span class="ai-gen-preview-theme-tag">视觉主题</span>
+              <strong id="aiGenPreviewThemeName"></strong>
+              <span id="aiGenPreviewThemeSummary"></span>
+            </div>
+
             <details class="ai-gen-preview-block-wrap" open>
               <summary>角色 + 风格指令（system prompt 主体）</summary>
               <pre id="aiGenPreviewStyle" class="prompt-preview-block"></pre>
@@ -644,7 +691,7 @@
             </details>
 
             <p class="ai-gen-preview-note">
-              输出格式 contract（必须返回 JSON、保留来源图片、字段不可省略等）会被系统自动追加到模板末尾，AI 改不了，所以这个模板拿过去就能直接喂改写引擎。
+              输出格式 contract（必须返回 JSON、保留来源图片、字段不可省略等）会被系统自动追加到模板末尾，AI 改不了。保存后请到「编辑台」把排版样式切换到上方建议的主题，杂志感才完整。
             </p>
 
             <div class="ai-gen-actions">

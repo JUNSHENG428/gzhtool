@@ -239,8 +239,262 @@ export const THEME_PRESETS = {
     strong: "color:#0f2944;font-weight:700;",
     cta:
       "margin-top:30px;padding:18px 20px;background:#10253f;color:#f5fbff;border-radius:18px;"
+  },
+
+  // ===================================================================
+  // 杂志级排版母版（v0.4 新增）
+  // 设计原则：禁圆角色块、禁 border-left 装饰条、禁渐变；多用 hairline、
+  // 字号节奏对比、留白、衬线/无衬线混排、全大写小标。
+  // 公众号 inline-style 限制：不能引外部 web font，伪类失效，所有装饰
+  // 必须是真实 inline 属性。所以"段首下沉"等效果交给 prompt 端引导
+  // LLM 在第一段开头插 <span style=...> 实现。
+  // ===================================================================
+
+  // 1) The New Yorker · 纯白衬线经典
+  "editorial-newyorker": {
+    label: "新刊衬线 · The New Yorker",
+    root:
+      "font-family:'Source Han Serif SC','Noto Serif SC','Songti SC',serif;color:#1a1a1a;line-height:1.95;font-size:17px;background:#ffffff;padding:36px 28px;border:none;border-radius:0;",
+    h1:
+      "font-family:'Source Han Serif SC','Noto Serif SC','Songti SC',serif;font-size:38px;line-height:1.18;color:#000;margin:0 0 18px;font-weight:700;letter-spacing:-0.01em;",
+    subtitle:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:12px;line-height:1.7;color:#666;margin:0 0 28px;padding-bottom:0;border-bottom:none;letter-spacing:0.18em;text-transform:uppercase;",
+    lead:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:19px;line-height:2;color:#1a1a1a;background:transparent;border:none;border-radius:0;border-top:1px solid #000;border-bottom:1px solid #000;padding:18px 0;margin:0 0 28px;font-style:italic;",
+    h2:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:24px;line-height:1.35;color:#000;margin:40px 0 14px;padding:0;border:none;font-weight:700;",
+    h3:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:13px;line-height:1.6;color:#000;margin:28px 0 12px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;",
+    p: "margin:0 0 18px;color:#1a1a1a;text-align:justify;",
+    blockquote:
+      "margin:32px 12% 32px 0;padding:0 0 0 24px;background:transparent;border:none;border-left:2px solid #000;border-radius:0;color:#000;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:22px;line-height:1.55;font-style:italic;",
+    list: "margin:0 0 20px 0;padding-left:1.35em;color:#1a1a1a;",
+    li: "margin:0 0 8px;",
+    figure:
+      "margin:32px 0;padding:0;background:transparent;border:none;border-radius:0;",
+    image:
+      "display:block;width:100%;border-radius:0;object-fit:cover;max-height:520px;background:#f4f4f4;",
+    figcaption:
+      "margin-top:10px;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:13px;color:#666;text-align:left;line-height:1.65;font-style:italic;",
+    hr: "border:none;border-top:1px solid #000;margin:36px 25% 36px 25%;",
+    strong: "color:#000;font-weight:700;",
+    cta:
+      "margin-top:40px;padding:20px 0;background:transparent;color:#000;border-top:2px solid #000;border-bottom:2px solid #000;border-radius:0;text-align:center;font-family:'Helvetica Neue','Arial',sans-serif;font-size:13px;letter-spacing:0.2em;text-transform:uppercase;font-weight:700;"
+  },
+
+  // 2) Kinfolk · 奶白极简静语
+  "kinfolk-quiet": {
+    label: "静语生活 · Kinfolk",
+    root:
+      "font-family:'Helvetica Neue','PingFang SC','Hiragino Sans GB',sans-serif;color:#3a342d;line-height:2.05;font-size:16px;background:#faf8f3;padding:48px 32px;border:none;border-radius:0;",
+    h1:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:30px;line-height:1.35;color:#2a241d;margin:0 0 28px;font-weight:300;letter-spacing:0.02em;text-align:center;",
+    subtitle:
+      "font-size:11px;line-height:1.8;color:#a8a094;margin:0 auto 36px;text-align:center;padding-bottom:0;border-bottom:none;letter-spacing:0.32em;text-transform:uppercase;font-weight:400;",
+    lead:
+      "font-size:17px;line-height:2.1;color:#5a5147;background:transparent;border:none;border-radius:0;padding:0;margin:0 auto 36px;text-align:center;max-width:520px;font-weight:300;",
+    h2:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:13px;line-height:1.6;color:#2a241d;margin:48px 0 18px;padding:0;border:none;font-weight:600;letter-spacing:0.28em;text-transform:uppercase;text-align:center;",
+    h3:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:16px;line-height:1.6;color:#3a342d;margin:30px 0 12px;font-weight:500;letter-spacing:0.04em;",
+    p: "margin:0 0 22px;color:#3a342d;font-weight:300;",
+    blockquote:
+      "margin:36px auto;padding:0;background:transparent;border:none;border-radius:0;color:#5a5147;font-size:20px;line-height:1.7;font-weight:300;font-style:normal;text-align:center;max-width:540px;",
+    list: "margin:0 0 22px 0;padding-left:1.4em;color:#3a342d;font-weight:300;",
+    li: "margin:0 0 10px;",
+    figure:
+      "margin:40px 0;padding:0;background:transparent;border:none;border-radius:0;",
+    image:
+      "display:block;width:100%;border-radius:0;object-fit:cover;max-height:560px;background:#efe9dc;",
+    figcaption:
+      "margin-top:14px;font-size:11px;color:#a8a094;text-align:center;line-height:1.8;letter-spacing:0.24em;text-transform:uppercase;font-weight:400;",
+    hr: "border:none;border-top:1px solid #e0d8c8;margin:40px 30% 40px 30%;",
+    strong: "color:#2a241d;font-weight:500;",
+    cta:
+      "margin-top:48px;padding:24px 0;background:transparent;color:#5a5147;border:none;border-top:1px solid #d4c9b3;border-bottom:1px solid #d4c9b3;border-radius:0;text-align:center;font-size:12px;letter-spacing:0.32em;text-transform:uppercase;font-weight:500;"
+  },
+
+  // 3) Wired · 黑底荧光科技
+  "wired-neon": {
+    label: "霓虹科技 · Wired",
+    root:
+      "font-family:'Helvetica Neue','PingFang SC','Hiragino Sans GB',sans-serif;color:#f0f0f0;line-height:1.78;font-size:16px;background:#0b0b0b;padding:36px 28px;border:none;border-radius:0;",
+    h1:
+      "font-family:'Helvetica Neue','Arial Black','Impact',sans-serif;font-size:42px;line-height:1.05;color:#ffffff;margin:0 0 16px;font-weight:900;letter-spacing:-0.02em;text-transform:uppercase;",
+    subtitle:
+      "font-family:'SFMono-Regular','Menlo','Consolas',monospace;font-size:12px;line-height:1.7;color:#d6ff44;margin:0 0 26px;padding-bottom:0;border-bottom:none;letter-spacing:0.14em;text-transform:uppercase;",
+    lead:
+      "font-size:18px;line-height:1.85;color:#e8e8e8;background:transparent;border:none;border-left:4px solid #d6ff44;border-radius:0;padding:6px 0 6px 18px;margin:0 0 28px;font-weight:400;",
+    h2:
+      "font-family:'Helvetica Neue','Arial Black',sans-serif;font-size:26px;line-height:1.25;color:#ffffff;margin:40px 0 14px;padding:0;border:none;font-weight:900;letter-spacing:-0.01em;text-transform:uppercase;",
+    h3:
+      "font-family:'SFMono-Regular','Menlo','Consolas',monospace;font-size:13px;line-height:1.6;color:#d6ff44;margin:30px 0 10px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;",
+    p: "margin:0 0 18px;color:#e0e0e0;",
+    blockquote:
+      "margin:30px 0;padding:0 0 0 22px;background:transparent;border:none;border-left:4px solid #d6ff44;border-radius:0;color:#ffffff;font-family:'Helvetica Neue','Arial',sans-serif;font-size:22px;line-height:1.45;font-weight:700;letter-spacing:-0.01em;",
+    list: "margin:0 0 20px 0;padding-left:1.35em;color:#e0e0e0;",
+    li: "margin:0 0 8px;",
+    figure:
+      "margin:30px 0;padding:0;background:transparent;border:1px solid #2a2a2a;border-radius:0;",
+    image:
+      "display:block;width:100%;border-radius:0;object-fit:cover;max-height:520px;background:#1a1a1a;",
+    figcaption:
+      "margin:0;padding:10px 12px;font-family:'SFMono-Regular','Menlo',monospace;font-size:11px;color:#888;text-align:left;line-height:1.7;letter-spacing:0.08em;text-transform:uppercase;background:#1a1a1a;",
+    hr: "border:none;border-top:1px solid #2a2a2a;margin:32px 0;",
+    strong: "color:#d6ff44;font-weight:700;",
+    cta:
+      "margin-top:36px;padding:20px;background:#d6ff44;color:#0b0b0b;border:none;border-radius:0;font-family:'Helvetica Neue','Arial Black',sans-serif;font-weight:900;letter-spacing:0.04em;text-transform:uppercase;"
+  },
+
+  // 4) Monocle · 杏色商业编辑感
+  "monocle-soft": {
+    label: "杏色商业 · Monocle",
+    root:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;color:#1c2740;line-height:1.92;font-size:16px;background:#f5ede0;padding:38px 28px;border:none;border-radius:0;",
+    h1:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:34px;line-height:1.22;color:#0f1d33;margin:0 0 16px;font-weight:700;letter-spacing:-0.005em;",
+    subtitle:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:11px;line-height:1.75;color:#a18a5e;margin:0 0 30px;padding-bottom:14px;border-bottom:1px solid #cdb78b;letter-spacing:0.24em;text-transform:uppercase;font-weight:600;",
+    lead:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:19px;line-height:1.95;color:#1c2740;background:transparent;border:none;border-radius:0;padding:0;margin:0 0 30px;font-style:italic;",
+    h2:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:24px;line-height:1.35;color:#0f1d33;margin:40px 0 14px;padding:0;border:none;font-weight:700;",
+    h3:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:12px;line-height:1.65;color:#7d6534;margin:28px 0 10px;font-weight:700;letter-spacing:0.22em;text-transform:uppercase;",
+    p: "margin:0 0 18px;color:#1c2740;",
+    blockquote:
+      "margin:32px 0;padding:20px 24px;background:#ebe0cb;border:none;border-radius:0;color:#0f1d33;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:19px;line-height:1.7;font-style:italic;",
+    list: "margin:0 0 20px 0;padding-left:1.35em;color:#1c2740;",
+    li: "margin:0 0 9px;",
+    figure:
+      "margin:32px 0;padding:0;background:transparent;border:none;border-radius:0;",
+    image:
+      "display:block;width:100%;border-radius:0;object-fit:cover;max-height:520px;background:#e0d4ba;",
+    figcaption:
+      "margin-top:8px;font-family:'Helvetica Neue','Arial',sans-serif;font-size:11px;color:#7d6534;text-align:left;line-height:1.7;letter-spacing:0.16em;text-transform:uppercase;font-weight:600;",
+    hr: "border:none;border-top:1px solid #cdb78b;margin:32px 0;",
+    strong: "color:#0f1d33;font-weight:700;",
+    cta:
+      "margin-top:38px;padding:22px 24px;background:#0f1d33;color:#f5ede0;border:none;border-radius:0;font-family:'Helvetica Neue','Arial',sans-serif;letter-spacing:0.04em;"
+  },
+
+  // 5) Vogue · Didone 时装大刊
+  "vogue-didone": {
+    label: "时装大刊 · Vogue",
+    root:
+      "font-family:'Helvetica Neue','PingFang SC','Hiragino Sans GB',sans-serif;color:#1a1a1a;line-height:1.85;font-size:16px;background:#ffffff;padding:40px 28px;border:none;border-radius:0;",
+    h1:
+      "font-family:'Source Han Serif SC','Noto Serif SC','Bodoni 72',serif;font-size:54px;line-height:1.0;color:#000;margin:0 0 24px;font-weight:700;letter-spacing:-0.04em;text-align:center;",
+    subtitle:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:10px;line-height:1.7;color:#1a1a1a;margin:0 0 36px;padding-bottom:0;border-bottom:none;letter-spacing:0.42em;text-transform:uppercase;font-weight:700;text-align:center;",
+    lead:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:21px;line-height:1.7;color:#000;background:transparent;border:none;border-radius:0;padding:0;margin:0 auto 36px;text-align:center;max-width:560px;font-weight:400;letter-spacing:-0.005em;",
+    h2:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:32px;line-height:1.2;color:#000;margin:48px 0 16px;padding:0;border:none;font-weight:700;letter-spacing:-0.02em;text-align:center;",
+    h3:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:11px;line-height:1.7;color:#000;margin:32px 0 12px;font-weight:700;letter-spacing:0.36em;text-transform:uppercase;text-align:center;",
+    p: "margin:0 0 20px;color:#1a1a1a;",
+    blockquote:
+      "margin:40px auto;padding:0;background:transparent;border:none;border-radius:0;color:#000;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:32px;line-height:1.3;font-weight:700;letter-spacing:-0.02em;text-align:center;max-width:600px;",
+    list: "margin:0 0 22px 0;padding-left:1.35em;color:#1a1a1a;",
+    li: "margin:0 0 9px;",
+    figure:
+      "margin:36px 0;padding:0;background:transparent;border:none;border-radius:0;",
+    image:
+      "display:block;width:100%;border-radius:0;object-fit:cover;max-height:600px;background:#f0f0f0;",
+    figcaption:
+      "margin-top:12px;font-family:'Helvetica Neue','Arial',sans-serif;font-size:10px;color:#444;text-align:center;line-height:1.8;letter-spacing:0.32em;text-transform:uppercase;font-weight:600;",
+    hr: "border:none;border-top:1px solid #000;margin:44px 35% 44px 35%;",
+    strong: "color:#000;font-weight:700;",
+    cta:
+      "margin-top:48px;padding:24px 0;background:#000;color:#fff;border:none;border-radius:0;text-align:center;font-family:'Helvetica Neue','Arial',sans-serif;letter-spacing:0.42em;text-transform:uppercase;font-size:11px;font-weight:700;"
+  },
+
+  // 6) 独立刊物 · 朱红 zine
+  "paper-zine": {
+    label: "独立刊物 · Zine",
+    root:
+      "font-family:'Source Han Serif SC','Noto Serif SC','Songti SC',serif;color:#1c1815;line-height:1.92;font-size:16px;background:#f6efe2;padding:36px 26px;border:none;border-radius:0;",
+    h1:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:36px;line-height:1.18;color:#1c1815;margin:0 0 16px;font-weight:700;letter-spacing:-0.01em;",
+    subtitle:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:12px;line-height:1.75;color:#c33d2e;margin:0 0 28px;padding-bottom:14px;border-bottom:2px solid #c33d2e;letter-spacing:0.18em;text-transform:uppercase;font-weight:700;",
+    lead:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:19px;line-height:1.95;color:#1c1815;background:transparent;border:none;border-radius:0;padding:0;margin:0 0 28px;",
+    h2:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:24px;line-height:1.35;color:#c33d2e;margin:38px 0 12px;padding:0;border:none;font-weight:700;",
+    h3:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:13px;line-height:1.6;color:#1c1815;margin:28px 0 10px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;",
+    p: "margin:0 0 18px;color:#1c1815;",
+    blockquote:
+      "margin:30px 0;padding:0 0 0 24px;background:transparent;border:none;border-left:3px solid #c33d2e;border-radius:0;color:#1c1815;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:21px;line-height:1.6;font-style:italic;",
+    list: "margin:0 0 20px 0;padding-left:1.35em;color:#1c1815;",
+    li: "margin:0 0 9px;",
+    figure:
+      "margin:30px 0;padding:0;background:transparent;border:1px solid #c33d2e;border-radius:0;",
+    image:
+      "display:block;width:100%;border-radius:0;object-fit:cover;max-height:520px;background:#ebe2d0;",
+    figcaption:
+      "margin:0;padding:10px 14px;font-family:'Helvetica Neue','Arial',sans-serif;font-size:12px;color:#1c1815;text-align:left;line-height:1.7;letter-spacing:0.08em;background:#f6efe2;border-top:1px solid #c33d2e;",
+    hr: "border:none;border-top:2px solid #c33d2e;margin:32px 30% 32px 0;",
+    strong: "color:#c33d2e;font-weight:700;",
+    cta:
+      "margin-top:36px;padding:22px 24px;background:#c33d2e;color:#f6efe2;border:none;border-radius:0;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-weight:700;letter-spacing:0.04em;"
   }
 };
+
+// 杂志级母版的元数据（给 AI 模板生成器问卷用 + UI 选择卡片用）
+export const MAGAZINE_THEMES = [
+  {
+    id: "editorial-newyorker",
+    label: "新刊衬线",
+    inspiration: "The New Yorker",
+    summary: "纯白衬线 + 全大写小标 + hairline 极细分隔线，最适合人物特稿、深度评论、文化随笔。",
+    pairsWith: ["文化评论", "深度专栏", "人物特稿", "财经观察"]
+  },
+  {
+    id: "kinfolk-quiet",
+    label: "静语生活",
+    inspiration: "Kinfolk",
+    summary: "奶白底极简留白 + 全部 sans-serif + 居中编排，适合慢生活、美食、旅行、家居。",
+    pairsWith: ["情感生活", "时尚美学", "美食旅行", "极简日常"]
+  },
+  {
+    id: "wired-neon",
+    label: "霓虹科技",
+    inspiration: "Wired",
+    summary: "黑底白字 + 一抹荧光黄 + Mono 节号，适合科技测评、AI 评论、产品发布稿。",
+    pairsWith: ["科技测评", "AI 行业", "产品发布", "硬核数码"]
+  },
+  {
+    id: "monocle-soft",
+    label: "杏色商业",
+    inspiration: "Monocle",
+    summary: "杏色底 + 深 navy 衬线 + 全大写小标，适合商业、财经、行业研究、城市观察。",
+    pairsWith: ["财经商业", "行业观察", "城市文化", "品牌评论"]
+  },
+  {
+    id: "vogue-didone",
+    label: "时装大刊",
+    inspiration: "Vogue",
+    summary: "纯白底 + 超大衬线 + 中轴对称 + 巨字间距小标，适合时尚、美妆、视觉、艺术。",
+    pairsWith: ["时尚美学", "视觉艺术", "潮流评论", "设计观察"]
+  },
+  {
+    id: "paper-zine",
+    label: "独立刊物",
+    inspiration: "Independent Zine",
+    summary: "奶纸感 + 朱红 accent + 衬线粗体，适合文化评论、独立观察、亚文化、年轻向。",
+    pairsWith: ["文化评论", "亚文化", "独立观察", "年轻向叙述"]
+  },
+  {
+    id: "editorial-green",
+    label: "润笔新叶（润笔默认）",
+    inspiration: "DocuEarn House",
+    summary: "墨绿 + 一抹金的润笔自带主题，最稳妥、最不出错，适合任意题材的兜底选择。",
+    pairsWith: ["任意题材", "新手起步"]
+  }
+];
 
 export const COMMON_OUTPUT_RULES = [
   "输出必须是合法 JSON，且只输出 JSON，不要附加解释或 Markdown 代码块。",

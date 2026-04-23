@@ -1,4 +1,4 @@
-import { DEFAULT_PROMPT_TEMPLATES } from "../shared/defaults.js";
+import { DEFAULT_PROMPT_TEMPLATES, MAGAZINE_THEMES } from "../shared/defaults.js";
 import {
   getPromptTemplates,
   savePromptTemplates,
@@ -15,7 +15,7 @@ import {
   subscribeLicenseChanges
 } from "../shared/license.js";
 import { showUpgradeModal } from "../shared/upgrade-modal.js";
-import { generateTemplate } from "../shared/template-generator.js";
+import { generateTemplate, QUIZ_OPTIONS } from "../shared/template-generator.js";
 
 let _templates = [];
 let _selectedId = "";
@@ -62,18 +62,15 @@ const SELECTORS = {
   previewSystem: "#promptPreviewSystem",
   previewUser: "#promptPreviewUser",
   activePill: "#templateActivePill",
-  // AI 生成模板对话框
+  // AI 生成模板对话框（问卷驱动 v0.4）
   aiGenBackdrop: "#aiGenBackdrop",
   aiGenCloseBtn: "#aiGenCloseBtn",
   aiGenStepInput: "#aiGenStepInput",
   aiGenStepLoading: "#aiGenStepLoading",
   aiGenStepPreview: "#aiGenStepPreview",
-  aiGenBrief: "#aiGenBrief",
-  aiGenBriefStats: "#aiGenBriefStats",
-  aiGenLength: "#aiGenLength",
-  aiGenIconHint: "#aiGenIconHint",
+  aiGenContentPillarOther: "#aiGenContentPillarOther",
   aiGenAudience: "#aiGenAudience",
-  aiGenTone: "#aiGenTone",
+  aiGenExtraNotes: "#aiGenExtraNotes",
   aiGenError: "#aiGenError",
   aiGenSubmit: "#aiGenSubmit",
   aiGenSubmitLabel: "#aiGenSubmitLabel",
@@ -83,8 +80,27 @@ const SELECTORS = {
   aiGenPreviewName: "#aiGenPreviewName",
   aiGenPreviewMeta: "#aiGenPreviewMeta",
   aiGenPreviewStyle: "#aiGenPreviewStyle",
-  aiGenPreviewDefaults: "#aiGenPreviewDefaults"
+  aiGenPreviewDefaults: "#aiGenPreviewDefaults",
+  aiGenPreviewTheme: "#aiGenPreviewTheme",
+  aiGenPreviewThemeName: "#aiGenPreviewThemeName",
+  aiGenPreviewThemeSummary: "#aiGenPreviewThemeSummary"
 };
+
+// 当前问卷答案（在对话框打开期间内存中维护，关闭时清空）
+let _quizAnswers = createEmptyQuizAnswers();
+function createEmptyQuizAnswers() {
+  return {
+    contentPillar: "",
+    contentPillarOther: "",
+    tone: "",
+    opening: "",
+    rhythm: "standard",   // 给一个温和的默认
+    cta: "",
+    visualTheme: "",
+    audience: "",
+    extraNotes: ""
+  };
+}
 
 // 待保存的 AI 生成模板（在「预览」状态下暂存）
 let _pendingAiTemplate = null;
@@ -148,9 +164,17 @@ function bindEvents() {
     showAiGenStep("input");
   });
   els.aiGenSaveBtn?.addEventListener("click", saveAiGenerated);
-  els.aiGenBrief?.addEventListener("input", () => {
-    const len = String(els.aiGenBrief?.value || "").length;
-    if (els.aiGenBriefStats) els.aiGenBriefStats.textContent = `${len} 字`;
+
+  // 问卷选项一次性渲染（每次打开对话框时也会重置选中态）
+  renderQuizOptions();
+  els.aiGenContentPillarOther?.addEventListener("input", (e) => {
+    _quizAnswers.contentPillarOther = String(e.target.value || "");
+  });
+  els.aiGenAudience?.addEventListener("input", (e) => {
+    _quizAnswers.audience = String(e.target.value || "");
+  });
+  els.aiGenExtraNotes?.addEventListener("input", (e) => {
+    _quizAnswers.extraNotes = String(e.target.value || "");
   });
 
   [els.system, els.user].forEach((ta) => {
@@ -596,7 +620,6 @@ async function openAiGenDialog() {
   resetAiGenForm();
   showAiGenStep("input");
   els.aiGenBackdrop.hidden = false;
-  setTimeout(() => els.aiGenBrief?.focus(), 50);
 }
 
 function closeAiGenDialog() {
@@ -616,6 +639,81 @@ function resetAiGenForm() {
   }
   if (els.aiGenSubmit) els.aiGenSubmit.disabled = false;
   if (els.aiGenSubmitLabel) els.aiGenSubmitLabel.textContent = "生成模板";
+  // 清空问卷状态 + 选中态
+  _quizAnswers = createEmptyQuizAnswers();
+  if (els.aiGenContentPillarOther) {
+    els.aiGenContentPillarOther.value = "";
+    els.aiGenContentPillarOther.hidden = true;
+  }
+  if (els.aiGenAudience) els.aiGenAudience.value = "";
+  if (els.aiGenExtraNotes) els.aiGenExtraNotes.value = "";
+  document
+    .querySelectorAll(".ai-gen-quiz-options [data-quiz-option]")
+    .forEach((btn) => btn.classList.remove("is-selected"));
+  // 默认替我们勾上 rhythm=standard，对新用户更友好
+  const defaultRhythmBtn = document.querySelector(
+    '[data-quiz="rhythm"] [data-quiz-option="standard"]'
+  );
+  defaultRhythmBtn?.classList.add("is-selected");
+}
+
+/**
+ * 把 QUIZ_OPTIONS 渲染成问卷按钮 + 把 MAGAZINE_THEMES 渲染成视觉主题卡片。
+ * 用事件委托：每个 `.ai-gen-quiz-options` 容器监听 click，子按钮带 data-quiz-option。
+ */
+function renderQuizOptions() {
+  const containers = document.querySelectorAll(".ai-gen-quiz-options[data-quiz]");
+  if (!containers.length) return;
+
+  containers.forEach((container) => {
+    const field = container.getAttribute("data-quiz");
+    if (!field) return;
+
+    if (field === "visualTheme") {
+      // 主题卡片样式（有标题 + 灵感来源 + 摘要）
+      container.innerHTML = MAGAZINE_THEMES.map(
+        (theme) => `
+          <button type="button" class="ai-gen-theme-card" data-quiz-option="${escapeAttr(theme.id)}">
+            <span class="ai-gen-theme-name">${escapeHtml(theme.label)}</span>
+            <span class="ai-gen-theme-from">灵感 · ${escapeHtml(theme.inspiration)}</span>
+            <span class="ai-gen-theme-summary">${escapeHtml(theme.summary)}</span>
+            <span class="ai-gen-theme-pairs">适合：${(theme.pairsWith || []).map(escapeHtml).join(" · ")}</span>
+          </button>
+        `
+      ).join("");
+    } else {
+      const options = QUIZ_OPTIONS[field] || [];
+      container.innerHTML = options
+        .map(
+          (opt) => `
+            <button type="button" class="ai-gen-quiz-option" data-quiz-option="${escapeAttr(opt.id)}">
+              <span class="ai-gen-quiz-option-label">${escapeHtml(opt.label)}</span>
+              ${opt.hint ? `<span class="ai-gen-quiz-option-hint">${escapeHtml(opt.hint)}</span>` : ""}
+            </button>
+          `
+        )
+        .join("");
+    }
+
+    // 委托点击：单选行为
+    container.addEventListener("click", (event) => {
+      const target = event.target.closest("[data-quiz-option]");
+      if (!target || !container.contains(target)) return;
+      const value = target.getAttribute("data-quiz-option") || "";
+      _quizAnswers[field] = value;
+
+      container.querySelectorAll("[data-quiz-option]").forEach((btn) =>
+        btn.classList.toggle("is-selected", btn === target)
+      );
+
+      // contentPillar=other 时显示备注输入
+      if (field === "contentPillar" && els.aiGenContentPillarOther) {
+        const isOther = value === "other";
+        els.aiGenContentPillarOther.hidden = !isOther;
+        if (isOther) setTimeout(() => els.aiGenContentPillarOther.focus(), 30);
+      }
+    });
+  });
 }
 
 function showAiGenStep(step) {
@@ -646,22 +744,34 @@ async function submitAiGen() {
     return;
   }
 
-  const userBrief = String(els.aiGenBrief?.value || "").trim();
-  const length = String(els.aiGenLength?.value || "medium");
-  const audience = String(els.aiGenAudience?.value || "").trim();
-  const tone = String(els.aiGenTone?.value || "").trim();
-  const iconHint = String(els.aiGenIconHint?.value || "").trim();
+  // 客户端先做一轮缺口校验，给出更友好的提示（避免 LLM 调用前就发现答案不全）
+  const required = ["contentPillar", "tone", "opening", "rhythm", "cta", "visualTheme"];
+  const missing = required.filter((k) => !_quizAnswers[k]);
+  if (missing.length) {
+    if (els.aiGenError) {
+      els.aiGenError.hidden = false;
+      els.aiGenError.textContent =
+        `还有 ${missing.length} 题没选完。把所有问题答完再生成，效果会高一个量级。`;
+    }
+    return;
+  }
+  if (
+    _quizAnswers.contentPillar === "other" &&
+    !String(_quizAnswers.contentPillarOther || "").trim()
+  ) {
+    if (els.aiGenError) {
+      els.aiGenError.hidden = false;
+      els.aiGenError.textContent =
+        "「内容定位」选了「其他」，请用一句话告诉我们方向。";
+    }
+    return;
+  }
 
   showAiGenStep("loading");
-
   _aiGenAbortController = new AbortController();
   try {
     const { template } = await generateTemplate({
-      userBrief,
-      length,
-      audience,
-      tone,
-      iconHint,
+      quiz: { ..._quizAnswers },
       signal: _aiGenAbortController.signal
     });
     _pendingAiTemplate = template;
@@ -702,6 +812,23 @@ function renderAiGenPreview(template) {
       )
       .join("");
   }
+
+  // 视觉主题建议卡（来自问卷）
+  if (els.aiGenPreviewTheme) {
+    const themeId = template.suggestedTheme;
+    const meta = themeId ? MAGAZINE_THEMES.find((t) => t.id === themeId) : null;
+    if (meta) {
+      els.aiGenPreviewTheme.hidden = false;
+      if (els.aiGenPreviewThemeName) {
+        els.aiGenPreviewThemeName.textContent = `${meta.label}（${meta.inspiration}）`;
+      }
+      if (els.aiGenPreviewThemeSummary) {
+        els.aiGenPreviewThemeSummary.textContent = meta.summary;
+      }
+    } else {
+      els.aiGenPreviewTheme.hidden = true;
+    }
+  }
 }
 
 async function saveAiGenerated() {
@@ -714,7 +841,14 @@ async function saveAiGenerated() {
   selectTemplate(template.id);
   renderList();
   closeAiGenDialog();
-  _setStatus(`已保存 AI 生成模板「${template.name}」，可以在编辑台立即使用。`, "success");
+
+  const themeMeta = template.suggestedTheme
+    ? MAGAZINE_THEMES.find((t) => t.id === template.suggestedTheme)
+    : null;
+  const tail = themeMeta
+    ? `；进入「编辑台」把排版样式切到「${themeMeta.label}」即可拿到完整的杂志感。`
+    : "，可以在编辑台立即使用。";
+  _setStatus(`已保存 AI 生成模板「${template.name}」${tail}`, "success");
 }
 
 const DEMO_SOURCE = {
