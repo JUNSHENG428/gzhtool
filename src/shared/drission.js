@@ -1,4 +1,16 @@
+// ESM 注意：必须在顶部用 import-as-alias 创建一个本地绑定，
+//   import { normalizeCaptureMode as normalizeDrissionCaptureMode } from "./utils.js";
+// 老写法 `import { normalizeCaptureMode }` + `export { normalizeCaptureMode as normalizeDrissionCaptureMode }`
+// 是 ESM 的 re-export 形式，**不会**在当前模块作用域里创建一个叫
+// normalizeDrissionCaptureMode 的本地变量，导致下面任何函数体里直接调用
+// 它都会抛 `ReferenceError: normalizeDrissionCaptureMode is not defined`。
+// 这个 bug 只在用户「开启 DrissionPage 增强抓取」时才会被触发，所以
+// 默认配置的回归测试一直没暴露——参见 scripts/smoke.mjs 里的对应单测。
+import { normalizeCaptureMode as normalizeDrissionCaptureMode } from "./utils.js";
+
 const DEFAULT_TIMEOUT_MS = 30000;
+
+export { normalizeDrissionCaptureMode };
 
 export function normalizeDrissionHelperUrl(value) {
   let raw = String(value || "").trim();
@@ -31,10 +43,6 @@ export function normalizeDrissionTimeoutMs(value, fallback = DEFAULT_TIMEOUT_MS)
   }
   return Math.max(5000, Math.min(Math.round(n), 120000));
 }
-
-import { normalizeCaptureMode } from "./utils.js";
-
-export { normalizeCaptureMode as normalizeDrissionCaptureMode };
 
 export function canUseDrissionCapture(settings, captureMode = "readable") {
   return Boolean(settings?.drissionEnabled) &&

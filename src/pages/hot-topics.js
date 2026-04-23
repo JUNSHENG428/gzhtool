@@ -199,10 +199,13 @@ function bindItemActions(container, items, sourceLabel) {
         btn.innerHTML = autoRewrite ? "📡 拉取 + 排队改写..." : "📡 拉取中...";
         btn.disabled = true;
         try {
-          const res = await chrome.runtime.sendMessage({
-            type: "SCRAPE_BACKGROUND_AND_IMPORT",
-            payload: { url }
-          });
+          // 兜底超时：service-worker 极端情况会被 Chrome 回收，sendMessage 会一直 hang。
+          // 加 35 秒超时（比 background 内部 15s waitForTabComplete + 5s buffer 略宽），
+          // 超时后给出明确文案，避免出现"按下去几分钟没反应"。
+          const res = await sendMessageWithTimeout(
+            { type: "SCRAPE_BACKGROUND_AND_IMPORT", payload: { url } },
+            35_000
+          );
           if (res?.ok && res.data) {
             const targetUrl =
               chrome.runtime.getURL("src/workspace/workspace.html") +
@@ -217,7 +220,7 @@ function bindItemActions(container, items, sourceLabel) {
               btn.innerHTML = "✅ 成功";
             }, 600);
           } else {
-            throw new Error(formatRuntimeError(res?.error, "拉取失败。"));
+            throw new Error(formatRuntimeError(res?.error, "拉取失败：后台无响应。"));
           }
         } catch (e) {
           // 同时在 toolbar 顶部给个 toast、按钮上变红、条目下方留一行 inline 错误，
@@ -231,8 +234,15 @@ function bindItemActions(container, items, sourceLabel) {
             itemEl.classList.add("is-error");
             const note = document.createElement("p");
             note.className = "hot-item-sub hot-item-error";
-            note.textContent = `❗ ${reason}（可点「打开」后用扩展面板手动抓取，或换一条试试）`;
-            itemEl.querySelector("div")?.appendChild(note);
+            // 失败原因 + 可执行的兜底建议（打开原文 → 用扩展面板抓 / 换一条 / 复制错误）。
+            note.textContent = `❗ ${reason}`;
+            const tip = document.createElement("p");
+            tip.className = "hot-item-sub";
+            tip.style.opacity = "0.7";
+            tip.textContent = "可点「打开」后用扩展面板手动抓取，或换一条试试。";
+            const containerDiv = itemEl.querySelector("div");
+            containerDiv?.appendChild(note);
+            containerDiv?.appendChild(tip);
           }
           // 几秒后把按钮文字恢复，但保留 is-error 样式与 inline 提示，
           // 让用户既能看见上次失败，也能再点一次重试
@@ -261,6 +271,40 @@ function showToast(msg, durationMs) {
   setTimeout(() => {
     if (hotStatus.textContent === msg) hotStatus.textContent = "";
   }, ttl);
+}
+
+/**
+ * sendMessage 加超时兜底。
+ * MV3 service worker 可能被回收，此时 sendMessage 在某些边界情况下会一直 hang
+ * （Chrome 自身的 bug，比较罕见但用户体感很差）。统一加一个超时上限，超时后
+ * 抛友好错误，给用户兜底建议。
+ */
+function sendMessageWithTimeout(message, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      reject(
+        new Error(
+          `等待后台响应超时（${Math.round(timeoutMs / 1000)} 秒）。` +
+            "可能是该网页加载非常慢、或扩展后台需要重启。请打开原文后用扩展面板手动抓取。"
+        )
+      );
+    }, timeoutMs);
+
+    chrome.runtime.sendMessage(message, (resp) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      const lastErr = chrome.runtime?.lastError;
+      if (lastErr) {
+        reject(new Error(`扩展通信失败：${lastErr.message || "lastError"}`));
+        return;
+      }
+      resolve(resp);
+    });
+  });
 }
 
 async function drawShareCard(item, sourceLabel) {

@@ -15,6 +15,8 @@ export const ErrorCode = Object.freeze({
   IMAGE_DOWNLOAD_FAILED: "IMAGE_DOWNLOAD_FAILED",
   IMAGE_UPLOAD_FAILED: "IMAGE_UPLOAD_FAILED",
   SCRAPE_NO_CONTENT: "SCRAPE_NO_CONTENT",
+  SCRAPE_HOST_BLOCKED: "SCRAPE_HOST_BLOCKED",
+  SCRAPE_TAB_FAILED: "SCRAPE_TAB_FAILED",
   UNKNOWN: "UNKNOWN"
 });
 
@@ -43,6 +45,10 @@ const USER_MESSAGES = {
     "图片上传到公众号失败，请确认图片格式（JPG/PNG）和大小符合要求。",
   [ErrorCode.SCRAPE_NO_CONTENT]:
     "没有抓取到有效内容，请确认页面已完全加载且不需要登录。",
+  [ErrorCode.SCRAPE_HOST_BLOCKED]:
+    "扩展无法访问该网站（可能是浏览器内部页、扩展页，或站点用了 file://、chrome:// 协议）。请换一条原文链接试试。",
+  [ErrorCode.SCRAPE_TAB_FAILED]:
+    "后台抓取标签页时出错，可能是页面跳转被中断或被反爬关闭。请打开原文后用扩展面板手动抓取。",
   [ErrorCode.UNKNOWN]:
     "操作失败，请稍后再试。"
 };
@@ -55,8 +61,36 @@ const USER_MESSAGES = {
  * @returns {{ code: string, message: string, retryable: boolean }}
  */
 export function classifyError(error, context) {
-  const msg = String(error?.message || "").toLowerCase();
+  const rawMessage = String(error?.message || "").trim();
+  const msg = rawMessage.toLowerCase();
   const name = String(error?.name || "");
+
+  // ── Chrome 扩展系统报错（host 权限不够 / 不能在内部页执行脚本）──
+  // 典型："Cannot access contents of url 'chrome://...'. Extension manifest must request permission..."
+  //       "Cannot access a chrome:// URL"
+  //       "The extensions gallery cannot be scripted."
+  if (
+    /cannot access (?:contents of url|a chrome|the page|the extensions)/i.test(rawMessage) ||
+    /extension manifest must request permission/i.test(rawMessage) ||
+    /cannot be scripted/i.test(rawMessage) ||
+    /this page cannot be scripted/i.test(rawMessage)
+  ) {
+    return make(ErrorCode.SCRAPE_HOST_BLOCKED, false);
+  }
+
+  // ── Chrome tabs/scripting 的常见运行时错误（标签页关掉、跨域脚本注入失败、SW 被回收等）──
+  // 典型："No tab with id"、"The tab was closed."、"Frame with ID 0 was removed."
+  //       "An unexpected error occurred"
+  if (
+    /no tab with id|tab was closed|frame .*was removed|frame .*not found/i.test(rawMessage) ||
+    /could not establish connection|receiving end does not exist/i.test(rawMessage)
+  ) {
+    return makeWithDetail(
+      ErrorCode.SCRAPE_TAB_FAILED,
+      false,
+      rawMessage
+    );
+  }
 
   // ── 网络超时 ──
   if (
@@ -119,10 +153,30 @@ export function classifyError(error, context) {
     return make(ErrorCode.SCRAPE_NO_CONTENT, false);
   }
 
-  // ── 未匹配：保留原始中文消息（如果有的话），否则使用通用提示 ──
+  // ── 未匹配 ──
+  // 旧版逻辑：英文错误一律塞 fallback "操作失败，请稍后再试"，等于把底层
+  // 报错信息全部吞掉，用户和开发者都没法定位（典型坑：service-worker 抛
+  // chrome.scripting.executeScript 的英文错，前端只看到通用 fallback）。
+  //
+  // 新版策略：
+  //   - 中文错误 → 直接透传（已经够友好了）
+  //   - 英文错误且有内容 → 加中文前缀包装，让用户至少能看到底层细节
+  //                       （比纯通用 fallback 强一万倍，复制给客服也能定位）
+  //   - 完全没 message → 用通用 fallback
+  if (!rawMessage) {
+    return make(ErrorCode.UNKNOWN, false);
+  }
+  if (hasChinese(rawMessage)) {
+    return {
+      code: ErrorCode.UNKNOWN,
+      message: rawMessage,
+      retryable: false
+    };
+  }
   return {
     code: ErrorCode.UNKNOWN,
-    message: hasChinese(error?.message) ? error.message : USER_MESSAGES[ErrorCode.UNKNOWN],
+    // 把英文报错截短显示，避免单条 toast 过长
+    message: `操作失败：${truncate(rawMessage, 200)}`,
     retryable: false
   };
 }
@@ -135,6 +189,27 @@ function make(code, retryable) {
     message: USER_MESSAGES[code] || USER_MESSAGES[ErrorCode.UNKNOWN],
     retryable
   };
+}
+
+/**
+ * 同 make，但把原始底层报错附在用户提示后面，方便用户/客服定位。
+ * 用于"能给出友好提示但又想保留 raw error"的情况，比如标签页跨域注入失败：
+ *   "后台抓取标签页时出错... · No tab with id 1234"
+ */
+function makeWithDetail(code, retryable, rawDetail) {
+  const base = USER_MESSAGES[code] || USER_MESSAGES[ErrorCode.UNKNOWN];
+  const detail = truncate(String(rawDetail || "").trim(), 160);
+  return {
+    code,
+    message: detail ? `${base} · ${detail}` : base,
+    retryable
+  };
+}
+
+function truncate(text, max) {
+  if (!text) return "";
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + "…";
 }
 
 function hasChinese(text) {

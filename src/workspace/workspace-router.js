@@ -19,7 +19,8 @@
  */
 
 import { getUsageSnapshot } from "../shared/usage-stats.js";
-import { subscribeLicenseChanges } from "../shared/license.js";
+import { subscribeLicenseChanges, LICENSE_STORAGE_KEY } from "../shared/license.js";
+import { STORAGE_KEYS } from "../shared/defaults.js";
 
 const VALID_ROUTES = new Set([
   "dashboard",
@@ -364,14 +365,19 @@ function fillRecentDrafts(all) {
 async function syncTopStatus() {
   if (!globalThis.chrome?.storage?.local) return;
   try {
+    // 注意：这里必须用真实 storage key（STORAGE_KEYS.settings = "wechatWriterSettings"，
+    // LICENSE_STORAGE_KEY = "wechatWriterLicense"）。
+    // 历史 bug：之前直接用了字面量 settings / licenseRecord 这两个错的 key（少了
+    // wechatWriter 前缀），导致 AI 状态永远显示"未配置"、会员徽章也读不到记录。
+    // 回归测试见 scripts/smoke.mjs 的 workspace-router 一节。
     const data = await new Promise((resolve) => {
-      chrome.storage.local.get(["licenseRecord", "settings"], (d) => resolve(d || {}));
+      chrome.storage.local.get([LICENSE_STORAGE_KEY, STORAGE_KEYS.settings], (d) => resolve(d || {}));
     });
     const pill = document.getElementById("topMemberPill");
     const label = document.getElementById("topMemberLabel");
     const navBadge = document.getElementById("navMemberBadge");
     if (pill && label) {
-      const rec = data.licenseRecord;
+      const rec = data[LICENSE_STORAGE_KEY];
       if (rec && rec.plan === "pro") {
         pill.dataset.status = "pro";
         label.textContent = "PRO";
@@ -390,15 +396,19 @@ async function syncTopStatus() {
 
     const aiPill = document.getElementById("topAiStatus");
     if (aiPill) {
-      const settings = data.settings || {};
-      const hasApiKey = !!(settings.openaiApiKey || settings.aiApiKey || settings.apiKey);
-      const model = settings.openaiModel || settings.aiModel || settings.model || "gpt";
-      if (hasApiKey) {
+      const settings = data[STORAGE_KEYS.settings] || {};
+      // settings 真实字段名见 src/shared/defaults.js: { apiKey, model, ... }
+      // 兼容历史可能的字段名（以前残留的 openai* / ai*），读到任意一个都算"已配置"
+      const apiKey = String(settings.apiKey || settings.openaiApiKey || settings.aiApiKey || "").trim();
+      const model = String(settings.model || settings.openaiModel || settings.aiModel || "").trim() || "gpt";
+      if (apiKey) {
         aiPill.dataset.tone = "success";
         aiPill.textContent = `AI · ${model}`;
+        aiPill.title = `AI 接口已配置 · 模型 ${model}`;
       } else {
         aiPill.dataset.tone = "warning";
         aiPill.textContent = "AI · 未配置";
+        aiPill.title = "请到「设置」填写 API Key";
       }
     }
 
@@ -487,10 +497,13 @@ export function initWorkspaceRouter() {
   });
 
   // settings / 草稿 / 计数器 等其它变化继续走 storage.onChanged
+  // 注意 key 一律用 STORAGE_KEYS.settings（实际是 "wechatWriterSettings"），
+  // 不是字面量 "settings"，否则 onChanged 永远收不到 settings 变化（历史 bug）。
   if (globalThis.chrome?.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local") return;
-      if (changes.settings) {
+      const settingsChanged = Boolean(changes[STORAGE_KEYS.settings]);
+      if (settingsChanged) {
         syncTopStatus();
       }
       if (
@@ -498,7 +511,7 @@ export function initWorkspaceRouter() {
         changes.drafts ||
         changes.dashboardCounters ||
         changes.usageStats ||
-        changes.settings
+        settingsChanged
       ) {
         fillDashboard();
       }

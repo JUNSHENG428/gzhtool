@@ -686,7 +686,7 @@ function assertCaptureHealth(capture, targetUrl) {
 
 async function scrapeBackgroundSilent(targetUrl) {
   if (!isScrapableUrl(targetUrl)) {
-    throw new Error("不是一个合法的可抓取网址。");
+    throw new Error("不是一个合法的可抓取网址，请换一条原文链接（不能是 chrome://、扩展页或 file:// 等本地协议）。");
   }
 
   // 后台静默抓取（热点页一键入库 / agent 命中）：
@@ -714,28 +714,61 @@ async function scrapeBackgroundSilent(targetUrl) {
     }
   }
 
-  const tab = await chrome.tabs.create({ url: targetUrl, active: false });
+  // ──────── 兜底路径：开后台 tab → 注入脚本 → 抓取 ────────
+  // 每一步 chrome.* 调用都套局部 try，把英文系统错包成可读中文，
+  // 避免 service worker 抛出原始英文异常被 classifyError fallback 吞掉。
+  let tab;
+  try {
+    tab = await chrome.tabs.create({ url: targetUrl, active: false });
+  } catch (error) {
+    throw new Error(`无法打开后台抓取标签页：${error?.message || error}`);
+  }
+  if (!tab?.id) {
+    throw new Error("无法打开后台抓取标签页（chrome.tabs.create 没返回 tabId）。");
+  }
+
   let capture = null;
 
   try {
-    await waitForTabComplete(tab.id, 15000);
+    try {
+      await waitForTabComplete(tab.id, 15000);
+    } catch (error) {
+      throw new Error(`目标页面在 15 秒内未加载完成：${error?.message || "可能跳转或被反爬拦截"}`);
+    }
 
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: [SCRAPE_ARTICLE_SCRIPT]
-    });
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: [SCRAPE_ARTICLE_SCRIPT]
+      });
+    } catch (error) {
+      // 典型："Cannot access contents of url 'xxx'. Extension manifest must request..."
+      // 已在 classifyError 里有专门匹配 → 走 SCRAPE_HOST_BLOCKED；这里仍把原始信息抛出去，
+      // classifyError 能精准识别并给"该页面拒绝扩展访问"的友好提示。
+      throw error;
+    }
 
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: async () => {
-        if (typeof window.__gzhRunFullCapture !== "function") {
-          return null;
+    let results;
+    try {
+      results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: async () => {
+          if (typeof window.__gzhRunFullCapture !== "function") {
+            return null;
+          }
+          return window.__gzhRunFullCapture();
         }
-        return window.__gzhRunFullCapture();
-      }
-    });
+      });
+    } catch (error) {
+      throw new Error(`页面脚本执行失败：${error?.message || "脚本注入被站点 CSP 拦截"}`);
+    }
 
     capture = results?.[0]?.result;
+    if (!capture) {
+      throw new Error(
+        "页面正文抓取脚本未返回结果，可能是站点用 SPA 框架且未在 15 秒内完成首屏渲染，请打开原文确认或换一条试试。"
+      );
+    }
     assertCaptureHealth(capture, targetUrl);
 
     const finalTab = await chrome.tabs.get(tab.id).catch(() => null);
@@ -747,7 +780,7 @@ async function scrapeBackgroundSilent(targetUrl) {
     });
 
   } finally {
-    if (tab.id) {
+    if (tab?.id) {
       await chrome.tabs.remove(tab.id).catch(() => {});
     }
   }
