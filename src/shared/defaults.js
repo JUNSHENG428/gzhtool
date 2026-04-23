@@ -242,7 +242,7 @@ export const THEME_PRESETS = {
   }
 };
 
-const COMMON_OUTPUT_RULES = [
+export const COMMON_OUTPUT_RULES = [
   "输出必须是合法 JSON，且只输出 JSON，不要附加解释或 Markdown 代码块。",
   "JSON 字段必须包含 title、subtitle、lead、sections、closing、cta、wechatTitleOptions、keywords。",
   "每个 section 必须包含 heading、paragraphs、bulletPoints、quote、imageRefs。",
@@ -251,7 +251,7 @@ const COMMON_OUTPUT_RULES = [
   "整篇正文（含标题、副标题、段落、列表、引用、CTA）总字符数请控制在 6000 字以内，避免发布时被截断。"
 ].join("\n");
 
-const COMMON_USER_PAYLOAD = `改写目标：
+export const COMMON_USER_PAYLOAD = `改写目标：
 {
   "audience": "{{audience}}",
   "tone": "{{tone}}",

@@ -709,6 +709,332 @@ button.ghost {
 }
 
 /* ────────────────────────────────────────────────────────────
+ * AI 模板生成器（Pro 专享）
+ * ──────────────────────────────────────────────────────────── */
+
+.ai-generate-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #1f4f3a 0%, #2c6e54 55%, #3d8b6e 100%);
+  border: 1px solid rgba(240, 212, 176, 0.55);
+  color: #fdf6ea;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 6px 18px rgba(31, 79, 58, 0.22);
+}
+
+.ai-generate-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #25593f 0%, #2f7a5d 55%, #46987a 100%);
+  border-color: rgba(240, 212, 176, 0.85);
+}
+
+.ai-generate-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.ai-generate-spark {
+  font-size: 1rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 4px rgba(240, 212, 176, 0.5));
+}
+
+.ai-generate-pro {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 2px 6px;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: rgba(240, 212, 176, 0.92);
+  color: #1f4f3a;
+}
+
+.ai-gen-dialog {
+  max-width: 680px;
+  gap: 18px;
+}
+
+.ai-gen-tagline {
+  border-bottom: none;
+  padding-bottom: 0;
+  color: var(--soft-ink);
+  line-height: 1.65;
+}
+
+.ai-gen-title-spark {
+  display: inline-block;
+  margin-right: 4px;
+  filter: drop-shadow(0 0 6px rgba(240, 212, 176, 0.6));
+}
+
+.ai-gen-step {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ai-gen-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+
+.ai-gen-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ai-gen-label-hint {
+  font-size: 0.74rem;
+  font-weight: 400;
+  color: var(--soft-ink);
+}
+
+.ai-gen-field textarea {
+  resize: vertical;
+  min-height: 140px;
+  padding: 12px 14px;
+  font-size: 0.92rem;
+  line-height: 1.65;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft, rgba(255, 255, 255, 0.6));
+  color: var(--ink);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.ai-gen-field textarea:focus {
+  outline: none;
+  border-color: #2c6e54;
+  box-shadow: 0 0 0 3px rgba(44, 110, 84, 0.15);
+}
+
+.ai-gen-stats {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  font-size: 0.7rem;
+  color: var(--soft-ink);
+  pointer-events: none;
+}
+
+.ai-gen-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ai-gen-field-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.ai-gen-field-inline.grow {
+  flex: 1 1 200px;
+}
+
+.ai-gen-label-sm {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--soft-ink);
+  letter-spacing: 0.02em;
+}
+
+.ai-gen-field-inline select,
+.ai-gen-field-inline input[type="text"] {
+  padding: 8px 12px;
+  font-size: 0.88rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft, rgba(255, 255, 255, 0.6));
+  color: var(--ink);
+  min-width: 140px;
+}
+
+.ai-gen-field-inline input[type="text"]:focus,
+.ai-gen-field-inline select:focus {
+  outline: none;
+  border-color: #2c6e54;
+}
+
+.ai-gen-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ai-gen-error {
+  flex: 1 1 100%;
+  font-size: 0.82rem;
+  color: #b73a3a;
+  background: rgba(183, 58, 58, 0.08);
+  border: 1px solid rgba(183, 58, 58, 0.25);
+  border-radius: 8px;
+  padding: 8px 12px;
+  line-height: 1.5;
+}
+
+/* 加载态 */
+
+.ai-gen-loading {
+  align-items: center;
+  text-align: center;
+  padding: 36px 12px 20px;
+  gap: 16px;
+}
+
+.ai-gen-loading-orb {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, #1f4f3a, #46987a, #f0d4b0, #1f4f3a);
+  filter: blur(0.4px);
+  animation: ai-gen-orb-spin 1.6s linear infinite;
+  position: relative;
+}
+
+.ai-gen-loading-orb::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: var(--surface, #fff);
+}
+
+@keyframes ai-gen-orb-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ai-gen-loading-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ai-gen-loading-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--soft-ink);
+}
+
+/* 预览 */
+
+.ai-gen-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(31, 79, 58, 0.06), rgba(240, 212, 176, 0.12));
+  border: 1px solid rgba(31, 79, 58, 0.12);
+  border-radius: 14px;
+}
+
+.ai-gen-preview-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.ai-gen-preview-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ai-gen-preview-name {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.ai-gen-preview-meta {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--soft-ink);
+}
+
+.ai-gen-preview-block-wrap {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft, rgba(0, 0, 0, 0.02));
+  padding: 8px 12px;
+}
+
+.ai-gen-preview-block-wrap > summary {
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 4px 0;
+  list-style: none;
+}
+
+.ai-gen-preview-block-wrap > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-gen-preview-block-wrap > summary::before {
+  content: "▸ ";
+  display: inline-block;
+  transform: translateY(-1px);
+  margin-right: 6px;
+  transition: transform 0.18s ease;
+}
+
+.ai-gen-preview-block-wrap[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.ai-gen-preview-block-wrap pre {
+  margin-top: 8px;
+}
+
+.ai-gen-preview-defaults {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.ai-gen-preview-defaults dt {
+  color: var(--soft-ink);
+  font-weight: 600;
+}
+
+.ai-gen-preview-defaults dd {
+  margin: 0;
+  color: var(--ink);
+}
+
+.ai-gen-preview-note {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--soft-ink);
+  padding: 10px 12px;
+  background: rgba(240, 212, 176, 0.16);
+  border: 1px dashed rgba(31, 79, 58, 0.25);
+  border-radius: 10px;
+}
+
+/* ────────────────────────────────────────────────────────────
  * 小白友好增强：模式切换 / 上手清单 / 字段提示 / 浮动保存条
  * ──────────────────────────────────────────────────────────── */
 

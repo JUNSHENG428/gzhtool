@@ -539,4 +539,116 @@ console.log("\n运行 agent-store task-history 单测 …");
   delete globalThis.chrome;
 }
 
+// =====================================================================
+// AI 模板生成器 · schema 校验 + 模板组装
+// =====================================================================
+console.log("\n运行 template-generator schema 校验单测 …");
+{
+  const { validateAndShape, composeTemplate, __INTERNAL } = await import(
+    "../src/shared/template-generator.js"
+  );
+
+  // meta-prompt 必须包含核心硬约束（拼写错了会让 AI 偏题）
+  assert(
+    __INTERNAL.META_SYSTEM_PROMPT.includes("只输出合法 JSON"),
+    "meta-prompt 必须包含 JSON-only 约束"
+  );
+  assert(
+    __INTERNAL.META_SYSTEM_PROMPT.includes("styleInstruction"),
+    "meta-prompt 必须包含 styleInstruction 字段说明"
+  );
+
+  // 合法返回 → shape + compose
+  const valid = {
+    name: "测评派叙述",
+    icon: "🧪",
+    styleInstruction:
+      "你是一名科技测评号编辑。开头用一句反常识结论抓住读者，比如「这台手机让我把另外两台都退了」。\n\n写作纪律：\n- 段落短、句子短，单段不超过 3 句。\n- 不允许使用「随着…的不断发展」「拥抱变革」「赋能」等 AI 套话。\n- 关键参数 / 价格 / 型号必须与来源完全一致。\n\n事实约束：\n- 只能使用来源中明确出现的人物、对话、地点、时间。\n- 不允许编造跑分、续航、价格等数字。",
+    userIntro: "请将下面的来源材料改写成一篇科技测评号风格的公众号稿。",
+    defaults: {
+      tone: "克制、有判断、像一个老派测评编辑",
+      angle: "用反常识结论开头，正文密集小标题，结尾给购买建议",
+      length: "medium",
+      cta: "在结尾给出明确的购买/不推荐判断",
+      audience: "25-35 岁的科技产品决策者"
+    },
+    temperature: 0.7
+  };
+  const shaped = validateAndShape(valid);
+  assert(shaped.name === "测评派叙述", "validateAndShape 应保留 name");
+  assert(shaped.defaults.length === "medium", "validateAndShape 应认 length");
+  assert(shaped.temperature === 0.7, "validateAndShape 应认 temperature");
+
+  const tpl = composeTemplate(shaped);
+  assert(typeof tpl.id === "string" && tpl.id.startsWith("custom-ai-"), "compose 出的 id 应带 custom-ai- 前缀");
+  assert(
+    tpl.systemTemplate.includes(valid.styleInstruction),
+    "compose 后 systemTemplate 应保留 styleInstruction"
+  );
+  assert(
+    tpl.systemTemplate.includes("输出必须是合法 JSON"),
+    "compose 后 systemTemplate 应自动追加 OUTPUT_RULES"
+  );
+  assert(
+    tpl.userTemplate.includes("{{title}}") && tpl.userTemplate.includes("{{content}}"),
+    "compose 后 userTemplate 应自动追加 COMMON_USER_PAYLOAD（含变量占位符）"
+  );
+  assert(tpl.aiGenerated === true, "compose 出的模板应标记 aiGenerated=true");
+
+  // 防御：styleInstruction 里塞 {{var}} 应被拒绝（否则会被 buildRewriteMessages 当变量插值）
+  let threw = false;
+  try {
+    validateAndShape({ ...valid, styleInstruction: valid.styleInstruction + "\n\n{{audience}}" });
+  } catch {
+    threw = true;
+  }
+  assert(threw, "styleInstruction 里出现 {{...}} 必须被拒绝");
+
+  // length 非法 → 兜底 medium（不抛错）
+  const fallback = validateAndShape({
+    ...valid,
+    defaults: { ...valid.defaults, length: "tiny" }
+  });
+  assert(fallback.defaults.length === "medium", "非法 length 应兜底为 medium");
+
+  // styleInstruction 太短 → 拒绝
+  threw = false;
+  try {
+    validateAndShape({ ...valid, styleInstruction: "太短了" });
+  } catch {
+    threw = true;
+  }
+  assert(threw, "styleInstruction 过短必须被拒绝");
+
+  // 完全垃圾输入 → 拒绝
+  threw = false;
+  try {
+    validateAndShape(null);
+  } catch {
+    threw = true;
+  }
+  assert(threw, "null 必须被拒绝");
+}
+
+// =====================================================================
+// 付费功能清单 · 前后端对齐
+// =====================================================================
+console.log("\n运行 PAID_FEATURES 前后端对齐单测 …");
+{
+  const { PAID_FEATURES } = await import("../src/shared/license.js");
+  const workerSource = fs.readFileSync(path.join(root, "server/worker.js"), "utf8");
+  // 抠出 PAID_FEATURE_KEYS = [...] 的 key 列表
+  const keysMatch = workerSource.match(/const PAID_FEATURE_KEYS\s*=\s*\[([\s\S]*?)\]/);
+  assert(keysMatch, "worker.js 必须有 PAID_FEATURE_KEYS 数组");
+  const workerKeys = new Set(
+    keysMatch[1]
+      .split(",")
+      .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean)
+  );
+  for (const key of Object.keys(PAID_FEATURES)) {
+    assert(workerKeys.has(key), `PAID_FEATURE 前后端不对齐：worker 缺少 "${key}"`);
+  }
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

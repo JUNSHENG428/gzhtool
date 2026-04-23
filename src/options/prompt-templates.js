@@ -10,10 +10,12 @@ import { escapeHtml } from "../shared/utils.js";
 import {
   PAID_FEATURES,
   PRO_TEMPLATE_IDS,
+  checkLicense,
   checkTemplateAccess,
   subscribeLicenseChanges
 } from "../shared/license.js";
 import { showUpgradeModal } from "../shared/upgrade-modal.js";
+import { generateTemplate } from "../shared/template-generator.js";
 
 let _templates = [];
 let _selectedId = "";
@@ -45,6 +47,7 @@ const SELECTORS = {
   systemStats: "#templateSystemStats",
   userStats: "#templateUserStats",
   addBtn: "#addTemplateButton",
+  aiGenBtn: "#aiGenerateTemplateButton",
   restoreBtn: "#restoreTemplateButton",
   dupBtn: "#duplicateTemplateButton",
   delBtn: "#deleteTemplateButton",
@@ -58,8 +61,34 @@ const SELECTORS = {
   previewMeta: "#promptPreviewMeta",
   previewSystem: "#promptPreviewSystem",
   previewUser: "#promptPreviewUser",
-  activePill: "#templateActivePill"
+  activePill: "#templateActivePill",
+  // AI 生成模板对话框
+  aiGenBackdrop: "#aiGenBackdrop",
+  aiGenCloseBtn: "#aiGenCloseBtn",
+  aiGenStepInput: "#aiGenStepInput",
+  aiGenStepLoading: "#aiGenStepLoading",
+  aiGenStepPreview: "#aiGenStepPreview",
+  aiGenBrief: "#aiGenBrief",
+  aiGenBriefStats: "#aiGenBriefStats",
+  aiGenLength: "#aiGenLength",
+  aiGenIconHint: "#aiGenIconHint",
+  aiGenAudience: "#aiGenAudience",
+  aiGenTone: "#aiGenTone",
+  aiGenError: "#aiGenError",
+  aiGenSubmit: "#aiGenSubmit",
+  aiGenSubmitLabel: "#aiGenSubmitLabel",
+  aiGenRetryBtn: "#aiGenRetryBtn",
+  aiGenSaveBtn: "#aiGenSaveBtn",
+  aiGenPreviewIcon: "#aiGenPreviewIcon",
+  aiGenPreviewName: "#aiGenPreviewName",
+  aiGenPreviewMeta: "#aiGenPreviewMeta",
+  aiGenPreviewStyle: "#aiGenPreviewStyle",
+  aiGenPreviewDefaults: "#aiGenPreviewDefaults"
 };
+
+// 待保存的 AI 生成模板（在「预览」状态下暂存）
+let _pendingAiTemplate = null;
+let _aiGenAbortController = null;
 
 export async function initPromptTemplates(setStatus) {
   _setStatus = typeof setStatus === "function" ? setStatus : () => {};
@@ -94,6 +123,7 @@ export async function initPromptTemplates(setStatus) {
 
 function bindEvents() {
   els.addBtn?.addEventListener("click", createNewTemplate);
+  els.aiGenBtn?.addEventListener("click", openAiGenDialog);
   els.restoreBtn?.addEventListener("click", restoreSelectedTemplate);
   els.dupBtn?.addEventListener("click", duplicateSelectedTemplate);
   els.delBtn?.addEventListener("click", () => deleteTemplateById(_selectedId));
@@ -105,6 +135,22 @@ function bindEvents() {
   els.previewCloseBtn?.addEventListener("click", closePreviewPrompt);
   els.previewBackdrop?.addEventListener("click", (e) => {
     if (e.target === els.previewBackdrop) closePreviewPrompt();
+  });
+
+  // AI 生成模板对话框
+  els.aiGenCloseBtn?.addEventListener("click", closeAiGenDialog);
+  els.aiGenBackdrop?.addEventListener("click", (e) => {
+    if (e.target === els.aiGenBackdrop) closeAiGenDialog();
+  });
+  els.aiGenSubmit?.addEventListener("click", submitAiGen);
+  els.aiGenRetryBtn?.addEventListener("click", () => {
+    _pendingAiTemplate = null;
+    showAiGenStep("input");
+  });
+  els.aiGenSaveBtn?.addEventListener("click", saveAiGenerated);
+  els.aiGenBrief?.addEventListener("input", () => {
+    const len = String(els.aiGenBrief?.value || "").length;
+    if (els.aiGenBriefStats) els.aiGenBriefStats.textContent = `${len} 字`;
   });
 
   [els.system, els.user].forEach((ta) => {
@@ -518,6 +564,157 @@ function debounce(fn, delayMs = 300) {
 
 function escapeAttr(value) {
   return escapeHtml(String(value)).replace(/"/g, "&quot;");
+}
+
+// =====================================================================
+// AI 生成模板（Pro 专享）
+// =====================================================================
+
+async function openAiGenDialog() {
+  // 闸门：未登录 / 非 Pro 直接弹升级框
+  const access = await checkLicense("ai.templateGenerator");
+  if (!access.ok) {
+    showUpgradeModal({
+      featureName: PAID_FEATURES["ai.templateGenerator"].name,
+      hint: access.hint || PAID_FEATURES["ai.templateGenerator"].hint,
+      bullets: [
+        "用一句话描述风格，AI 自动写出专属改写模板",
+        "自带角色设定 / 写作纪律 / 默认偏好（受众、调性、CTA）",
+        "输出格式 contract 由系统锁死，AI 不会破坏改写链路",
+        "可生成无限套；已生成的模板永久保留在你的模板库"
+      ],
+      primaryAction: {
+        label: "查看 Pro 套餐",
+        url: (typeof window !== "undefined" && window.__pricingUrl) || "https://docuearn.com/pricing"
+      }
+    });
+    return;
+  }
+
+  if (!els.aiGenBackdrop) return;
+  _pendingAiTemplate = null;
+  resetAiGenForm();
+  showAiGenStep("input");
+  els.aiGenBackdrop.hidden = false;
+  setTimeout(() => els.aiGenBrief?.focus(), 50);
+}
+
+function closeAiGenDialog() {
+  if (!els.aiGenBackdrop) return;
+  if (_aiGenAbortController) {
+    try { _aiGenAbortController.abort(); } catch { /* ignore */ }
+    _aiGenAbortController = null;
+  }
+  els.aiGenBackdrop.hidden = true;
+  _pendingAiTemplate = null;
+}
+
+function resetAiGenForm() {
+  if (els.aiGenError) {
+    els.aiGenError.hidden = true;
+    els.aiGenError.textContent = "";
+  }
+  if (els.aiGenSubmit) els.aiGenSubmit.disabled = false;
+  if (els.aiGenSubmitLabel) els.aiGenSubmitLabel.textContent = "生成模板";
+}
+
+function showAiGenStep(step) {
+  if (els.aiGenStepInput) els.aiGenStepInput.hidden = step !== "input";
+  if (els.aiGenStepLoading) els.aiGenStepLoading.hidden = step !== "loading";
+  if (els.aiGenStepPreview) els.aiGenStepPreview.hidden = step !== "preview";
+}
+
+async function submitAiGen() {
+  if (els.aiGenError) {
+    els.aiGenError.hidden = true;
+    els.aiGenError.textContent = "";
+  }
+
+  // 二次闸门（用户在对话框开着的时候 license 可能已变化）
+  const access = await checkLicense("ai.templateGenerator");
+  if (!access.ok) {
+    closeAiGenDialog();
+    showUpgradeModal({
+      featureName: PAID_FEATURES["ai.templateGenerator"].name,
+      hint: access.hint || PAID_FEATURES["ai.templateGenerator"].hint,
+      bullets: ["升级 Pro 后即可解锁 AI 模板生成器"],
+      primaryAction: {
+        label: "查看 Pro 套餐",
+        url: (typeof window !== "undefined" && window.__pricingUrl) || "https://docuearn.com/pricing"
+      }
+    });
+    return;
+  }
+
+  const userBrief = String(els.aiGenBrief?.value || "").trim();
+  const length = String(els.aiGenLength?.value || "medium");
+  const audience = String(els.aiGenAudience?.value || "").trim();
+  const tone = String(els.aiGenTone?.value || "").trim();
+  const iconHint = String(els.aiGenIconHint?.value || "").trim();
+
+  showAiGenStep("loading");
+
+  _aiGenAbortController = new AbortController();
+  try {
+    const { template } = await generateTemplate({
+      userBrief,
+      length,
+      audience,
+      tone,
+      iconHint,
+      signal: _aiGenAbortController.signal
+    });
+    _pendingAiTemplate = template;
+    renderAiGenPreview(template);
+    showAiGenStep("preview");
+  } catch (error) {
+    showAiGenStep("input");
+    if (els.aiGenError) {
+      els.aiGenError.hidden = false;
+      els.aiGenError.textContent = error?.message || "生成失败，请重试。";
+    }
+  } finally {
+    _aiGenAbortController = null;
+  }
+}
+
+function renderAiGenPreview(template) {
+  if (els.aiGenPreviewIcon) els.aiGenPreviewIcon.textContent = template.icon || "✨";
+  if (els.aiGenPreviewName) els.aiGenPreviewName.textContent = template.name || "未命名";
+  if (els.aiGenPreviewMeta) {
+    els.aiGenPreviewMeta.textContent =
+      `温度 ${template.temperature ?? "—"} · 长度 ${template.defaults?.length || "medium"} · 字符数 ${template.systemTemplate.length + template.userTemplate.length}`;
+  }
+  if (els.aiGenPreviewStyle) {
+    els.aiGenPreviewStyle.textContent = template.systemTemplate || "";
+  }
+  if (els.aiGenPreviewDefaults) {
+    const d = template.defaults || {};
+    const rows = [
+      ["受众", d.audience],
+      ["调性", d.tone],
+      ["切入角度", d.angle],
+      ["结尾 CTA", d.cta]
+    ];
+    els.aiGenPreviewDefaults.innerHTML = rows
+      .map(([label, value]) =>
+        `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value || "（未设定）")}</dd>`
+      )
+      .join("");
+  }
+}
+
+async function saveAiGenerated() {
+  if (!_pendingAiTemplate) return;
+  const template = _pendingAiTemplate;
+  _pendingAiTemplate = null;
+
+  _templates.push(template);
+  await savePromptTemplates(_templates);
+  selectTemplate(template.id);
+  renderList();
+  closeAiGenDialog();
+  _setStatus(`已保存 AI 生成模板「${template.name}」，可以在编辑台立即使用。`, "success");
 }
 
 const DEMO_SOURCE = {

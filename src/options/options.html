@@ -424,6 +424,11 @@
         <div class="template-toolbar">
           <div class="template-toolbar-left">
             <button id="addTemplateButton" type="button" class="primary">+ 新建模板</button>
+            <button id="aiGenerateTemplateButton" type="button" class="primary ai-generate-button" title="用一句话描述你的公众号风格，AI 帮你生成专属改写模板">
+              <span class="ai-generate-spark" aria-hidden="true">✨</span>
+              <span>AI 生成模板</span>
+              <span class="ai-generate-pro" aria-hidden="true">PRO</span>
+            </button>
             <button id="duplicateTemplateButton" type="button" class="ghost">复制当前</button>
             <button id="restoreTemplateButton" type="button" class="ghost" hidden>恢复默认</button>
             <button id="deleteTemplateButton" type="button" class="ghost danger" hidden>删除</button>
@@ -546,6 +551,107 @@
           <p id="promptPreviewMeta" class="prompt-preview-meta">等待生成预览…</p>
           <pre id="promptPreviewSystem" class="prompt-preview-block"></pre>
           <pre id="promptPreviewUser" class="prompt-preview-block"></pre>
+        </div>
+      </div>
+
+      <!-- AI 模板生成器 · Pro 专享 -->
+      <div id="aiGenBackdrop" class="prompt-preview-backdrop ai-gen-backdrop" hidden>
+        <div class="prompt-preview-dialog ai-gen-dialog" role="dialog" aria-modal="true" aria-labelledby="aiGenTitle">
+          <div class="prompt-preview-head">
+            <h3 id="aiGenTitle">
+              <span class="ai-gen-title-spark" aria-hidden="true">✨</span>
+              AI 生成专属改写模板
+            </h3>
+            <button id="aiGenCloseBtn" type="button" class="ghost">关闭</button>
+          </div>
+
+          <p class="prompt-preview-meta ai-gen-tagline">
+            用大白话描述你的公众号风格，几秒钟拿到一个量身定做的改写模板。AI 只负责"角色 + 风格 + 默认偏好"，输出 contract（JSON 字段、保留图片等）由系统自动锁死，不会破坏改写链路。
+          </p>
+
+          <!-- 步骤 1：填需求 -->
+          <div id="aiGenStepInput" class="ai-gen-step">
+            <label class="ai-gen-field">
+              <span class="ai-gen-label">
+                你想要的公众号写作风格
+                <span class="ai-gen-label-hint">越具体越好：开头怎么写、段落节奏、可以/不能用什么修辞、读者是谁</span>
+              </span>
+              <textarea id="aiGenBrief" rows="6" placeholder="举例：我做的是科技测评号，开头喜欢一段 punchline 抓住读者，比如「这台手机让我把另外两台都退了」；正文要有密集的小标题，每段不超过 3 句；不要排比，不要『随着…的不断发展』这种 AI 套话；结尾留一个『下期讲什么』的钩子。读者是 25-35 岁的科技爱好者。"></textarea>
+              <span id="aiGenBriefStats" class="ai-gen-stats">0 字</span>
+            </label>
+
+            <div class="ai-gen-field-row">
+              <label class="ai-gen-field-inline">
+                <span class="ai-gen-label-sm">期望长度</span>
+                <select id="aiGenLength">
+                  <option value="short">短小快（&lt; 800 字）</option>
+                  <option value="medium" selected>中等（800-1500 字）</option>
+                  <option value="long">长文深度（&gt; 1500 字）</option>
+                </select>
+              </label>
+
+              <label class="ai-gen-field-inline">
+                <span class="ai-gen-label-sm">图标 emoji</span>
+                <input id="aiGenIconHint" type="text" maxlength="2" placeholder="✨" />
+              </label>
+            </div>
+
+            <div class="ai-gen-field-row">
+              <label class="ai-gen-field-inline grow">
+                <span class="ai-gen-label-sm">目标读者（可选）</span>
+                <input id="aiGenAudience" type="text" placeholder="比如：25-35 岁的科技产品决策者" />
+              </label>
+              <label class="ai-gen-field-inline grow">
+                <span class="ai-gen-label-sm">期望调性（可选）</span>
+                <input id="aiGenTone" type="text" placeholder="比如：克制、幽默、有判断" />
+              </label>
+            </div>
+
+            <div class="ai-gen-actions">
+              <span id="aiGenError" class="ai-gen-error" hidden></span>
+              <button id="aiGenSubmit" type="button" class="primary ai-generate-button">
+                <span class="ai-generate-spark" aria-hidden="true">✨</span>
+                <span id="aiGenSubmitLabel">生成模板</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 步骤 2：生成中 -->
+          <div id="aiGenStepLoading" class="ai-gen-step ai-gen-loading" hidden>
+            <div class="ai-gen-loading-orb" aria-hidden="true"></div>
+            <p class="ai-gen-loading-title">正在让 AI 揣摩你的风格…</p>
+            <p class="ai-gen-loading-hint">这一步通常 5-15 秒。AI 会先想角色、再想写作纪律，最后排默认偏好。</p>
+          </div>
+
+          <!-- 步骤 3：预览 + 保存 -->
+          <div id="aiGenStepPreview" class="ai-gen-step" hidden>
+            <div class="ai-gen-preview-head">
+              <span id="aiGenPreviewIcon" class="ai-gen-preview-icon">✨</span>
+              <div class="ai-gen-preview-title-wrap">
+                <h4 id="aiGenPreviewName" class="ai-gen-preview-name">模板名</h4>
+                <p id="aiGenPreviewMeta" class="ai-gen-preview-meta">温度 0.7 · 长度 medium</p>
+              </div>
+            </div>
+
+            <details class="ai-gen-preview-block-wrap" open>
+              <summary>角色 + 风格指令（system prompt 主体）</summary>
+              <pre id="aiGenPreviewStyle" class="prompt-preview-block"></pre>
+            </details>
+
+            <details class="ai-gen-preview-block-wrap">
+              <summary>默认偏好（受众 / 调性 / 角度 / CTA）</summary>
+              <div id="aiGenPreviewDefaults" class="ai-gen-preview-defaults"></div>
+            </details>
+
+            <p class="ai-gen-preview-note">
+              输出格式 contract（必须返回 JSON、保留来源图片、字段不可省略等）会被系统自动追加到模板末尾，AI 改不了，所以这个模板拿过去就能直接喂改写引擎。
+            </p>
+
+            <div class="ai-gen-actions">
+              <button id="aiGenRetryBtn" type="button" class="ghost">重新生成</button>
+              <button id="aiGenSaveBtn" type="button" class="primary">保存到我的模板</button>
+            </div>
+          </div>
         </div>
       </div>
 

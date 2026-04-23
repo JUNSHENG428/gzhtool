@@ -36,6 +36,7 @@ const PAID_FEATURE_KEYS = [
   "scrape.drission",
   "hot.advancedSources",
   "ai.advancedTemplates",
+  "ai.templateGenerator",
   "ai.batchRewrite",
   "ai.deAiBoost",
   "ai.unlimitedDaily"

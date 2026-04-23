@@ -65,6 +65,11 @@ export const PAID_FEATURES = Object.freeze({
     tier: "pro",
     hint: "深度行业观察 / 故事化叙述 / 教程拆解 等高级模板需要 Pro；免费版可用清单整理与新闻速读。"
   },
+  "ai.templateGenerator": {
+    name: "AI 模板生成器",
+    tier: "pro",
+    hint: "用一句话描述你的公众号风格，AI 自动写出一个专属改写模板（自带角色设定、写作纪律、默认偏好）。Pro 专享。"
+  },
   "ai.unlimitedDaily": {
     name: "无限 AI 改写次数",
     tier: "pro",
