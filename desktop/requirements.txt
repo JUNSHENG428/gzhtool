@@ -1,0 +1,7 @@
+# 运行时依赖（被 PyInstaller 真正打进可执行文件的）
+DrissionPage==4.1.0.18
+# 注：DrissionPage 不直接依赖 lxml，但建议显式带上以免某些场景下解析失败
+lxml>=4.9.0
+
+# 构建依赖（只在打包机/CI 上需要，运行时不打包）
+pyinstaller==6.10.0

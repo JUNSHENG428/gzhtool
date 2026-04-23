@@ -95,6 +95,7 @@ if (testHotTopicsNewsnowButton) {
   );
 }
 testDrissionConnectionButton?.addEventListener("click", testDrissionConnection);
+initHelperDownloadBanner();
 exportHistoryButton.addEventListener("click", exportAllHistory);
 clearHistoryButton.addEventListener("click", clearAllHistory);
 
@@ -428,6 +429,103 @@ async function testDrissionConnection() {
   } finally {
     testDrissionConnectionButton.disabled = false;
   }
+}
+
+/**
+ * 「下载桌面助手」横幅初始化。
+ *
+ * 设计目标:
+ * - 不依赖任何后端：URL 和最新版本号写死，靠仓库提交更新（避免新增运维 endpoint）。
+ * - 如果当前 helperUrl 已经填了 + 检测到 helper 在跑，就显示"已连接"提示，避免
+ *   误导那些已经装好的用户重新下载。
+ * - 检测走 HEAD/GET helperUrl + "/version"（轻量，不会拉浏览器），3 秒超时。
+ *
+ * 修改"下载链接"和"安装文档"只需要改下面这两个常量。
+ */
+const HELPER_DOWNLOAD = {
+  // GitHub Release 页（用户在这里挑 mac arm64 / x86_64 / win 包）
+  releaseUrl:
+    "https://github.com/JUNSHENG428/gzhtool/releases?q=helper-v&expanded=true",
+  // 用户向安装说明（已经写在 docs/USER_DOWNLOAD_HELPER.md，部署到官网后改成最终 URL）
+  guideUrl:
+    "https://github.com/JUNSHENG428/gzhtool/blob/main/docs/USER_DOWNLOAD_HELPER.md",
+  // 最新版（发版时同步改 + 重新打包扩展即可）
+  latestVersion: "0.1.0"
+};
+
+function initHelperDownloadBanner() {
+  const downloadBtn = document.querySelector("#helperDownloadButton");
+  const guideBtn = document.querySelector("#helperDownloadGuide");
+  const versionEl = document.querySelector("#helperDownloadVersion");
+  if (!downloadBtn) return;
+
+  downloadBtn.href = HELPER_DOWNLOAD.releaseUrl;
+  if (guideBtn) guideBtn.href = HELPER_DOWNLOAD.guideUrl;
+  if (versionEl) {
+    versionEl.textContent = `最新版本 v${HELPER_DOWNLOAD.latestVersion} · 支持 macOS / Windows`;
+  }
+
+  detectHelperVersion().then((info) => {
+    if (!versionEl) return;
+    if (!info) return;
+    if (info.error) {
+      versionEl.textContent = `最新版本 v${HELPER_DOWNLOAD.latestVersion} · 支持 macOS / Windows`;
+      return;
+    }
+    const local = info.helperVersion;
+    const latest = HELPER_DOWNLOAD.latestVersion;
+    if (compareSemver(local, latest) < 0) {
+      versionEl.textContent = `本机已装 v${local}，有新版 v${latest} 可下载`;
+      versionEl.style.color = "#b45309";
+    } else {
+      versionEl.textContent = `本机已装并连通：v${local}（最新）`;
+      versionEl.style.color = "#15803d";
+    }
+  });
+}
+
+async function detectHelperVersion() {
+  const url = String(fields.drissionHelperUrl?.value || "").trim();
+  if (!url) return null;
+  let endpoint;
+  try {
+    endpoint = new URL("version", /\/$/.test(url) ? url : `${url}/`).toString();
+  } catch {
+    return { error: "URL 不合法" };
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
+  try {
+    const resp = await fetch(endpoint, { signal: ctrl.signal });
+    if (!resp.ok) return { error: `HTTP ${resp.status}` };
+    const data = await resp.json();
+    return {
+      helperVersion: String(data?.helperVersion || ""),
+      appName: String(data?.appName || "")
+    };
+  } catch (err) {
+    return { error: String(err?.message || err) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function compareSemver(a, b) {
+  const norm = (v) =>
+    String(v || "0.0.0")
+      .replace(/^v/, "")
+      .split(/[^\d]+/)
+      .filter(Boolean)
+      .map((n) => Number(n) || 0);
+  const aa = norm(a);
+  const bb = norm(b);
+  for (let i = 0; i < Math.max(aa.length, bb.length); i += 1) {
+    const x = aa[i] || 0;
+    const y = bb[i] || 0;
+    if (x !== y) return x - y;
+  }
+  return 0;
 }
 
 function setTestResult(element, state, message) {

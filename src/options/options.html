@@ -347,11 +347,22 @@
           <p>
             遇到反爬严重、需要登录的页面时，可以在本机起一个
             <a href="https://github.com/g1879/DrissionPage" target="_blank" rel="noreferrer">DrissionPage</a>
-            helper 服务（自带 Chromium），扩展会优先把抓取请求转给它；helper 不可达或抓不到内容时会自动回退到内置抓取，不会让你卡死。
+            helper 服务（依赖你电脑上已装的 Chrome），扩展会优先把抓取请求转给它；helper 不可达或抓不到内容时会自动回退到内置抓取，不会让你卡死。
           </p>
           <p class="muted">
             选区抓取（在网页上选中文字 → 抓取）永远走扩展内置脚本，不经过 DrissionPage。
           </p>
+
+          <div class="helper-download-banner">
+            <div class="helper-download-text">
+              <strong>不会命令行也没关系</strong>：直接下载「润笔桌面助手」，双击启动即可。
+              <span id="helperDownloadVersion" class="muted"></span>
+            </div>
+            <div class="helper-download-actions">
+              <a id="helperDownloadButton" class="primary" href="#" target="_blank" rel="noreferrer">下载桌面助手</a>
+              <a id="helperDownloadGuide" class="ghost" href="#" target="_blank" rel="noreferrer">安装说明</a>
+            </div>
+          </div>
         </div>
 
         <label class="checkbox-row">
@@ -360,8 +371,8 @@
         </label>
 
         <label class="split-full">
-          <span>helper 地址（如 <code>http://127.0.0.1:8765/</code>）</span>
-          <input id="drissionHelperUrl" type="url" placeholder="http://127.0.0.1:8765/" autocomplete="off" />
+          <span>helper 地址（如 <code>http://127.0.0.1:7788/</code>）</span>
+          <input id="drissionHelperUrl" type="url" placeholder="http://127.0.0.1:7788/" autocomplete="off" />
         </label>
 
         <label class="split-full">

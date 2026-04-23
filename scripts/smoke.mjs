@@ -763,4 +763,232 @@ console.log("\n运行 PAID_FEATURES 前后端对齐单测 …");
   }
 }
 
+console.log("\n运行 desktop helper 项目结构静态校验 …");
+{
+  // 这一节确保桌面助手 (desktop/) 项目骨架完整、PyInstaller spec 关键字段
+  // 没被无意义改动。打包链路本身的"能不能跑通"靠 GitHub Actions 验证，
+  // 这里只防"文件被误删 / spec 缺关键字段 / 资源路径写错"这种低级回归。
+  const desktopFiles = [
+    "desktop/__init__.py",
+    "desktop/runbi_helper.py", // PyInstaller 入口壳（必须在包外）
+    "desktop/helper_app/__init__.py",
+    "desktop/helper_app/__main__.py",
+    "desktop/helper_app/cli.py", // 真正的 main 逻辑
+    "desktop/helper_app/config.py",
+    "desktop/helper_app/version.py",
+    "desktop/helper_app/server.py",
+    "desktop/helper_app/gui.py",
+    "desktop/helper_app/updater.py",
+    "desktop/requirements.txt",
+    "desktop/build/runbi-helper.spec",
+    "desktop/build/build_mac.sh",
+    "desktop/build/build_win.bat",
+    "desktop/README.md",
+    "docs/USER_DOWNLOAD_HELPER.md",
+    ".github/workflows/build-helper.yml",
+  ];
+  desktopFiles.forEach(mustExist);
+
+  // —— 防回归：入口壳的契约（这块踩过坑）——
+  // 1) __main__.py 不能再放业务逻辑，必须从 .cli 引入 main
+  const mainSrc = fs.readFileSync(
+    path.join(root, "desktop/helper_app/__main__.py"),
+    "utf8"
+  );
+  assert(
+    /from\s+\.cli\s+import\s+main/.test(mainSrc),
+    "__main__.py 必须从 .cli import main，不能再塞业务逻辑（PyInstaller 不会把 __main__.py 当可 import 模块）"
+  );
+
+  // 2) PyInstaller 入口必须是 desktop/runbi_helper.py（包外壳），
+  //    不能直接指向 helper_app/__main__.py（会触发相对导入失败）
+  const entrySrc = fs.readFileSync(
+    path.join(root, "desktop/runbi_helper.py"),
+    "utf8"
+  );
+  assert(
+    /from\s+helper_app\.cli\s+import\s+main/.test(entrySrc),
+    "runbi_helper.py 必须用绝对导入 `from helper_app.cli import main`（相对导入在 PyInstaller frozen 环境下会失败）"
+  );
+
+  // PyInstaller spec 必备字段
+  const specSrc = fs.readFileSync(
+    path.join(root, "desktop/build/runbi-helper.spec"),
+    "utf8"
+  );
+  // 入口必须是包外的 runbi_helper.py
+  assert(
+    /ENTRY_SCRIPT\s*=\s*DESKTOP_DIR\s*\/\s*["']runbi_helper\.py["']/.test(specSrc),
+    "spec 必须把 ENTRY_SCRIPT 指向 desktop/runbi_helper.py（否则 frozen helper 会因相对导入失败而 crash）"
+  );
+  // pathex 必须同时包含 PROJECT_ROOT 和 DESKTOP_DIR
+  assert(
+    /pathex\s*=\s*\[[^\]]*PROJECT_ROOT[^\]]*DESKTOP_DIR/.test(specSrc),
+    "spec pathex 必须同时包含 PROJECT_ROOT 和 DESKTOP_DIR（否则 helper_app 找不到）"
+  );
+  // scrape-article.js 资源必须打进去
+  assert(
+    /scrape-article\.js/.test(specSrc),
+    "PyInstaller spec 必须把 src/content-scripts/scrape-article.js 打进 datas"
+  );
+  // DrissionPage 子模块要 collect_submodules
+  assert(
+    /collect_submodules\(\s*["']DrissionPage["']\s*\)/.test(specSrc),
+    "PyInstaller spec 必须 collect_submodules('DrissionPage')，否则打包后会缺子模块"
+  );
+  // mac BUNDLE 必备字段
+  assert(
+    /bundle_identifier\s*=\s*["']com\.docuearn\.helper["']/.test(specSrc),
+    "mac BUNDLE bundle_identifier 必须是 com.docuearn.helper（要改请同时改 config.BUNDLE_ID）"
+  );
+
+  // 资源路径解析
+  const configSrc = fs.readFileSync(
+    path.join(root, "desktop/helper_app/config.py"),
+    "utf8"
+  );
+  assert(
+    /sys\._MEIPASS/.test(configSrc),
+    "config.py 必须处理 PyInstaller 的 sys._MEIPASS（否则打包后找不到资源）"
+  );
+
+  // scripts/drissionpage_helper.py 兼容跳转：必须仍然能被命令行老用户使用
+  const scriptSrc = fs.readFileSync(
+    path.join(root, "scripts/drissionpage_helper.py"),
+    "utf8"
+  );
+  assert(
+    /from\s+desktop\.helper_app\.server\s+import/.test(scriptSrc),
+    "scripts/drissionpage_helper.py 必须从 desktop.helper_app.server 复用核心逻辑（避免双份维护）"
+  );
+
+  // helper /version 接口（扩展端用来检测新版）
+  const serverSrc = fs.readFileSync(
+    path.join(root, "desktop/helper_app/server.py"),
+    "utf8"
+  );
+  assert(
+    /\/version/.test(serverSrc),
+    "server.py 必须暴露 /version 接口（扩展端轻量轮询用）"
+  );
+}
+
+console.log("\n运行 workspace-router 顶部状态栏 storage key 单测 …");
+{
+  // 历史 bug：workspace-router 直接用了字面量 "settings" / "licenseRecord"，
+  // 但 settings 实际存于 STORAGE_KEYS.settings = "wechatWriterSettings"，
+  // license 存于 LICENSE_STORAGE_KEY = "wechatWriterLicense"，
+  // 导致 AI 状态徽章永远显示「AI · 未配置」。这里做静态文本检查防回归。
+  const routerSrc = fs.readFileSync(path.join(root, "src/workspace/workspace-router.js"), "utf8");
+  assert(
+    routerSrc.includes("STORAGE_KEYS") && routerSrc.includes("LICENSE_STORAGE_KEY"),
+    "workspace-router.js 必须 import STORAGE_KEYS / LICENSE_STORAGE_KEY 常量"
+  );
+  // 不允许出现裸字面量的错误 key（'licenseRecord' 这个字符串过去就是错的）
+  assert(
+    !/['"]licenseRecord['"]/.test(routerSrc),
+    "workspace-router.js 不应再出现 'licenseRecord' 字面量，应统一用 LICENSE_STORAGE_KEY"
+  );
+  // chrome.storage.local.get 调用里不能再出现裸的 "settings" 字符串
+  const getCall = routerSrc.match(/chrome\.storage\.local\.get\(\[[^\]]+\]/g) || [];
+  for (const call of getCall) {
+    assert(
+      !/['"]settings['"]/.test(call),
+      `workspace-router.js storage.local.get 调用里仍残留裸 "settings"：${call}`
+    );
+  }
+}
+
+console.log("\n运行 drission 模块绑定 / canUseDrissionCapture 单测 …");
+{
+  const drission = await import("../src/shared/drission.js");
+
+  // —— 模块导出契约 —— //
+  assert(typeof drission.canUseDrissionCapture === "function", "canUseDrissionCapture 必须是函数");
+  assert(typeof drission.requestDrissionCapture === "function", "requestDrissionCapture 必须是函数");
+  assert(
+    typeof drission.normalizeDrissionCaptureMode === "function",
+    "normalizeDrissionCaptureMode 必须作为函数被导出（之前的 ESM re-export bug）"
+  );
+
+  // —— canUseDrissionCapture 在"用户已开启 Drission"路径下不抛 ReferenceError —— //
+  // 这是上次线上炸出来的真实场景：drissionEnabled=true + 合法 helperUrl，
+  // 走到 normalizeDrissionCaptureMode(captureMode) 那一步，老代码这里会
+  // 抛 "ReferenceError: normalizeDrissionCaptureMode is not defined"。
+  // 这条 assert 直接复现这个调用路径，防回归。
+  let result;
+  let threwRef = false;
+  try {
+    result = drission.canUseDrissionCapture(
+      { drissionEnabled: true, drissionHelperUrl: "http://127.0.0.1:9222" },
+      "readable"
+    );
+  } catch (error) {
+    threwRef = String(error?.message || "").includes("not defined");
+    if (threwRef) {
+      console.error("FAIL:", error.message);
+    }
+    throw error;
+  }
+  assert(threwRef === false, "canUseDrissionCapture 不应抛 ReferenceError（normalizeDrissionCaptureMode 必须在本地作用域可见）");
+  assert(result === true, "Drission 已配置 + readable 模式应允许走 helper");
+
+  // selection 模式必须被排除（DrissionPage 抓不到选区）
+  const r2 = drission.canUseDrissionCapture(
+    { drissionEnabled: true, drissionHelperUrl: "http://127.0.0.1:9222" },
+    "selection"
+  );
+  assert(r2 === false, "selection 模式必须强制走扩展内置抓取，不能走 Drission");
+
+  // 没开 / 没 helperUrl → 直接 false（短路，不会触发后续函数）
+  const r3 = drission.canUseDrissionCapture({ drissionEnabled: false }, "readable");
+  assert(r3 === false, "drissionEnabled=false 应直接返回 false");
+  const r4 = drission.canUseDrissionCapture({ drissionEnabled: true, drissionHelperUrl: "" }, "readable");
+  assert(r4 === false, "helperUrl 为空应直接返回 false");
+}
+
+console.log("\n运行 classifyError 错误分类单测 …");
+{
+  const { classifyError, ErrorCode } = await import("../src/shared/errors.js");
+
+  // —— Chrome 系统错（host 权限不够）→ SCRAPE_HOST_BLOCKED —— //
+  const c1 = classifyError(
+    new Error("Cannot access contents of url \"chrome://newtab/\". Extension manifest must request permission to access this host.")
+  );
+  assert(
+    c1.code === ErrorCode.SCRAPE_HOST_BLOCKED,
+    `host blocked 错误应分类为 SCRAPE_HOST_BLOCKED，实际为 ${c1.code}`
+  );
+  assert(/扩展无法访问/.test(c1.message), "SCRAPE_HOST_BLOCKED message 应是中文友好提示");
+
+  // —— Chrome tab 被关掉 → SCRAPE_TAB_FAILED 且附带原始细节 —— //
+  const c2 = classifyError(new Error("No tab with id 12345"));
+  assert(c2.code === ErrorCode.SCRAPE_TAB_FAILED, "tab 已关错误应分类为 SCRAPE_TAB_FAILED");
+  assert(/No tab with id 12345/.test(c2.message), "SCRAPE_TAB_FAILED 应附带原始 detail，方便排查");
+
+  // —— 中文报错原文透传 —— //
+  const c3 = classifyError(new Error("目标页面在 15 秒内未加载完成：可能跳转或被反爬拦截"));
+  assert(c3.code === ErrorCode.UNKNOWN, "未匹配的中文错应是 UNKNOWN");
+  assert(c3.message.includes("目标页面"), "中文错原文必须透传，不能被吞掉变 fallback");
+
+  // —— 英文报错"加中文前缀"透出，不再变成通用 fallback —— //
+  const c4 = classifyError(new Error("Some weird internal error code 0xC0FFEE"));
+  assert(c4.code === ErrorCode.UNKNOWN, "未匹配的英文错应是 UNKNOWN");
+  assert(c4.message.startsWith("操作失败："), "英文错应被中文前缀包装，方便用户复制给客服");
+  assert(c4.message.includes("0xC0FFEE"), "英文错原文必须保留在 message 里");
+
+  // —— 完全没 message → 走 fallback —— //
+  const c5 = classifyError(new Error(""));
+  assert(c5.code === ErrorCode.UNKNOWN, "空 message 走 UNKNOWN");
+  assert(c5.message === "操作失败，请稍后再试。", "空 message 才允许走通用 fallback");
+
+  // —— 网络超时仍正常分类 —— //
+  const c6 = classifyError(new Error("fetch timeout after 30s"));
+  assert(c6.code === ErrorCode.NETWORK_TIMEOUT, "timeout 关键字应触发 NETWORK_TIMEOUT");
+
+  // —— 抓取无内容 —— //
+  const c7 = classifyError(new Error("抓取失败或正文为空，请确认目标站点支持免登录公开访问。"));
+  assert(c7.code === ErrorCode.SCRAPE_NO_CONTENT, "抓取空内容关键字应触发 SCRAPE_NO_CONTENT");
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

@@ -225,6 +225,62 @@ textarea {
   align-items: center;
 }
 
+/* DrissionPage 设置区里的「下载桌面助手」横幅 */
+.helper-download-banner {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+.helper-download-text {
+  flex: 1 1 280px;
+  font-size: 13px;
+  color: #334155;
+  line-height: 1.5;
+}
+.helper-download-text strong {
+  color: #0f172a;
+}
+.helper-download-text .muted {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #64748b;
+}
+.helper-download-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.helper-download-actions a {
+  text-decoration: none;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-block;
+  transition: filter 120ms ease;
+}
+.helper-download-actions a.primary {
+  background: #0f172a;
+  color: #fff;
+  border: 1px solid #0f172a;
+}
+.helper-download-actions a.ghost {
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+}
+.helper-download-actions a:hover {
+  filter: brightness(0.95);
+}
+
 .page-link-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

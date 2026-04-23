@@ -17,7 +17,8 @@ Thumbs.db
 
 # 构建产物 / 日志
 dist/
-build/
+# build/ 仅匹配根目录（PyInstaller 中间产物），不要误伤 desktop/build/（打包脚本源代码）
+/build/
 *.log
 npm-debug.log*
 
@@ -30,3 +31,6 @@ npm-debug.log*
 server/.wrangler/
 server/.dev.vars
 .wrangler/
+
+# Cline / Claude Memory Bank（AI 工具元数据，不入版本库）
+memory-bank/
