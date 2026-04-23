@@ -16,14 +16,16 @@
  *   GET  /api/health                  健康检查
  *
  * 安全要点：
- *   1. 密码用 PBKDF2-SHA256 + 200_000 次迭代 + 16 字节随机 salt；
+ *   1. 密码用 PBKDF2-SHA256 + 100_000 次迭代 + 16 字节随机 salt；
+ *      （Cloudflare Workers 的 Web Crypto 上限就是 100k，超出会被 runtime 拒绝；
+ *       100k 次 PBKDF2 在常见硬件上仍是几十毫秒级，对密码爆破依然有强约束。）
  *   2. JWT HS256，过期 7 天，secret 走 wrangler secret；
  *   3. /api/license/verify 用 KV 限速：同一 key + ip 每分钟 10 次；
  *   4. webhook 必须验签，且用 webhook_events 做幂等去重；
  *   5. 所有错误信息中文化，避免泄露内部结构。
  */
 
-const PBKDF2_ITERATIONS = 200_000;
+const PBKDF2_ITERATIONS = 100_000;
 const JWT_ALG = "HS256";
 const JWT_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 天
 

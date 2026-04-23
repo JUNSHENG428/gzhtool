@@ -27,12 +27,12 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding       = "DB"
 database_name = "gzh-license"
-database_id   = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id   = "1cba3fd2-1dc2-42e9-9c93-18b57c42e074"
 
 # ---------------- KV (限速 + 短期缓存) ----------------
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
-id      = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+id      = "8a535d27955946f3a0b8f7b9c06717f5"
 
 # ---------------- 公开变量（可明文） ----------------
 [vars]
