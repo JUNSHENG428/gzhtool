@@ -588,6 +588,10 @@ code {
   display: flex;
   align-items: flex-start;
   gap: 10px;
+  min-width: 0;
+  line-height: 1.55;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .price-list li::before {
