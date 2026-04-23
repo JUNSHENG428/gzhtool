@@ -1,23 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!--
-  ¦ favicon
-  · pà¢¹F + –}• + l¿"¦"W
-  · bÂ-‡pàM SaaS åw8Á„As emoji Î
-  · 32×32 >'Ê)0 16×16 Íý¨Æ
--->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="¦">
-  <defs>
-    <linearGradient id="seal" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#c0392b"/>
-      <stop offset="100%" stop-color="#a82a1f"/>
-    </linearGradient>
-  </defs>
-  <rect x="2" y="2" width="60" height="60" rx="10" fill="#fffdf6"/>
-  <rect x="4" y="4" width="56" height="56" rx="8" fill="none" stroke="url(#seal)" stroke-width="3.5"/>
-  <text x="32" y="46"
-        font-family="'Noto Serif SC', 'Source Han Serif SC', Georgia, serif"
-        font-size="42"
-        font-weight="700"
-        text-anchor="middle"
-        fill="url(#seal)">¦</text>
-</svg>

@@ -32,7 +32,8 @@ assert(Boolean(manifest.version), "manifest 缺少 version");
 for (const sz of [16, 32, 48, 128]) {
   mustExist(`src/icons/icon${sz}.png`);
 }
-mustExist("src/icons/icon.svg");
+// icon.svg 已被 PNG 母版替代（icon-source.png + 4 个尺寸 PNG）。
+mustExist("src/icons/icon-source.png");
 
 // 3) 关键 HTML / 入口
 const pages = [
