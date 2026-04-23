@@ -6,4 +6,4 @@
 #
 # 只保留真正需要的 query-string 重定向：
 #   /register → 登录页的注册 tab
-/register     /login.html?mode=register   301
+/register     /login?mode=register   301
