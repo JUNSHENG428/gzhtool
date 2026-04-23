@@ -6,7 +6,8 @@
   "scripts": {
     "check:js": "node scripts/check-js.mjs",
     "test:smoke": "node scripts/smoke.mjs",
-    "test": "npm run test:smoke",
+    "test:extract-chat": "node scripts/test-extract-chat.mjs",
+    "test": "npm run test:smoke && npm run test:extract-chat",
     "fonts:sync": "bash scripts/sync-fonts.sh",
     "version:sync": "node scripts/version-sync.mjs",
     "build:zip": "node scripts/build-zip.mjs",

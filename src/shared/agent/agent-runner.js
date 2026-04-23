@@ -18,6 +18,7 @@ import {
   runAdapterSearch
 } from "./platform-adapters/index.js";
 import { buildBriefMessages, normalizeBrief } from "./agent-prompts.js";
+import { extractChatContent } from "../ai.js";
 
 export const DEFAULT_AGENT_RUN_OPTIONS = Object.freeze({
   platforms: [...ADAPTER_IDS],
@@ -230,17 +231,6 @@ async function generateBrief({ query, hits }) {
   if (!content) throw new Error("模型返回为空");
   const json = extractJson(content);
   return normalizeBrief(json);
-}
-
-function extractChatContent(payload) {
-  const c = payload?.choices?.[0]?.message?.content;
-  if (typeof c === "string") return c;
-  if (Array.isArray(c)) {
-    return c
-      .map((item) => (typeof item === "string" ? item : item?.text || ""))
-      .join("");
-  }
-  return "";
 }
 
 function extractJson(text) {

@@ -200,7 +200,7 @@ export async function requestRewrite(settings, source, preferences, template) {
 
   const content = extractChatContent(payload);
   if (!content) {
-    throw new Error("AI 返回内容为空，无法生成改写稿。");
+    throw new Error("AI 返回内容为空，无法生成改写稿。" + diagnoseEmptyChatPayload(payload));
   }
 
   return normalizeArticle(extractJson(content), source, preferences);
@@ -234,8 +234,16 @@ export async function testAiConnection({ baseUrl, apiKey, model, timeoutMs = 120
       },
       body: JSON.stringify({
         model: targetModel,
-        messages: [{ role: "user", content: "ping" }],
-        max_tokens: 5,
+        // 用一个明确的英文回令，比 ping 更不易被某些模型拒绝；
+        // 中文系统消息提高 GLM/Kimi/Qwen 等中文模型的合规率。
+        messages: [
+          { role: "system", content: "你是一个连通性检测助手，请按用户要求简短回应。" },
+          { role: "user", content: "请回复 pong" }
+        ],
+        // 64 token 对推理模型（DeepSeek R1 / o1 / Claude thinking）也够吐出
+        // 至少几个字符的正文。原 5 token 会导致 reasoning 把 token 用完后
+        // content 留空，被误报为「模型不支持 chat completion」。
+        max_tokens: 64,
         temperature: 0
       }),
       signal: controller.signal
@@ -253,8 +261,10 @@ export async function testAiConnection({ baseUrl, apiKey, model, timeoutMs = 120
     }
 
     if (!extractChatContent(payload)) {
+      const diag = diagnoseEmptyChatPayload(payload);
       return createAiTestFailure(
-        "接口已连通，但返回内容为空，请检查模型是否支持 chat completion。",
+        "接口已连通但返回内容为空。常见原因：max_tokens 太小、模型仅支持 completions 旧接口、或代理把响应字段改名。" +
+          diag,
         targetModel,
         latencyMs
       );
@@ -312,24 +322,108 @@ function createSourceSnapshot(source) {
   };
 }
 
-function extractChatContent(payload) {
-  const content = payload?.choices?.[0]?.message?.content;
+/**
+ * 从 chat completion 响应里抽出可用的正文文本，覆盖主流国内外 LLM 厂商：
+ *   - OpenAI / 兼容代理：choices[0].message.content（string 或 array of {type,text}）
+ *   - OpenAI o1 / DeepSeek R1 等推理模型：reasoning 在 reasoning_content，
+ *     正文在 message.content；如果 content 为空但 reasoning 非空，回退到 reasoning
+ *   - Anthropic 直连：content[0].text（旧 SDK）/ choices...（通过代理）
+ *   - 智谱 GLM / Kimi / 文心：choices[0].message.content（标准）
+ *   - 文心 ernie-bot v1：直接 result 字段
+ *   - 通义千问 dashscope：output.text 或 output.choices[0].message.content
+ *   - 流式（按理不会进这条路径，兜底）：choices[0].delta.content
+ *
+ * 最终返回 trim 后的字符串；什么都没解析到返回 ""。
+ */
+export function extractChatContent(payload) {
+  if (!payload || typeof payload !== "object") return "";
 
-  if (typeof content === "string") {
-    return content;
+  const fromChoice = (choice) => {
+    if (!choice) return "";
+    const msg = choice.message || choice.delta || {};
+    const c = msg.content;
+    if (typeof c === "string" && c.trim()) return c;
+    if (Array.isArray(c)) {
+      const joined = c
+        .map((item) => {
+          if (typeof item === "string") return item;
+          if (item?.type === "text") return item.text || "";
+          if (item?.text) return item.text;
+          return "";
+        })
+        .join("");
+      if (joined.trim()) return joined;
+    }
+    // 推理模型：content 为空时退到 reasoning_content
+    if (typeof msg.reasoning_content === "string" && msg.reasoning_content.trim()) {
+      return msg.reasoning_content;
+    }
+    if (typeof choice.text === "string" && choice.text.trim()) return choice.text;
+    return "";
+  };
+
+  // 1) OpenAI 兼容（choices 数组）
+  if (Array.isArray(payload.choices) && payload.choices.length > 0) {
+    const text = fromChoice(payload.choices[0]);
+    if (text) return text;
   }
 
-  if (Array.isArray(content)) {
-    return content
-      .map((item) => {
-        if (typeof item === "string") return item;
-        if (item?.type === "text") return item.text || "";
-        return "";
-      })
+  // 2) Anthropic 直连：content: [{type:"text", text:"..."}]
+  if (Array.isArray(payload.content)) {
+    const joined = payload.content
+      .map((item) => (typeof item === "string" ? item : item?.text || ""))
       .join("");
+    if (joined.trim()) return joined;
+  }
+
+  // 3) 文心 ernie-bot：result 字段
+  if (typeof payload.result === "string" && payload.result.trim()) {
+    return payload.result;
+  }
+
+  // 4) 通义千问 dashscope：output.text 或 output.choices
+  if (payload.output) {
+    if (typeof payload.output.text === "string" && payload.output.text.trim()) {
+      return payload.output.text;
+    }
+    if (Array.isArray(payload.output.choices) && payload.output.choices.length > 0) {
+      const text = fromChoice(payload.output.choices[0]);
+      if (text) return text;
+    }
   }
 
   return "";
+}
+
+/**
+ * 给空响应抓取诊断线索，让错误提示更具体（finish_reason、token 用量等）。
+ * 返回一段附带在错误文案后的「· 诊断: ...」字符串，没线索则返回 ""。
+ */
+function diagnoseEmptyChatPayload(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  const hints = [];
+  const choice = payload.choices?.[0];
+  const finish = choice?.finish_reason || choice?.finishReason;
+  if (finish) hints.push(`finish_reason=${finish}`);
+  if (finish === "length") {
+    hints.push("max_tokens 太小");
+  }
+  // 推理模型把 token 都用在思考上的特征：reasoning_tokens 非 0、completion_tokens 0
+  const usage = payload.usage || {};
+  const reasoning =
+    usage.completion_tokens_details?.reasoning_tokens ?? usage.reasoning_tokens;
+  const completion = usage.completion_tokens;
+  if (reasoning && (!completion || completion === reasoning)) {
+    hints.push(`推理模型消耗 ${reasoning} 思考 token 但未输出正文`);
+  }
+  // Anthropic 直连返回 stop_reason 而不是 finish_reason
+  const stopReason = payload.stop_reason;
+  if (stopReason && stopReason !== "end_turn") hints.push(`stop_reason=${stopReason}`);
+  // 一些代理会把错误塞在 200 响应的 error 字段里
+  const errMsg = payload.error?.message || payload.error;
+  if (typeof errMsg === "string") hints.push(`内嵌 error=${errMsg.slice(0, 80)}`);
+
+  return hints.length ? ` · 诊断: ${hints.join("; ")}` : "";
 }
 
 function createAiTestFailure(error, model, latencyMs = 0) {

@@ -1,4 +1,4 @@
-import { evaluateArticleLength, requestRewrite, testAiConnection } from "../shared/ai.js";
+import { evaluateArticleLength, requestRewrite, testAiConnection, extractChatContent } from "../shared/ai.js";
 import {
   getActivePromptTemplate,
   getPromptTemplates,
@@ -779,15 +779,6 @@ async function generateAngleOutline({ query, angle, hits }) {
   if (!content) throw new Error("模型返回为空");
   const json = extractJson(content);
   return normalizeOutline(json);
-}
-
-function extractChatContent(payload) {
-  const c = payload?.choices?.[0]?.message?.content;
-  if (typeof c === "string") return c;
-  if (Array.isArray(c)) {
-    return c.map((item) => (typeof item === "string" ? item : item?.text || "")).join("");
-  }
-  return "";
 }
 
 function extractJson(text) {
