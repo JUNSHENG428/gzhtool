@@ -141,7 +141,8 @@ function renderList(data) {
           ${hasUrl ? "" : '<p class="hot-item-sub" style="color:#a87548">⚠️ 该条目没有原文链接，无法一键入库</p>'}
         </div>
         <div class="hot-item-actions">
-          <button type="button" class="primary ghost" data-action="express" data-url="${safeUrl}"${disabledAttr}>📥 一键入库</button>
+          <button type="button" class="primary" data-action="express-rewrite" data-url="${safeUrl}"${disabledAttr} title="抓取原文 + 自动 AI 改写一步到位（需要 Pro 或 AI 已配置）">✨ 抓取并改写</button>
+          <button type="button" class="primary ghost" data-action="express" data-url="${safeUrl}"${disabledAttr}>📥 仅入库</button>
           <button type="button" class="ghost" data-action="card" data-url="${safeUrl}">分享截屏</button>
           <div style="display:flex;gap:6px">
             <button type="button" class="ghost" style="flex:1" data-action="open" data-url="${safeUrl}"${disabledAttr}>打开</button>
@@ -187,14 +188,15 @@ function bindItemActions(container, items, sourceLabel) {
         }
         return;
       }
-      if (action === "express") {
+      if (action === "express" || action === "express-rewrite") {
+        const autoRewrite = action === "express-rewrite";
         const originalText = btn.innerHTML;
         const itemEl = btn.closest(".hot-item");
         // 清掉这个条目上一次留下的失败提示（如有）
         itemEl?.querySelector(".hot-item-error")?.remove();
         itemEl?.classList.remove("is-error");
 
-        btn.innerHTML = "📡 拉取中...";
+        btn.innerHTML = autoRewrite ? "📡 拉取 + 排队改写..." : "📡 拉取中...";
         btn.disabled = true;
         try {
           const res = await chrome.runtime.sendMessage({
@@ -202,12 +204,16 @@ function bindItemActions(container, items, sourceLabel) {
             payload: { url }
           });
           if (res?.ok && res.data) {
-            // 后台已经写过 lastCapture，这里直接打开 workspace 即可恢复到编辑台
-            showToast("拉取成功，正在打开排版台...");
+            const targetUrl =
+              chrome.runtime.getURL("src/workspace/workspace.html") +
+              (autoRewrite ? "?import=1&autoRewrite=1" : "?import=1");
+            showToast(
+              autoRewrite
+                ? "拉取成功，正在打开排版台并排队 AI 改写..."
+                : "拉取成功，正在打开排版台..."
+            );
             setTimeout(() => {
-              chrome.tabs.create({
-                url: chrome.runtime.getURL("src/workspace/workspace.html") + "?import=1"
-              });
+              chrome.tabs.create({ url: targetUrl });
               btn.innerHTML = "✅ 成功";
             }, 600);
           } else {

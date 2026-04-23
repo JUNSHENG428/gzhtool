@@ -1,0 +1,27 @@
+name = "hot-topics-proxy"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# 上游聚合服务地址。默认走 imsyy 公共 demo；生产环境强烈建议自托：
+#   把这个改成你自己跑的 DailyHotApi 实例（Vercel/CF/VPS Docker 都行）
+[vars]
+UPSTREAM_BASE = "https://api-hot.imsyy.top"
+
+# Pro license 共享密钥。Pro 用户请求时通过 X-License-Token 携带这个值，
+# 命中即跳过免费用户的速率限制。生产环境用 wrangler secret put 设置：
+#   wrangler secret put PRO_LICENSE_SECRET
+# 这里只放占位，方便初次部署也能跑起来。
+
+# KV：用于 5 分钟缓存 + IP 限速
+# 部署前先创建：
+#   wrangler kv:namespace create HOT_CACHE
+# 把生成的 id 填到下面（preview_id 是开发期 wrangler dev 用的，可填一样的）
+[[kv_namespaces]]
+binding = "HOT_CACHE"
+id = "REPLACE_WITH_YOUR_KV_ID"
+preview_id = "REPLACE_WITH_YOUR_KV_ID"
+
+# 自定义域名（可选）：绑定 hot.your-domain.com 后填 Cloudflare 的 zone
+# [[routes]]
+# pattern = "hot.your-domain.com/*"
+# zone_id = "your_zone_id"

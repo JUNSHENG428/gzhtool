@@ -1,0 +1,15 @@
+{
+  "name": "hot-topics-proxy",
+  "version": "1.0.0",
+  "description": "润笔 · 热点接口公共代理（Cloudflare Workers）",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "kv:create": "wrangler kv:namespace create HOT_CACHE"
+  },
+  "devDependencies": {
+    "wrangler": "^3.78.0"
+  }
+}

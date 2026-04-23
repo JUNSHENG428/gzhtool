@@ -348,14 +348,27 @@ async function bootstrap() {
 
   if (!state.source) view.emptyPromptCard.hidden = false;
 
+  // 热点页可以追加 &autoRewrite=1，让用户「抓取 → 入库 → AI 改写」一步完成。
+  // 入库失败时不会自动改写（避免在空稿上跑 AI 出空结果）。
+  const wantAutoRewrite = params.get("autoRewrite") === "1";
+
   if (wantAutoCapture) {
     await captureSource(pendingCaptureMode);
+    if (wantAutoRewrite && state.source) {
+      await rewriteArticle();
+    }
   } else if (wantImportSession) {
     // 热点「一键入库」：service worker 已经把 capture 写进 session.lastCapture，
     // 这里负责把它套到当前 article 上，并把正文按当前排版填入编辑器。
     const ok = await importCurrentSourceToArticle();
     if (!ok) {
       setStatus("热点已入库，但解析正文失败，请到来源面板手动检查或重抓。", "warning");
+      return;
+    }
+    if (wantAutoRewrite) {
+      // 入库成功后立刻触发改写。rewriteArticle 自己处理 license/AI 配置缺失的提示，
+      // 这里不需要额外守护。
+      await rewriteArticle();
     }
   }
 }
