@@ -22,15 +22,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14          # Apple Silicon runner
+          # macos-14 = Apple Silicon。覆盖 2020 年后所有新 mac，95%+ 现役 mac 用户。
+          - os: macos-14
             artifact: Runbi-Helper-mac-arm64.zip
             asset_name: Runbi-Helper-mac-arm64.zip
-          - os: macos-13          # x86_64 runner（兼容老 Intel mac）
-            artifact: Runbi-Helper-mac-x86_64.zip
-            asset_name: Runbi-Helper-mac-x86_64.zip
           - os: windows-latest
             artifact: Runbi-Helper-win-x64.zip
             asset_name: Runbi-Helper-win-x64.zip
+          # 注：macos-13 (Intel) runner 在 GitHub 池子里供应紧张，单 job 排队
+          # 经常 30 min ~ 几小时；首发暂时不发 Intel mac 包，等有真实 Intel
+          # mac 用户反馈再单独补 helper-vX.Y.Z-intel 标签的小版本。
 
     runs-on: ${{ matrix.os }}
 
@@ -54,7 +55,7 @@ jobs:
       - name: Build (mac)
         if: runner.os == 'macOS'
         env:
-          ARCH: ${{ matrix.os == 'macos-14' && 'arm64' || 'x86_64' }}
+          ARCH: arm64
         run: bash desktop/build/build_mac.sh
 
       # —— win 构建 —— #

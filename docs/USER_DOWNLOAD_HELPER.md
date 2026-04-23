@@ -11,10 +11,9 @@
 ### macOS
 
 1. 打开 GitHub Release：<https://github.com/JUNSHENG428/gzhtool/releases?q=helper-v&expanded=true>
-2. 下载对应包：
-   - Apple Silicon (M1/M2/M3/M4)：`Runbi-Helper-mac-arm64.zip`
-   - Intel mac：`Runbi-Helper-mac-x86_64.zip`
-   - 不知道自己是哪个：左上角 → 关于本机 → 看「芯片」一栏。
+2. 下载 **`Runbi-Helper-mac-arm64.zip`**（Apple Silicon，M1/M2/M3/M4）
+   - 不确定自己是哪种 mac？左上角  → 关于本机 → 看「芯片」一栏；2020 年以后买的 mac 几乎都是 Apple Silicon。
+   - 用 Intel mac？首发暂未提供 Intel 包（GitHub Intel runner 排队过长），可以 [开 issue](https://github.com/JUNSHENG428/gzhtool/issues) 留言，我们会按需求决定要不要补 `Runbi-Helper-mac-x86_64.zip`。
 3. 双击解压，把 `Runbi Helper.app` 拖到 `应用程序` 文件夹
 4. **第一次打开必须右键**：
    - 在 Finder 里右键 `Runbi Helper.app` → **打开**

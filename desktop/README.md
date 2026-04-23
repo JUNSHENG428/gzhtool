@@ -80,7 +80,8 @@ REM   dist\Runbi-Helper-win-x64.zip
 
 `.github/workflows/build-helper.yml` 已经配置好。触发方式：
 
-- **正式发版**：打 tag `helper-vX.Y.Z` 并 push，自动构建 mac arm64 / mac x86_64 / win x64 三个产物，**自动发布 GitHub Release**。
+- **正式发版**：打 tag `helper-vX.Y.Z` 并 push，自动构建 **mac arm64 + win x64** 两个产物，**自动发布 GitHub Release**。
+- **mac x86_64 (Intel) 暂未在矩阵里**：GitHub Actions 的 macos-13 runner 池在 2026 年供应紧张，单 job 排队 30 min ~ 几小时，会卡住整批发版。如有 Intel mac 用户实际反馈，可在本机用 `arch -x86_64 bash desktop/build/build_mac.sh` 单独打一份补丁包。
 - **手动调试**：在 Actions 页面点 "Run workflow"，会构建但不发 Release。
 
 发版前的 checklist：

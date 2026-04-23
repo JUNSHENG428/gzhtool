@@ -31,6 +31,27 @@ import {
 } from "../shared/license.js";
 import { showUpgradeModal } from "../shared/upgrade-modal.js";
 
+/**
+ * 「下载桌面助手」横幅常量。
+ *
+ * 必须放在文件顶部（import 之后、任何 top-level 调用之前），
+ * 因为下面 ~第 90 行的 `initHelperDownloadBanner()` 是 top-level 调用——
+ * `function` 声明会 hoist，但函数体里引用的 `const HELPER_DOWNLOAD` 不 hoist，
+ * 如果 const 写在调用点之后，会触发 TDZ：
+ *   "Cannot access 'HELPER_DOWNLOAD' before initialization"
+ *
+ * 设计目标:
+ * - 不依赖任何后端：URL 和最新版本号写死，靠仓库提交更新（避免新增运维 endpoint）。
+ * - 修改"下载链接"和"安装文档"只需要改下面这三个字段。
+ */
+const HELPER_DOWNLOAD = {
+  releaseUrl:
+    "https://github.com/JUNSHENG428/gzhtool/releases?q=helper-v&expanded=true",
+  guideUrl:
+    "https://github.com/JUNSHENG428/gzhtool/blob/main/docs/USER_DOWNLOAD_HELPER.md",
+  latestVersion: "0.1.0"
+};
+
 const fields = {
   productName: document.querySelector("#productName"),
   operatorName: document.querySelector("#operatorName"),
@@ -434,25 +455,13 @@ async function testDrissionConnection() {
 /**
  * 「下载桌面助手」横幅初始化。
  *
- * 设计目标:
- * - 不依赖任何后端：URL 和最新版本号写死，靠仓库提交更新（避免新增运维 endpoint）。
+ * 行为:
  * - 如果当前 helperUrl 已经填了 + 检测到 helper 在跑，就显示"已连接"提示，避免
  *   误导那些已经装好的用户重新下载。
  * - 检测走 HEAD/GET helperUrl + "/version"（轻量，不会拉浏览器），3 秒超时。
  *
- * 修改"下载链接"和"安装文档"只需要改下面这两个常量。
+ * 注：HELPER_DOWNLOAD 常量定义在文件顶部（import 后），原因见那里的注释。
  */
-const HELPER_DOWNLOAD = {
-  // GitHub Release 页（用户在这里挑 mac arm64 / x86_64 / win 包）
-  releaseUrl:
-    "https://github.com/JUNSHENG428/gzhtool/releases?q=helper-v&expanded=true",
-  // 用户向安装说明（已经写在 docs/USER_DOWNLOAD_HELPER.md，部署到官网后改成最终 URL）
-  guideUrl:
-    "https://github.com/JUNSHENG428/gzhtool/blob/main/docs/USER_DOWNLOAD_HELPER.md",
-  // 最新版（发版时同步改 + 重新打包扩展即可）
-  latestVersion: "0.1.0"
-};
-
 function initHelperDownloadBanner() {
   const downloadBtn = document.querySelector("#helperDownloadButton");
   const guideBtn = document.querySelector("#helperDownloadGuide");
