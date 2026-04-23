@@ -8,7 +8,9 @@
     "test:smoke": "node scripts/smoke.mjs",
     "test": "npm run test:smoke",
     "fonts:sync": "bash scripts/sync-fonts.sh",
-    "version:sync": "node scripts/version-sync.mjs"
+    "version:sync": "node scripts/version-sync.mjs",
+    "build:zip": "node scripts/build-zip.mjs",
+    "release:cws": "npm run test && npm run build:zip"
   },
   "keywords": ["chrome-extension", "wechat", "mp", "manifest-v3"],
   "author": "",

@@ -217,7 +217,7 @@ export function showUpgradeModal(options = {}) {
   const bullets = Array.isArray(options.bullets) ? options.bullets : [];
   const primary = options.primaryAction || {
     label: "查看 Pro 套餐",
-    url: "https://gzh.example.com/pricing"
+    url: "https://docuearn.com/pricing"
   };
   const secondaryLabel = options.secondaryLabel || "我先用免费版";
 

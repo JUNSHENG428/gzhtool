@@ -440,7 +440,7 @@ async function setSelectedAsActive() {
       ],
       primaryAction: {
         label: "查看 Pro 套餐",
-        url: (typeof window !== "undefined" && window.__pricingUrl) || "https://gzh.example.com/pricing"
+        url: (typeof window !== "undefined" && window.__pricingUrl) || "https://docuearn.com/pricing"
       }
     });
     return;

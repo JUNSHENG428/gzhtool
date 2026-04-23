@@ -33,40 +33,62 @@
           <h2>2. 哪些信息只保存在你本地</h2>
           <ul>
             <li>AI 接口的地址、密钥、模型选择和默认改写偏好。</li>
-            <li>公众号账号信息、默认作者和默认发布选项。</li>
+            <li>公众号账号信息（AppID / AppSecret）、默认作者和默认发布选项。</li>
             <li>最近一次抓取的内容、正在编辑的草稿，以及最近一次发布或同步的状态记录。</li>
+            <li>本地产能埋点（每天抓取/改写/发布次数），用于工作台展示个人产能曲线。</li>
           </ul>
-          <p>以上信息都只保存在你当前浏览器的本地存储中，不会上传到我们的服务器（我们也没有服务器）。</p>
+          <p>以上信息保存在 <code>chrome.storage.local</code>，不会同步到云端，也不会上传到我们的服务器。卸载扩展即清除。</p>
         </section>
 
         <section>
           <h2>3. 哪些信息会离开你的设备</h2>
+          <p>扩展默认无任何后端依赖；以下三类网络通信都由你的主动操作触发，且不会途经我们的服务器（除「会员激活」一节单独说明的情况）：</p>
           <ul>
-            <li>当你点击「AI 改写」时，待改写的内容和你的改写偏好会发送到你自己配置的 AI 接口。</li>
-            <li>当你点击「发布」时，文章内容、封面图和必要的公众号参数会发送到微信公众平台。</li>
-            <li>发布前，如果文章里包含外部图片，扩展会先从图片所在网站下载，再上传到公众号素材库。</li>
+            <li><strong>AI 改写：</strong>当你点击「AI 改写」时，待改写的正文、改写偏好与你填写的 prompt 模板会直接发送到你自己配置的 AI 接口（如 OpenAI、Anthropic、自建网关）。我们不参与传输、不留副本。</li>
+            <li><strong>公众号发布：</strong>当你点击「推草稿/发布」时，文章 HTML、封面图与必要的公众号参数会从你本机直接发送到 <code>api.weixin.qq.com</code>。</li>
+            <li><strong>外链图片转存：</strong>发布前，如果文章里包含外部图片，扩展会先从图片所在网站下载到本机，再上传到你的公众号素材库；图片不会经过我们的服务器。</li>
+            <li><strong>热点抓取：</strong>当你打开「热点」页时，扩展会请求你在设置中启用的公开热榜源（如 RSSHub 镜像），仅获取标题列表，不上传你的浏览历史。</li>
           </ul>
         </section>
 
         <section>
-          <h2>4. 我们不会做的事</h2>
+          <h2>4. 会员激活会上传哪些信息</h2>
+          <p>免费版完全离线可用。如果你购买并激活 Pro 会员，以下信息会被发送到 <code>https://api.docuearn.com</code>（开发者运行的 Cloudflare Workers 后端）：</p>
           <ul>
-            <li>不会在你没有主动操作时抓取你的浏览记录或网页内容。</li>
-            <li>不会把你的任何内容上传到开发者的服务器，因为扩展没有任何自建后端。</li>
-            <li>不会收集你的账号、支付或个人身份信息。</li>
+            <li><strong>注册 / 登录：</strong>邮箱地址 + 密码（密码采用 PBKDF2 单向哈希后存储，明文不落库；登录返回 JWT 用于后续请求）。</li>
+            <li><strong>License 验证：</strong>License Key、设备指纹（首次安装时本机生成的随机 UUID，不含任何硬件信息）、设备友好名称（如「Chrome on macOS」）。</li>
+            <li><strong>每 12 小时一次的静默复验：</strong>用同样的 Key + 指纹刷新会员状态，超过 7 天未验证则降级为免费版。</li>
+          </ul>
+          <p>这些信息仅用于：判断你是否拥有有效的 Pro 会员、统计同一 License Key 已激活的设备数（最多 3 台）、防止滥用。<strong>我们不收集你的文章内容、AI 提示词、改写结果、公众号 token、浏览记录。</strong>账号注销请联系客服邮箱（见第 7 节），我们会在 7 个工作日内删除该账号下所有 license/auth 记录。</p>
+        </section>
+
+        <section>
+          <h2>5. 关于 cookies 权限的说明</h2>
+          <p>扩展声明了 <code>cookies</code> 权限，仅用于「AI 选题代笔」功能：通过 <code>chrome.cookies.getAll()</code> 检测你是否已在小红书 / X / Reddit / 知乎登录（即「关键 cookie name 是否存在」）。</p>
+          <ul>
+            <li>我们 <strong>只读取 cookie 的名字</strong>（如 <code>web_session</code>、<code>auth_token</code>），<strong>不读取 value</strong>。</li>
+            <li>cookie name 的存在与否判断结果只在本地内存使用，不写入存储、不发送到任何服务器。</li>
+            <li>缺登录时，扩展只会给出这些平台的官方登录 URL，由你自己开新 tab 完成登录。我们 <strong>不会模拟登录、不会代你提交账号密码、不会读取或保存你的账号信息</strong>。</li>
           </ul>
         </section>
 
         <section>
-          <h2>5. 安全提醒</h2>
-          <p>公众号的 AppSecret 保存在当前浏览器中，仅用于你本人发布公众号文章。请不要在公共电脑或他人可访问的浏览器环境中填写这些信息。如果你怀疑信息泄露，可以在公众号后台重置密钥后重新填写。</p>
+          <h2>6. 我们不会做的事</h2>
+          <ul>
+            <li>不会在你没有主动操作时抓取你的浏览记录、cookie 值或网页内容。</li>
+            <li>不会把你的文章正文、AI 提示词、改写结果、公众号凭据上传到开发者服务器（这些只在你的浏览器与你自己配置的接口之间往返）。</li>
+            <li>不会向第三方广告网络、数据分析平台、追踪 SDK 共享任何用户信息。</li>
+            <li>不会代你模拟登录任何账号、不会保存任何账号密码（除你购买 Pro 时主动注册的会员邮箱密码外，且密码经 PBKDF2 哈希）。</li>
+            <li>不会出售用户数据；不会用于训练模型。</li>
+          </ul>
         </section>
 
         <section>
-          <h2>6. 联系方式</h2>
-          <p>运营主体：<span data-operator-name>请先在设置页填写运营主体</span></p>
-          <p>客服邮箱：<a data-support-email href="#">请先在设置页填写客服邮箱</a></p>
-          <p>官网：<a data-site-url href="#">未设置官网</a></p>
+          <h2>7. 安全提醒与联系方式</h2>
+          <p>公众号的 AppSecret、AI 接口 Key 都保存在当前浏览器本地存储中，仅用于你本人的操作。请不要在公共电脑或他人可访问的浏览器环境中填写这些信息。如果你怀疑信息泄露，可以在公众号后台 / AI 平台后台重置密钥后再填写。</p>
+          <p>运营主体：<span data-operator-name>润笔 · DocuEarn</span></p>
+          <p>客服邮箱：<a data-support-email href="mailto:hello@docuearn.com">hello@docuearn.com</a></p>
+          <p>官网：<a data-site-url href="https://docuearn.com">https://docuearn.com</a></p>
         </section>
       </section>
 

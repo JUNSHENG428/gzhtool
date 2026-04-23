@@ -705,7 +705,7 @@ function pickImageMime(value) {
 
 function guessMimeFromUrl(url) {
   try {
-    const u = new URL(url, "https://example.com");
+    const u = new URL(url, "https://docuearn.com");
     const ext = (u.pathname.match(/\.([a-z0-9]+)$/i)?.[1] || "").toLowerCase();
     switch (ext) {
       case "jpg":

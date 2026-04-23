@@ -1301,7 +1301,7 @@ function pricingUrl() {
   } catch {
     // ignore
   }
-  return "https://gzh.example.com/pricing";
+  return "https://docuearn.com/pricing";
 }
 
 /**

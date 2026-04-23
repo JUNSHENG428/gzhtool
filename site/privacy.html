@@ -162,7 +162,20 @@
       </ul>
 
       <h2>6. Cookies / 本地存储</h2>
-      <p>本站只使用一个 <code>session</code> cookie 维持登录态，不使用任何第三方追踪 / 广告 cookie。扩展端使用浏览器的 <code>chrome.storage.local</code> 存放配置，不会跨站点共享。</p>
+      <p>
+        <strong>docuearn.com 网站：</strong>仅使用一个 <code>session</code> cookie 维持登录态，不使用任何第三方追踪 / 广告 cookie。
+      </p>
+      <p>
+        <strong>扩展本地存储：</strong>使用浏览器的 <code>chrome.storage.local</code> 存放配置，不会跨站点共享，卸载即清除。
+      </p>
+      <p>
+        <strong>关于 <code>cookies</code> 权限：</strong>扩展声明了 <code>cookies</code> 权限，仅用于「AI 选题代笔」功能：
+        通过 <code>chrome.cookies.getAll()</code> 检测你是否已在小红书 / X / Reddit / 知乎登录
+        （即「关键 cookie name 是否存在」）。我们 <strong>只读取 cookie 的名字</strong>
+        （如 <code>web_session</code>、<code>auth_token</code>），<strong>不读取 value</strong>，
+        判断结果只在本地内存使用，不写入存储、不发送到任何服务器。缺登录时只会引导你开新 tab 自己登录，
+        不会模拟登录、不会代你提交账号密码。
+      </p>
 
       <h2>7. 儿童</h2>
       <p>本服务面向 18 岁及以上的内容创作者，我们不刻意收集任何 13 岁以下用户的数据。</p>

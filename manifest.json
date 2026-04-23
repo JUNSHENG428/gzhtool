@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "114",
   "name": "润笔 · 公众号创作者的得力助手",
-  "description": "笔下生花，花下生金。从知乎/微博/小红书抓选题，AI 改写排版，一键推送公众号草稿。让普通人用文字挣到稳定的外快。",
+  "description": "为公众号创作者提供选题、AI 改写、杂志级排版与一键推送草稿的全流程工具。",
   "version": "0.3.2",
   "icons": {
     "16": "src/icons/icon16.png",
@@ -13,12 +13,7 @@
   "permissions": ["activeTab", "tabs", "storage", "scripting", "cookies", "alarms"],
   "host_permissions": [
     "https://*/*",
-    "http://*/*",
-    "https://*.xiaohongshu.com/*",
-    "https://*.x.com/*",
-    "https://*.twitter.com/*",
-    "https://*.reddit.com/*",
-    "https://*.zhihu.com/*"
+    "http://*/*"
   ],
   "background": {
     "service_worker": "src/background/service-worker.js",
@@ -73,6 +68,6 @@
     }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: http: blob:; connect-src 'self' https: http: wss: ws:;"
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: blob:; connect-src 'self' https: wss:;"
   }
 }
