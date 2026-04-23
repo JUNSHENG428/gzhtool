@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>润笔 · 截图 1 工作台</title>
+    <link rel="stylesheet" href="./_shared.css" />
+    <style>
+      .grid-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+      .quick {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+      }
+      .tile {
+        background: var(--bg-card);
+        border: 1px solid var(--brand-line);
+        border-radius: 12px;
+        padding: 18px 20px;
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        cursor: default;
+      }
+      .tile .ico {
+        width: 30px; height: 30px;
+        border-radius: 8px;
+        background: var(--brand-soft);
+        color: var(--brand);
+        display: grid; place-items: center;
+        font-size: 16px;
+        flex-shrink: 0;
+      }
+      .tile .name { font-weight: 600; font-size: 14px; color: var(--ink); margin: 0 0 3px; }
+      .tile .desc { font-size: 12px; color: var(--ink-muted); margin: 0; line-height: 1.5; }
+
+      .recent {
+        background: var(--bg-card);
+        border: 1px solid var(--brand-line);
+        border-radius: 12px;
+        padding: 18px 22px;
+      }
+      .recent h3 {
+        margin: 0 0 12px;
+        display: flex; align-items: baseline; gap: 10px;
+        font-family: var(--serif);
+        font-size: 16px; color: var(--ink);
+      }
+      .recent .meta { font-size: 11.5px; color: var(--ink-muted); letter-spacing: 0.04em; }
+      .row {
+        display: grid;
+        grid-template-columns: 24px 1fr auto;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 0;
+        border-top: 1px dashed rgba(31, 67, 41, 0.1);
+        font-size: 13px;
+        color: var(--ink);
+      }
+      .row:first-of-type { border-top: 0; }
+      .row .rk {
+        font-family: var(--mono);
+        color: var(--ink-muted);
+        font-size: 11.5px;
+        text-align: center;
+      }
+      .row .ts { color: var(--ink-muted); font-size: 11.5px; }
+    </style>
+  </head>
+  <body>
+    <div class="shot">
+      <div class="browser-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <div class="url-bar"><span style="margin-right:8px;">🔒</span> chrome-extension://&lt;ext-id&gt;/src/workspace/workspace.html#dashboard</div>
+        <span class="ext-icon">润</span>
+      </div>
+
+      <div class="shell">
+        <aside class="sidebar">
+          <div class="brand">
+            <span class="mark">润</span>
+            <span class="name">润笔</span>
+          </div>
+          <div class="nav-section">主流程</div>
+          <div class="nav-item active"><span class="ic">⌘</span> 工作台</div>
+          <div class="nav-item"><span class="ic">📥</span> 抓取</div>
+          <div class="nav-item"><span class="ic">✍️</span> 编辑排版</div>
+          <div class="nav-item"><span class="ic">🚀</span> 推送</div>
+          <div class="nav-section">智能</div>
+          <div class="nav-item"><span class="ic">🔥</span> 热点</div>
+          <div class="nav-item"><span class="ic">🤖</span> AI 选题代笔 <span class="badge">PRO</span></div>
+          <div class="nav-section">账户</div>
+          <div class="nav-item"><span class="ic">⭐</span> 会员中心</div>
+          <div class="nav-item"><span class="ic">⚙️</span> 设置</div>
+        </aside>
+
+        <main class="main">
+          <div class="topline">
+            <span class="pill">PRO</span>
+            <span>已登录 · hello@docuearn.com</span>
+            <span style="margin-left:auto;">AI · gpt-4o-mini · 已配置</span>
+          </div>
+          <div class="title-row">
+            <h1>今天在写什么？</h1>
+            <span class="sub">2026 · 04 · 23 · 周四</span>
+          </div>
+
+          <div class="grid-stats">
+            <div class="card">
+              <h3>本地草稿</h3>
+              <p class="num">37<span style="font-size:14px;color:var(--ink-muted);font-weight:500;"> 篇</span></p>
+            </div>
+            <div class="card">
+              <h3>公众号账号</h3>
+              <p class="num">4<span style="font-size:14px;color:var(--ink-muted);font-weight:500;"> 个</span></p>
+            </div>
+            <div class="card">
+              <h3>今日 AI 改写</h3>
+              <p class="num">12<span style="font-size:14px;color:var(--ink-muted);font-weight:500;"> 次</span></p>
+            </div>
+            <div class="card">
+              <h3>已发布（本月）</h3>
+              <p class="num">9<span style="font-size:14px;color:var(--ink-muted);font-weight:500;"> 篇</span></p>
+            </div>
+          </div>
+
+          <div class="quick">
+            <div class="tile">
+              <span class="ico">📥</span>
+              <div>
+                <p class="name">抓取当前页</p>
+                <p class="desc">从知乎/X/小红书一键拉素材</p>
+              </div>
+            </div>
+            <div class="tile">
+              <span class="ico">✍️</span>
+              <div>
+                <p class="name">编辑台</p>
+                <p class="desc">改写 + 排版 + 一键推草稿</p>
+              </div>
+            </div>
+            <div class="tile">
+              <span class="ico">🔥</span>
+              <div>
+                <p class="name">今日热榜</p>
+                <p class="desc">12 个公开热源汇总</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="recent" style="flex:1;">
+            <h3>最近草稿 <span class="meta">点击恢复到编辑台</span></h3>
+            <div class="row"><span class="rk">1</span><span>把这一篇知乎万赞答案改写成公众号长文：从对账到对人</span><span class="ts">12 分钟前</span></div>
+            <div class="row"><span class="rk">2</span><span>X 上那条 700w 阅读的 AI agent 心智图，整理成一篇 3000 字</span><span class="ts">2 小时前</span></div>
+            <div class="row"><span class="rk">3</span><span>小红书 8 篇高赞家居 → 一篇杂志感长评测（Kinfolk 母版）</span><span class="ts">昨天 21:14</span></div>
+            <div class="row"><span class="rk">4</span><span>本月品牌叙事栏目 · 第 5 期初稿（New Yorker 母版）</span><span class="ts">2 天前</span></div>
+          </div>
+        </main>
+      </div>
+
+      <div class="caption right">
+        一个工作台，跑完整个写作流程
+        <span class="small">抓 · 改 · 排 · 推，<em>不再 10 个工具来回复制</em></span>
+      </div>
+    </div>
+  </body>
+</html>

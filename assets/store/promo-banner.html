@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>润笔 · 推广横幅 1400×560</title>
+    <style>
+      :root {
+        --bg-1: #f6f1e3;
+        --bg-2: #ede2c4;
+        --ink: #1f2d24;
+        --ink-soft: #5e544c;
+        --ink-muted: #94837a;
+        --brand: #1f4329;
+        --brand-deep: #163020;
+        --gold: #b78640;
+        --gold-deep: #8c5e1e;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        font-family: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Helvetica Neue", sans-serif;
+        background: #888;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        padding: 40px;
+      }
+      .banner {
+        width: 1400px;
+        height: 560px;
+        border-radius: 22px;
+        overflow: hidden;
+        background:
+          radial-gradient(80% 100% at 100% 0%, rgba(183,134,64,0.18), transparent 60%),
+          radial-gradient(60% 100% at 0% 100%, rgba(31,67,41,0.10), transparent 60%),
+          linear-gradient(135deg, var(--bg-1), var(--bg-2));
+        position: relative;
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        align-items: center;
+        padding: 64px 72px;
+      }
+      /* Left: hero copy */
+      .left { position: relative; z-index: 2; }
+      .brand-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 28px;
+      }
+      .brand-mark {
+        width: 44px; height: 44px;
+        border-radius: 11px;
+        background: linear-gradient(135deg, var(--brand), #2d6e44);
+        display: grid;
+        place-items: center;
+        color: #fff;
+        font-family: "Noto Serif SC", serif;
+        font-weight: 900;
+        font-size: 24px;
+      }
+      .brand-name {
+        font-family: "Noto Serif SC", serif;
+        font-weight: 700;
+        font-size: 28px;
+        color: var(--ink);
+      }
+      .brand-tag {
+        font-size: 13px;
+        color: var(--ink-soft);
+        letter-spacing: 0.05em;
+        background: rgba(31,67,41,0.08);
+        padding: 4px 10px;
+        border-radius: 999px;
+      }
+      .lead {
+        font-family: "Noto Serif SC", serif;
+        font-size: 60px;
+        font-weight: 800;
+        line-height: 1.18;
+        letter-spacing: -0.01em;
+        color: var(--ink);
+        margin: 0 0 24px;
+      }
+      .lead em {
+        font-style: normal;
+        background: linear-gradient(180deg, transparent 60%, rgba(183,134,64,0.4) 60%);
+        padding: 0 4px;
+      }
+      .sub {
+        font-size: 18px;
+        line-height: 1.7;
+        color: var(--ink-soft);
+        max-width: 520px;
+        margin: 0 0 32px;
+      }
+      .features {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 32px;
+        padding: 0 14px;
+        background: rgba(255,253,248,0.7);
+        border: 1px solid rgba(31,67,41,0.18);
+        border-radius: 999px;
+        font-size: 13px;
+        color: var(--ink);
+        font-weight: 500;
+      }
+      .pill::before {
+        content: "✓";
+        color: var(--brand);
+        font-weight: 800;
+      }
+      .pill.pro {
+        background: linear-gradient(135deg, rgba(183,134,64,0.18), rgba(183,134,64,0.08));
+        border-color: rgba(183,134,64,0.4);
+        color: var(--gold-deep);
+      }
+      .pill.pro::before {
+        content: "★";
+        color: var(--gold-deep);
+      }
+
+      /* Right: stylized device mock */
+      .right {
+        position: relative;
+        height: 100%;
+        display: grid;
+        place-items: center;
+      }
+      .stack {
+        position: relative;
+        width: 480px;
+        height: 380px;
+      }
+      .card {
+        position: absolute;
+        background: #fffdf6;
+        border-radius: 14px;
+        box-shadow:
+          0 1px 0 rgba(0,0,0,0.04),
+          0 18px 40px -12px rgba(31,67,41,0.28),
+          0 8px 18px -8px rgba(31,67,41,0.15);
+        padding: 18px 22px;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+      .card.back {
+        top: 0;
+        right: 0;
+        width: 360px;
+        transform: rotate(3.5deg);
+        background: #fff8e9;
+        border-top: 4px solid var(--gold);
+      }
+      .card.back .label {
+        font-family: "Noto Serif SC", serif;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        color: var(--gold-deep);
+        margin-bottom: 8px;
+      }
+      .card.back h4 {
+        font-family: "Noto Serif SC", serif;
+        margin: 0 0 8px;
+        color: var(--ink);
+        font-size: 22px;
+        line-height: 1.25;
+      }
+      .card.back p {
+        margin: 0;
+        color: var(--ink-soft);
+        font-size: 12.5px;
+      }
+      .card.back .stat {
+        margin-top: 10px;
+        font-size: 11px;
+        color: var(--ink-muted);
+      }
+
+      .card.front {
+        bottom: 0;
+        left: 0;
+        width: 380px;
+        transform: rotate(-2.5deg);
+        border-top: 4px solid var(--brand);
+      }
+      .card.front .topbar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: #ddd6c5; }
+      .dot:nth-child(1) { background: #d96e5c; }
+      .dot:nth-child(2) { background: #d8a64a; }
+      .dot:nth-child(3) { background: #71a37b; }
+      .url {
+        margin-left: 6px;
+        font-family: ui-monospace, monospace;
+        font-size: 10.5px;
+        color: var(--ink-muted);
+      }
+      .toolbar {
+        display: flex;
+        gap: 6px;
+        margin: 0 0 10px;
+        font-size: 10.5px;
+        color: var(--ink-muted);
+      }
+      .tool {
+        padding: 3px 8px;
+        background: rgba(31,67,41,0.06);
+        border-radius: 999px;
+      }
+      .tool.active {
+        background: var(--brand);
+        color: #fff;
+      }
+      .editor h3 {
+        margin: 4px 0 8px;
+        font-family: "Noto Serif SC", serif;
+        font-size: 18px;
+        color: var(--ink);
+      }
+      .editor .meta {
+        font-size: 10.5px;
+        color: var(--ink-muted);
+        margin-bottom: 10px;
+        letter-spacing: 0.04em;
+      }
+      .editor p {
+        margin: 0 0 6px;
+        color: var(--ink);
+        font-size: 12px;
+        line-height: 1.65;
+      }
+      .editor p .hl {
+        background: rgba(183,134,64,0.22);
+        padding: 0 2px;
+      }
+      .quote-block {
+        margin: 8px 0;
+        padding: 8px 12px;
+        border-left: 3px solid var(--gold);
+        background: rgba(183,134,64,0.07);
+        font-family: "Noto Serif SC", serif;
+        font-size: 12px;
+        color: var(--brand-deep);
+        font-style: italic;
+      }
+
+      .deco-mag {
+        position: absolute;
+        top: -32px; left: -10px;
+        font-family: "Noto Serif SC", serif;
+        font-size: 320px;
+        line-height: 1;
+        color: var(--brand);
+        opacity: 0.05;
+        pointer-events: none;
+        user-select: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="banner" id="capture-target">
+      <div class="deco-mag">笔</div>
+
+      <div class="left">
+        <div class="brand-row">
+          <span class="brand-mark">润</span>
+          <span class="brand-name">润笔 · DocuEarn</span>
+          <span class="brand-tag">Chrome MV3 扩展</span>
+        </div>
+        <h1 class="lead">从抓素材到推草稿，<br /><em>一个扩展跑完</em></h1>
+        <p class="sub">为公众号创作者打造：从知乎/X/小红书抓选题，AI 按你的风格改写，6 套杂志级母版排版，一键推到草稿箱。</p>
+        <div class="features">
+          <span class="pill">一键抓取</span>
+          <span class="pill">AI 改写（用你自己的 Key）</span>
+          <span class="pill pro">6 套杂志级母版</span>
+          <span class="pill pro">AI 模板生成器</span>
+          <span class="pill">推送公众号草稿</span>
+        </div>
+      </div>
+
+      <div class="right">
+        <div class="stack">
+          <div class="card back">
+            <div class="label">PRO · 杂志级母版</div>
+            <h4>这一版排版美得像艺术品</h4>
+            <p>选 New Yorker · Wired · Monocle · Vogue · Kinfolk · Paper 一种语言，一秒套用。</p>
+            <p class="stat">已使用 6 套，今日生成 12 篇</p>
+          </div>
+
+          <div class="card front">
+            <div class="topbar">
+              <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+              <span class="url">workspace · 编辑台</span>
+            </div>
+            <div class="toolbar">
+              <span class="tool active">AI 改写</span>
+              <span class="tool">排版</span>
+              <span class="tool">推草稿</span>
+              <span class="tool">历史</span>
+            </div>
+            <div class="editor">
+              <h3>从一篇知乎答案，到一篇公众号</h3>
+              <div class="meta">2026 · 04 · 23 · 编辑台</div>
+              <p>把<span class="hl">真正打动你的素材</span>抓进来，AI 按你预设的角色与纪律改写。</p>
+              <div class="quote-block">"工具好不好用，看它有没有让你写得更轻松。"</div>
+              <p>排版交给 6 套杂志级母版，写完直接推草稿箱。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

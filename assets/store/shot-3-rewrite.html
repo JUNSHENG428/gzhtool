@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>润笔 · 截图 3 AI 改写</title>
+    <link rel="stylesheet" href="./_shared.css" />
+    <style>
+      .editor {
+        flex: 1;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        min-height: 0;
+      }
+      .pane {
+        background: var(--bg-card);
+        border: 1px solid var(--brand-line);
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .pane-head {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--brand-line);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        color: var(--ink);
+        font-weight: 600;
+        background: var(--bg-card-shade);
+      }
+      .pane-head .pill {
+        font-size: 10px;
+      }
+      .pane-body {
+        padding: 18px 22px;
+        font-family: var(--serif);
+        font-size: 14.5px;
+        line-height: 1.85;
+        color: var(--ink);
+        flex: 1;
+        overflow: hidden;
+      }
+      .pane-body p { margin: 0 0 12px; }
+      .pane-body p strong {
+        background: linear-gradient(180deg, transparent 65%, rgba(183,134,64,0.32) 65%);
+        font-weight: 600;
+      }
+      .pane-body .removed {
+        color: var(--ink-muted);
+        text-decoration: line-through;
+        text-decoration-color: rgba(196, 89, 60, 0.5);
+      }
+      .pane.right .pane-body p {
+        animation: none;
+      }
+      .typing {
+        display: inline-block;
+        width: 2px; height: 1em;
+        background: var(--brand);
+        vertical-align: text-bottom;
+        margin-left: 2px;
+        animation: blink 1s steps(2, end) infinite;
+      }
+      @keyframes blink { 50% { opacity: 0; } }
+
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .role {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 12px;
+        background: rgba(255,253,248,0.7);
+        border: 1px solid var(--brand-line);
+        border-radius: 999px;
+        font-size: 12.5px;
+        color: var(--ink);
+      }
+      .role.active {
+        background: var(--brand);
+        color: #fff;
+        border-color: var(--brand);
+      }
+      .role::before {
+        content: "•";
+        color: currentColor;
+        opacity: 0.6;
+      }
+      .stream {
+        position: absolute;
+        right: 28px; top: 80px;
+        background: rgba(31,67,41,0.95);
+        color: #fff;
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        box-shadow: 0 14px 30px -10px rgba(31,67,41,0.4);
+        line-height: 1.7;
+      }
+      .stream span { color: #ffd28e; }
+    </style>
+  </head>
+  <body>
+    <div class="shot">
+      <div class="browser-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <div class="url-bar"><span style="margin-right:8px;">🔒</span> chrome-extension://&lt;ext-id&gt;/src/workspace/workspace.html#editor</div>
+        <span class="ext-icon">润</span>
+      </div>
+
+      <div style="padding: 22px 28px 28px; display:flex; flex-direction:column; gap:14px; height:100%; min-height:0;">
+        <div class="title-row">
+          <h1 style="font-family:var(--serif);margin:0;font-size:22px;">AI 改写 · 沿着你的角色与纪律</h1>
+          <span class="sub" style="margin-left:auto;font-size:12.5px;color:var(--ink-muted);">使用你自己的 OpenAI / Claude / 国产 Key · 不经过我们的服务器</span>
+        </div>
+
+        <div class="toolbar">
+          <span class="role active">角色：杂志主笔</span>
+          <span class="role">语气：克制 / 留白</span>
+          <span class="role">长度：原文 ×1.6</span>
+          <span class="role">禁用："拥抱 / 赋能 / 闭环"</span>
+          <span class="role">必须保留：金句 2 处</span>
+          <span class="role" style="background:var(--gold-soft);color:var(--gold-deep);border-color:var(--gold);">★ 自定义模板：长期主义</span>
+        </div>
+
+        <div class="editor">
+          <div class="pane">
+            <div class="pane-head"><span class="pill">原文</span> 知乎答案 · 412 字</div>
+            <div class="pane-body">
+              <p>很多人误以为长期主义是一种<span class="removed">忍耐</span>，其实它更像一种"放弃"——<span class="removed">放弃你原本以为该立刻得到的东西，把它换成 5 年之后才发生的复利。</span></p>
+              <p>我后来才明白，真正决定一个人能走多远的，是他每天<strong>放下了什么</strong>，而不是每天又新增了什么。</p>
+              <p>在创业的第三年，我开始每个月做一次"减法清单"：写下我可以不做的事……</p>
+            </div>
+          </div>
+          <div class="pane right">
+            <div class="pane-head"><span class="pill pro">改写中 · gpt-4o-mini</span> 杂志主笔 · 当前 ×1.4</div>
+            <div class="pane-body">
+              <p>"长期主义"四个字，被讲得太轻。它不是忍耐——忍耐意味着委屈，意味着等。它更像一种放下：放下手边那些今天就能换成现金的小机会，去交换 5 年之后才到账的复利。</p>
+              <p>我后来才明白：决定一个人能走多远的，往往不是他<strong>新拿到了什么</strong>，而是他<strong>学会放下了什么</strong>。每一次放下，都是给未来腾出来的位置。</p>
+              <p>所以在创业的第三年，我开始做一件特别反直觉的事——每个月写一张"减法清单"。第一栏：可以不做的事。第二栏：必须停止做的事。神奇的是，那张清单上的<span class="typing"></span></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stream">
+        <span>stream</span> ← gpt-4o-mini · 1.27s · 312 tok
+      </div>
+
+      <div class="caption right">
+        AI 写得像你，<em style="color:#ffd28e;font-style:normal;">而不是像 AI</em>
+        <span class="small">5 个角色 · 7 条纪律 · 用你自己的 Key，写完就是你的稿子</span>
+      </div>
+    </div>
+  </body>
+</html>

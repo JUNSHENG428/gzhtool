@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>润笔 · 截图 4 杂志级母版</title>
+    <link rel="stylesheet" href="./_shared.css" />
+    <style>
+      .grid {
+        flex: 1;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        grid-template-rows: 1fr 1fr;
+        gap: 14px;
+        min-height: 0;
+      }
+      .tcard {
+        background: var(--bg-card);
+        border: 1px solid var(--brand-line);
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+      .preview-area {
+        flex: 1;
+        padding: 14px 16px;
+        overflow: hidden;
+        background: #fffdf6;
+        font-family: var(--serif);
+        color: var(--ink);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+      .meta {
+        padding: 10px 14px;
+        background: var(--bg-card-shade);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-top: 1px solid var(--brand-line);
+        font-size: 12px;
+        color: var(--ink);
+      }
+      .meta strong { font-family: var(--serif); font-size: 13.5px; font-weight: 700; }
+      .meta .key { color: var(--ink-muted); margin-left: auto; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.04em; }
+
+      /* Master 1: New Yorker */
+      .ny .preview-area {
+        font-family: "Bodoni 72", "Didot", "Noto Serif SC", serif;
+      }
+      .ny h2 {
+        font-size: 22px; line-height: 1.1; margin: 0 0 6px;
+        font-weight: 700;
+      }
+      .ny .deck { font-style: italic; color: var(--ink-soft); font-size: 11px; margin-bottom: 10px; border-bottom: 1px solid var(--ink); padding-bottom: 6px; }
+      .ny p { margin: 0 0 5px; }
+      .ny p:first-of-type::first-letter {
+        font-size: 28px;
+        float: left;
+        line-height: 0.9;
+        margin-right: 4px;
+        font-weight: 800;
+      }
+
+      /* Master 2: Wired */
+      .wd .preview-area {
+        background: #0a0a0a;
+        color: #f1f1f1;
+        font-family: "Helvetica Neue", var(--sans);
+      }
+      .wd h2 {
+        color: #ff4d4d;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-size: 18px;
+        margin: 0 0 6px;
+      }
+      .wd .deck { color: #888; font-size: 10px; margin-bottom: 8px; }
+      .wd p { margin: 0 0 5px; font-size: 10.5px; line-height: 1.6; }
+      .wd .pull { color: #ff4d4d; font-weight: 700; }
+
+      /* Master 3: Monocle */
+      .mc .preview-area {
+        font-family: "Helvetica Neue", var(--sans);
+      }
+      .mc .section {
+        font-size: 9px;
+        letter-spacing: 0.22em;
+        color: #c4593c;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+        font-weight: 700;
+      }
+      .mc h2 {
+        font-family: var(--serif);
+        font-size: 18px;
+        margin: 0 0 4px;
+        font-weight: 700;
+      }
+      .mc .deck { color: var(--ink-soft); font-size: 11px; margin-bottom: 8px; line-height: 1.4; }
+      .mc .columns { columns: 2; column-gap: 12px; font-size: 10px; line-height: 1.6; }
+      .mc .columns p { margin: 0 0 4px; }
+
+      /* Master 4: Vogue */
+      .vg .preview-area {
+        background: linear-gradient(180deg, #1a1a1a, #2b2b2b);
+        color: #f5f5f5;
+        font-family: "Didot", "Noto Serif SC", serif;
+        text-align: center;
+      }
+      .vg h2 {
+        font-size: 26px;
+        margin: 6px 0 8px;
+        font-weight: 400;
+        letter-spacing: 0.04em;
+      }
+      .vg .label { font-size: 9px; letter-spacing: 0.4em; color: #d4af6a; }
+      .vg .rule { width: 30%; margin: 8px auto; border-top: 1px solid #d4af6a; }
+      .vg p { font-size: 10.5px; margin: 0 0 4px; line-height: 1.7; }
+
+      /* Master 5: Kinfolk */
+      .kf .preview-area {
+        background: #f5efe6;
+        font-family: "Noto Serif SC", serif;
+        color: #2b2b2b;
+      }
+      .kf h2 { font-size: 18px; margin: 0 0 6px; font-weight: 600; }
+      .kf .deck { font-size: 10px; color: #8a8074; font-style: italic; margin-bottom: 6px; }
+      .kf .quote {
+        margin: 8px 0;
+        padding-left: 10px;
+        border-left: 2px solid #b78640;
+        font-style: italic;
+        font-size: 11px;
+        color: #2b2b2b;
+      }
+      .kf p { margin: 0 0 4px; font-size: 10.5px; line-height: 1.65; }
+
+      /* Master 6: Paper */
+      .pp .preview-area {
+        background: #fffaf0;
+        font-family: "Noto Serif SC", serif;
+        color: var(--ink);
+      }
+      .pp .num {
+        font-family: var(--serif);
+        font-size: 36px;
+        line-height: 1;
+        color: var(--gold);
+        margin-bottom: 4px;
+        font-weight: 700;
+      }
+      .pp h2 { font-size: 18px; margin: 0 0 5px; font-weight: 700; line-height: 1.2; }
+      .pp .deck { font-size: 10px; color: var(--ink-muted); margin-bottom: 6px; }
+      .pp p { margin: 0 0 4px; font-size: 10.5px; line-height: 1.6; }
+
+      .ribbon {
+        position: absolute;
+        top: 8px; right: 8px;
+        background: var(--brand);
+        color: #fff;
+        font-size: 9.5px;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+      }
+      .ribbon.gen {
+        background: var(--gold);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shot">
+      <div class="browser-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <div class="url-bar"><span style="margin-right:8px;">🔒</span> chrome-extension://&lt;ext-id&gt;/src/workspace/workspace.html#layout</div>
+        <span class="ext-icon">润</span>
+      </div>
+
+      <div style="padding: 22px 28px 28px; display:flex; flex-direction:column; gap:14px; height:100%; min-height:0;">
+        <div class="title-row">
+          <h1 style="font-family:var(--serif);margin:0;font-size:22px;">6 套杂志级母版 + AI 模板生成器</h1>
+          <span class="sub" style="margin-left:auto;font-size:12.5px;color:var(--ink-muted);">下限就是杂志级 · 不是又一套圆角紫色 SaaS 模板</span>
+        </div>
+
+        <div class="grid">
+          <div class="tcard ny">
+            <div class="preview-area">
+              <h2>The Quiet Power of Letting Go</h2>
+              <div class="deck">在创业的第三年，他每个月做一张"减法清单"。</div>
+              <p>很多人误以为长期主义是一种忍耐，其实它更像一种放下——放下今天就能兑换的小机会，去交换 5 年之后才发生的复利……</p>
+              <p>这是 30 岁前学到的最重要的一课：分辨什么是机会，什么是诱惑。</p>
+            </div>
+            <div class="meta"><strong>The New Yorker</strong> 衬线 · 首字下沉 · 副标题 <span class="key">⌥1</span></div>
+          </div>
+
+          <div class="tcard wd">
+            <div class="preview-area">
+              <h2>LET. GO. WIN.</h2>
+              <div class="deck">A monthly subtraction list, and what it taught me.</div>
+              <p>"Long-termism" is not endurance. It's <span class="pull">subtraction</span>.</p>
+              <p>You trade today's small wins for tomorrow's compound interest.</p>
+              <p>And the people who go far? They don't add — they remove.</p>
+            </div>
+            <div class="meta"><strong>Wired</strong> 黑底红 · 全大写标题 · 强对比 <span class="key">⌥2</span></div>
+          </div>
+
+          <div class="tcard mc">
+            <div class="preview-area">
+              <div class="section">Essay · No. 12</div>
+              <h2>关于"放下"这件事</h2>
+              <div class="deck">在第三年的春天，他开始学着每个月做一张减法清单。</div>
+              <div class="columns">
+                <p>很多人以为长期主义是一种忍耐，事实上它更像放下。</p>
+                <p>放下今天就能兑换的小机会。</p>
+                <p>放下别人眼里的"风口"。</p>
+                <p>真正决定一个人能走多远的，是他每天放下了什么。</p>
+              </div>
+            </div>
+            <div class="meta"><strong>Monocle</strong> 双栏 · 小红色栏头 · 国际化 <span class="key">⌥3</span></div>
+          </div>
+
+          <div class="tcard vg">
+            <div class="preview-area">
+              <div class="label">ESSAY</div>
+              <div class="rule"></div>
+              <h2>Letting Go</h2>
+              <div class="rule"></div>
+              <p>"长期主义不是忍耐，是放下。"</p>
+              <p>放下，才有空隙。</p>
+              <p>空隙，才长出复利。</p>
+            </div>
+            <div class="meta"><strong>Vogue</strong> 暗底金线 · 居中留白 · 仪式感 <span class="key">⌥4</span></div>
+          </div>
+
+          <div class="tcard kf">
+            <div class="preview-area">
+              <h2>关于减法的一封信</h2>
+              <div class="deck">写于第三年的春天，致每一个还在学着放下的人。</div>
+              <p>很多人以为长期主义是一种忍耐，其实它更像放下。</p>
+              <div class="quote">"放下，是给未来腾出来的位置。"</div>
+              <p>每个月，写一张"可以不做的事"清单。</p>
+            </div>
+            <div class="meta"><strong>Kinfolk</strong> 米色 · 引语金线 · 慢生活 <span class="key">⌥5</span></div>
+          </div>
+
+          <div class="tcard pp">
+            <div class="preview-area">
+              <span class="ribbon gen">AI 生成</span>
+              <div class="num">04</div>
+              <h2>减法清单 · 第 4 期</h2>
+              <div class="deck">本期专栏 · 关于"放下"</div>
+              <p>这一期我想聊一件特别反直觉的事——主动放下。</p>
+              <p>每个月强制写一张"减法清单"，第一栏：可以不做的事。第二栏：必须停止做的事。</p>
+            </div>
+            <div class="meta"><strong>Paper · Custom</strong> 数字栏头 · 你 7 题问卷生成 <span class="key">PRO</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="caption">
+        排版下限就是<em style="color:#ffd28e;font-style:normal;">杂志级</em>
+        <span class="small">6 套手工母版 + 一个 AI 模板生成器，按你的需求生成专属版式</span>
+      </div>
+    </div>
+  </body>
+</html>

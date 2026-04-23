@@ -10,9 +10,15 @@
     "fonts:sync": "bash scripts/sync-fonts.sh",
     "version:sync": "node scripts/version-sync.mjs",
     "build:zip": "node scripts/build-zip.mjs",
+    "capture:cws": "node scripts/cws-capture.mjs",
     "release:cws": "npm run test && npm run build:zip"
   },
-  "keywords": ["chrome-extension", "wechat", "mp", "manifest-v3"],
+  "keywords": [
+    "chrome-extension",
+    "wechat",
+    "mp",
+    "manifest-v3"
+  ],
   "author": "",
   "license": "ISC",
   "engines": {
@@ -20,6 +26,7 @@
   },
   "devDependencies": {
     "@fontsource/dm-sans": "^5.2.8",
-    "@fontsource/noto-serif-sc": "^5.2.9"
+    "@fontsource/noto-serif-sc": "^5.2.9",
+    "playwright": "^1.59.1"
   }
 }

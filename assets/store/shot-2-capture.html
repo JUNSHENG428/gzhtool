@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>润笔 · 截图 2 抓取</title>
+    <link rel="stylesheet" href="./_shared.css" />
+    <style>
+      .layout {
+        display: grid;
+        grid-template-columns: 1.05fr 1fr;
+        gap: 16px;
+        flex: 1;
+        min-height: 0;
+      }
+      .source {
+        background: #fff;
+        border: 1px solid var(--brand-line);
+        border-radius: 12px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .source-head {
+        padding: 8px 14px;
+        background: #f5f5f5;
+        border-bottom: 1px solid #e5e5e5;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: #777;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .source-head::before {
+        content: ""; width: 14px; height: 14px;
+        background: linear-gradient(135deg, #056de8, #00a4ff);
+        border-radius: 3px;
+      }
+      .zhihu {
+        padding: 22px 26px;
+        font-family: var(--sans);
+        color: #1a1a1a;
+        font-size: 13.5px;
+        line-height: 1.75;
+        flex: 1;
+        overflow: hidden;
+      }
+      .zhihu h2 {
+        font-size: 19px;
+        margin: 0 0 8px;
+        font-weight: 700;
+        color: #121212;
+      }
+      .zhihu .author {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: #8590a6;
+        margin-bottom: 16px;
+      }
+      .zhihu .author .av {
+        width: 24px; height: 24px; border-radius: 50%;
+        background: linear-gradient(135deg, #056de8, #00a4ff);
+      }
+      .zhihu .author strong { color: #121212; font-weight: 600; }
+      .zhihu p { margin: 0 0 10px; }
+      .zhihu p .marker {
+        background: #fff3a3;
+        box-shadow: 0 0 0 1px rgba(183, 134, 64, 0.4);
+      }
+      .floating {
+        position: absolute;
+        background: var(--brand);
+        color: #fff;
+        padding: 8px 14px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        box-shadow: 0 14px 30px -10px rgba(31, 67, 41, 0.4);
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: default;
+      }
+      .floating::before { content: "✓"; }
+      .panel {
+        background: var(--bg-card);
+        border: 1px solid var(--brand-line);
+        border-radius: 12px;
+        padding: 18px 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 0;
+      }
+      .panel h2 {
+        margin: 0;
+        font-family: var(--serif);
+        font-size: 17px;
+        color: var(--ink);
+      }
+      .meta-grid {
+        display: grid;
+        grid-template-columns: 90px 1fr;
+        font-size: 12.5px;
+        color: var(--ink-soft);
+        gap: 6px 14px;
+      }
+      .meta-grid dt { color: var(--ink-muted); }
+      .meta-grid dd { margin: 0; color: var(--ink); }
+      .preview {
+        flex: 1;
+        background: #fffdf6;
+        border: 1px solid var(--brand-line);
+        border-radius: 10px;
+        padding: 14px 16px;
+        overflow: hidden;
+        font-size: 12.5px;
+        line-height: 1.7;
+        color: var(--ink);
+      }
+      .preview h4 {
+        margin: 0 0 8px;
+        font-family: var(--serif);
+        font-size: 14px;
+      }
+      .preview p { margin: 0 0 6px; }
+      .preview .tag {
+        display: inline-block;
+        margin-right: 6px;
+        padding: 1px 7px;
+        background: var(--brand-soft);
+        color: var(--brand);
+        border-radius: 6px;
+        font-size: 10.5px;
+      }
+      .actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 4px;
+      }
+      .btn {
+        height: 36px;
+        padding: 0 14px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--brand);
+        color: #fff;
+        border: 0;
+      }
+      .btn.ghost {
+        background: transparent;
+        color: var(--brand);
+        border: 1px solid var(--brand-line);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shot">
+      <div class="browser-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <div class="url-bar"><span style="margin-right:8px;">🔒</span> www.zhihu.com/question/123456/answer/987654</div>
+        <span class="ext-icon">润</span>
+      </div>
+
+      <div style="padding: 22px 26px 28px; display:flex; flex-direction:column; gap:16px; height:100%; min-height:0;">
+        <div class="title-row">
+          <h1 style="font-family:var(--serif);margin:0;font-size:22px;">从一个网页到一篇草稿，三秒</h1>
+          <span class="sub" style="color:var(--ink-muted);font-size:12.5px;margin-left:auto;">浮窗会自动识别站点 · 知乎 / X / 小红书 / 通用网页</span>
+        </div>
+
+        <div class="layout">
+          <div class="source" style="position:relative;">
+            <div class="source-head">https://www.zhihu.com/question/123456/answer/987654</div>
+            <div class="zhihu">
+              <h2>30 岁前学到的最重要的一课，是什么？</h2>
+              <div class="author"><span class="av"></span><strong>沈砚之</strong> · 写作 / 创业 · 1.2 万 赞同</div>
+              <p>很多人误以为<span class="marker">长期主义</span>是一种忍耐，其实它更像一种"放弃"——放弃你原本以为该立刻得到的东西，把它换成 5 年之后才发生的复利。</p>
+              <p>我后来才明白，<span class="marker">真正决定一个人能走多远的，是他每天放下了什么</span>，而不是每天又新增了什么。</p>
+              <p>在创业的第三年，我开始每个月强制做一次"减法清单"：写下我可以不做的事，再写下我必须停止做的事。神奇的是，那张清单上的东西，几乎全是别人眼里的"机会"。</p>
+              <p>这是我 30 岁前学到的最重要的一课：分辨什么是机会，什么是诱惑。</p>
+            </div>
+            <span class="floating" style="right: 18px; top: 70px;">已抓取 · 1 答案 · 412 字</span>
+          </div>
+
+          <div class="panel">
+            <h2>抓取结果</h2>
+            <dl class="meta-grid">
+              <dt>来源</dt><dd>知乎 · 答案</dd>
+              <dt>作者</dt><dd>沈砚之</dd>
+              <dt>赞同</dt><dd>12,418</dd>
+              <dt>字数</dt><dd>412</dd>
+              <dt>抓取于</dt><dd>2026-04-23 14:08</dd>
+            </dl>
+            <div class="preview">
+              <span class="tag">原文</span><span class="tag">已结构化</span>
+              <h4>30 岁前学到的最重要的一课</h4>
+              <p>很多人误以为长期主义是一种忍耐，其实它更像一种"放弃"……</p>
+              <p>我后来才明白，真正决定一个人能走多远的，是他每天放下了什么……</p>
+              <p style="color:var(--ink-muted);">…… 共 4 段，已识别 2 处可作金句的句子</p>
+            </div>
+            <div class="actions">
+              <button class="btn">送进编辑台 →</button>
+              <button class="btn ghost">仅保留摘要</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="caption">
+        网页右下角浮窗，<em style="color:#ffd28e;font-style:normal;">看到就抓</em>
+        <span class="small">知乎 / X / 小红书 / 通用网页 · 已结构化、可直接给 AI 改写</span>
+      </div>
+    </div>
+  </body>
+</html>

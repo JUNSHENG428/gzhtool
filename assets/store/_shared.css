@@ -1,0 +1,262 @@
+/* assets/store/_shared.css ——————————————————————————
+ * 5 张 1280×800 商店截图共享样式
+ * 设计语言对齐扩展真实 workspace：润墨绿 + 一抹金 + 米白纸 + 衬线宋体
+ */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+:root {
+  --bg-paper: #f6f1e3;
+  --bg-paper-soft: #ede2c4;
+  --bg-card: #fffdf6;
+  --bg-card-shade: #f8f1e0;
+  --ink: #1f2d24;
+  --ink-soft: #5e544c;
+  --ink-muted: #94837a;
+  --brand: #1f4329;
+  --brand-deep: #163020;
+  --brand-soft: rgba(31, 67, 41, 0.08);
+  --brand-line: rgba(31, 67, 41, 0.16);
+  --gold: #b78640;
+  --gold-deep: #8c5e1e;
+  --gold-soft: rgba(183, 134, 64, 0.12);
+  --danger: #c4593c;
+  --shadow-sm: 0 1px 2px rgba(31, 67, 41, 0.06);
+  --shadow-md: 0 12px 28px -10px rgba(31, 67, 41, 0.18);
+  --shadow-lg: 0 26px 60px -16px rgba(31, 67, 41, 0.28);
+  --serif: "Noto Serif SC", "Songti SC", serif;
+  --sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", monospace;
+}
+
+body {
+  font-family: var(--sans);
+  background: #888;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 40px;
+  color: var(--ink);
+}
+
+.shot {
+  width: 1280px;
+  height: 800px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--bg-paper);
+  position: relative;
+  box-shadow: 0 32px 80px -32px rgba(0, 0, 0, 0.55);
+  display: grid;
+  grid-template-rows: 56px 1fr;
+}
+
+/* 顶部浏览器壳 */
+.browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px;
+  background: linear-gradient(180deg, #efe8d4, #e2d6b3);
+  border-bottom: 1px solid rgba(31, 67, 41, 0.1);
+}
+.dot { width: 11px; height: 11px; border-radius: 50%; background: #ccc; }
+.dot:nth-child(1) { background: #d96e5c; }
+.dot:nth-child(2) { background: #d8a64a; }
+.dot:nth-child(3) { background: #71a37b; }
+.url-bar {
+  flex: 1;
+  height: 30px;
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.7);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-muted);
+  letter-spacing: 0.02em;
+  margin-left: 14px;
+}
+.ext-icon {
+  width: 22px; height: 22px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, var(--brand), #2d6e44);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-family: var(--serif);
+  font-weight: 900;
+  font-size: 13px;
+}
+
+/* 标注横幅（左下角营销 caption） */
+.caption {
+  position: absolute;
+  left: 32px;
+  bottom: 28px;
+  background: var(--brand);
+  color: #fff;
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
+  box-shadow: var(--shadow-lg);
+  letter-spacing: 0.005em;
+}
+.caption .small {
+  display: block;
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 12.5px;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.78);
+  letter-spacing: 0.04em;
+}
+.caption .small em {
+  font-style: normal;
+  color: #ffd28e;
+  font-weight: 600;
+}
+.caption.right {
+  left: auto;
+  right: 32px;
+}
+
+/* 共用：扩展页面里的「工作台」侧栏 */
+.shell {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  height: 100%;
+  background: var(--bg-paper);
+}
+.sidebar {
+  background: linear-gradient(180deg, #f1ead3, #e5dcb9);
+  border-right: 1px solid rgba(31, 67, 41, 0.1);
+  padding: 22px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.sidebar .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sidebar .brand .mark {
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--brand), #2d6e44);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-family: var(--serif);
+  font-weight: 800;
+  font-size: 16px;
+}
+.sidebar .brand .name {
+  font-family: var(--serif);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--ink);
+}
+.nav-section { font-size: 11px; color: var(--ink-muted); letter-spacing: 0.18em; padding: 0 8px; margin-top: 4px; }
+.nav-item {
+  display: flex; align-items: center; gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: default;
+}
+.nav-item.active {
+  background: var(--brand);
+  color: #fff;
+  font-weight: 600;
+}
+.nav-item .ic { width: 14px; text-align: center; opacity: 0.85; }
+.nav-item .badge {
+  margin-left: auto;
+  font-size: 9.5px;
+  padding: 1px 6px;
+  background: var(--gold);
+  color: #fff;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.main {
+  padding: 26px 32px 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.topline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-muted);
+  font-size: 12.5px;
+}
+.title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.title-row h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 26px;
+  letter-spacing: 0.005em;
+  color: var(--ink);
+}
+.title-row .sub { color: var(--ink-muted); font-size: 13px; }
+
+/* 通用卡片 */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--brand-line);
+  border-radius: 12px;
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.card h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  letter-spacing: 0.02em;
+}
+.card .num {
+  font-family: "IBM Plex Sans", var(--sans);
+  font-feature-settings: "tnum" on, "lnum" on;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  font-size: 11px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.pill.pro {
+  background: var(--gold-soft);
+  color: var(--gold-deep);
+}
