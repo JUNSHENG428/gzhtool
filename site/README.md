@@ -1,6 +1,6 @@
-# 公众号写手 · 官网（site/）
+# 润笔 · 官网（site/）
 
-这个目录是「公众号写手」的营销与控制台站点，纯静态：HTML + 原生 ES Modules + CSS，
+这个目录是「润笔」的营销与控制台站点，纯静态：HTML + 原生 ES Modules + CSS，
 无任何打包步骤，可直接拖到 Cloudflare Pages 部署。
 
 ## 页面结构

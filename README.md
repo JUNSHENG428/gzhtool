@@ -1,4 +1,8 @@
-# 公众号改写排版台
+# 润笔 · DocuEarn
+
+> **公众号创作者的得力助手 — 笔下生花，花下生金，让你多一份安稳。**
+>
+> 官网：[docuearn.com](https://docuearn.com) · 后端：[api.docuearn.com](https://api.docuearn.com)
 
 Chrome **Manifest V3** 扩展：在本地完成「网页抓取 → AI 改写 → 公众号风排版 → 多图文草稿 / 发布 / 状态查询」，并带热点捕捉、欢迎页与帮助文档。
 

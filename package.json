@@ -1,8 +1,8 @@
 {
-  "name": "gzh-extension",
+  "name": "runbi",
   "private": true,
   "version": "0.3.2",
-  "description": "Chrome Manifest V3 扩展：抓取网页、AI 改写、公众号多图文草稿与发布、热点捕捉。版本号由 manifest.json 驱动，发布前请执行 npm run version:sync。",
+  "description": "润笔 DocuEarn · 公众号创作者的得力助手。Chrome MV3 扩展：抓选题、AI 改写、排版、一键发草稿。版本号由 manifest.json 驱动，发布前请执行 npm run version:sync。",
   "scripts": {
     "check:js": "node scripts/check-js.mjs",
     "test:smoke": "node scripts/smoke.mjs",

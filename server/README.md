@@ -1,4 +1,4 @@
-# 公众号改写排版台 · 授权服务（Cloudflare Workers）
+# 润笔 · 授权服务（Cloudflare Workers）
 
 这个目录是一个**独立**的 Cloudflare Workers 项目，给浏览器扩展提供：
 

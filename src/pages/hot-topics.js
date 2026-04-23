@@ -270,7 +270,7 @@ async function drawShareCard(item, sourceLabel) {
             ${escapeHtml(item.subtitle || sourceLabel)}
           </p>
           <div style="position: absolute; bottom: 20px; right: 24px; font-size: 12px; font-weight: bold; color: #b56b24; opacity: 0.6;">
-            经由 公众号改写排版台 获取
+            经由 润笔 获取
           </div>
         </div>
       </foreignObject>

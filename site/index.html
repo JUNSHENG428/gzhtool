@@ -3,8 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>公众号写手 · 让 AI 帮你把公众号写起来</title>
-  <meta name="description" content="抓素材、AI 改写、批量推送公众号，一个 Chrome 扩展全部搞定。免费版包含全部基础功能；Pro 解锁多账号、DrissionPage、高级模板与无限改写。" />
+  <title>润笔 · 公众号创作者的得力助手</title>
+  <meta name="description" content="润笔（DocuEarn）· 公众号创作者的得力助手，笔下生花，花下生金，让你多一份安稳。Chrome 扩展，从找素材、AI 改写到一键发草稿，免费版即可上手。" />
+  <meta property="og:title" content="润笔 · 笔下生花，花下生金" />
+  <meta property="og:description" content="公众号创作者的得力助手，让你多一份安稳。" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://docuearn.com/" />
+  <link rel="icon" type="image/svg+xml" href="./assets/img/favicon.svg" />
   <!-- 字体策略：preconnect 减少 DNS/TLS 延迟；display=swap 在字体未到达时先用系统字体。 -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -13,15 +18,14 @@
     href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
   />
   <link rel="stylesheet" href="./assets/css/site.css" />
-  <!-- 部署到生产环境时，把下面 content 改成真正的 worker 域名 -->
   <meta name="api-base" content="https://api.docuearn.com" />
 </head>
 <body>
   <nav class="site-nav">
     <div class="site-nav-inner">
       <a class="site-brand" href="./index.html">
-        <span class="site-brand-mark">写</span>
-        <span>公众号写手</span>
+        <span class="site-brand-mark">润</span>
+        <span>润笔</span>
       </a>
       <div class="site-nav-links">
         <a href="./index.html">首页</a>
@@ -41,20 +45,21 @@
       <div class="wrap layer">
         <div class="hero-grid">
           <div class="hero-stagger">
-            <span class="hero-eyebrow">Chrome 扩展 · 公众号写作助手</span>
-            <h1 class="hero-title">把<em>找选题、改写、排版、发文</em>都收进一个浏览器侧栏。</h1>
+            <span class="hero-eyebrow">润笔 · 公众号创作者的得力助手</span>
+            <h1 class="hero-title">笔下<em>生花</em>，花下<span class="gold">生金</span>。</h1>
             <p class="hero-subtitle">
-              公众号写手是一个为运营者打磨的 Chrome 扩展：从今日头条 / 知乎 / 微博热榜里挑素材，一键 AI 改写成你的声音，
-              排版后直接推到公众号草稿箱。免费版包含全部基础功能；Pro 解锁多账号、DrissionPage 增强抓取、高级改写模板与无限调用。
+              润笔（DocuEarn）是一款为公众号创作者打磨的 Chrome 扩展。
+              从知乎、微博、小红书的热榜里挑选题，用 AI 把它改写成你自己的声音，排版后直接推到公众号草稿箱——
+              <strong>让你每天少花两小时码字，多一份稳定的稿费收入。</strong>
             </p>
             <div class="hero-actions">
               <a class="btn btn-primary" href="./pricing.html">查看 Pro 套餐 →</a>
               <a class="btn btn-ghost" href="https://chromewebstore.google.com/" target="_blank" rel="noopener">安装扩展</a>
             </div>
             <div class="hero-meta">
-              <span><strong>免费版</strong> · 单账号 · 每日 5 次 AI 改写</span>
-              <span><strong>Pro</strong> · 多账号 · 无限改写 · DrissionPage 抓取</span>
-              <span><strong>本地优先</strong> · 数据不上传</span>
+              <span><strong>免费版</strong> · 全功能可用 · 每日 5 次 AI 改写</span>
+              <span><strong>Pro</strong> · 多公众号 · 无限改写 · DrissionPage 抓取</span>
+              <span><strong>本地优先</strong> · 文章数据不上传服务器</span>
             </div>
           </div>
 
@@ -99,9 +104,9 @@
                   <rect x="20" y="154" width="148" height="4" rx="2"/>
                   <rect x="20" y="166" width="100" height="4" rx="2"/>
                 </g>
-                <!-- 红印章感的 emphasis 圆点 -->
-                <circle cx="170" cy="200" r="14" fill="#b8722e" opacity="0.85"/>
-                <text x="170" y="205" font-family="serif" font-size="14" fill="#fffdf6" text-anchor="middle" font-weight="700">写</text>
+                <!-- 印章红方块（呼应品牌 mark） -->
+                <rect x="156" y="186" width="28" height="28" rx="3" fill="#b03a2c" opacity="0.92"/>
+                <text x="170" y="208" font-family="serif" font-size="18" fill="#fffdf6" text-anchor="middle" font-weight="700">润</text>
               </g>
 
               <!-- 后面叠的一张稿纸（仅露出一角，制造层次） -->
@@ -154,7 +159,7 @@
         <div class="section-head reveal">
           <span class="section-eyebrow">FEATURES</span>
           <h2 class="section-title">不是又一个 ChatGPT 套壳</h2>
-          <p class="section-sub">围绕公众号运营真实工作流打磨的 6 件事，每一件都能省出至少 10 分钟。</p>
+          <p class="section-sub">围绕公众号创作者真实工作流打磨的 6 件事，每一件都能省出至少 10 分钟。</p>
         </div>
         <div class="card-grid">
           <article class="card reveal">
@@ -199,13 +204,16 @@
           <p class="section-sub">免费版包含全部基础功能。需要多账号、无限调用、深度抓取时再升级。</p>
         </div>
         <a class="btn btn-primary" href="./pricing.html">查看完整定价 →</a>
+        <p style="margin-top:18px;color:var(--muted);font-size:0.85rem;">
+          润笔 · 让你多一份安稳
+        </p>
       </div>
     </section>
   </main>
 
   <footer class="site-foot">
     <div class="site-foot-inner">
-      <span>© <span id="year"></span> 公众号写手 · 一个不打扰创作者的工具</span>
+      <span>© <span id="year"></span> 润笔 DocuEarn · 一个让创作者多一份安稳的工具</span>
       <nav>
         <a href="./pricing.html">定价</a>
         <a href="./privacy.html">隐私政策</a>

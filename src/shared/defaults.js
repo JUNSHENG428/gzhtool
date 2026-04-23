@@ -7,7 +7,7 @@ export const STORAGE_KEYS = {
 };
 
 export const DEFAULT_SETTINGS = {
-  productName: "公众号改写排版台",
+  productName: "润笔",
   operatorName: "",
   supportEmail: "",
   officialSiteUrl: "",

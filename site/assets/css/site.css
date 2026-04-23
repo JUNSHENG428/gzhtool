@@ -1,5 +1,5 @@
 /**
- * 公众号写手 · 官网样式
+ * 润笔 · 官网样式
  * --------------------------------------------------------------
  * 风格参照扩展内页：暖色纸面 + 墨绿主色 + 衬线刊头 + 微肌理。
  * 故意与常见 SaaS 模板（紫蓝渐变 / Inter 全家桶）拉开距离。
@@ -35,6 +35,15 @@
   --accent: #b8722e;
   --accent-soft: rgba(198, 132, 61, 0.14);
   --gold: #b8893f;
+
+  /* 「润笔」品牌印章红，仅用于 logo / 品牌字 mark / hero 重点字
+     —— 用稀缺色，避免和墨绿主色抢戏。 */
+  --seal: #b03a2c;
+  --seal-soft: rgba(176, 58, 44, 0.12);
+
+  /* 「花下生金」金色，比原 --gold 多一档高光，用于价值主张那一句的下划线 */
+  --gold-bright: #d4a45a;
+  --gold-soft: rgba(212, 164, 90, 0.18);
 
   --shadow-sm: 0 4px 14px rgba(32, 40, 29, 0.06);
   --shadow-md: 0 12px 32px rgba(32, 40, 29, 0.08);
@@ -194,13 +203,26 @@ code {
 .site-brand-mark {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: var(--brand);
-  color: #f0d4b0;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  background: #fffdf6;
+  color: var(--seal);
+  border: 2px solid var(--seal);
   font-family: var(--font-serif);
   font-weight: 700;
+  font-size: 19px;
+  line-height: 1;
+  letter-spacing: 0;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 253, 246, 0.6),
+    0 1px 0 rgba(176, 58, 44, 0.18);
+  transform: rotate(-2deg);
+  transition: transform 0.3s ease;
+}
+
+.site-brand:hover .site-brand-mark {
+  transform: rotate(0);
 }
 
 .site-nav-links {
@@ -353,6 +375,29 @@ code {
   background: rgba(184, 114, 46, 0.18);
   border-radius: 4px;
   z-index: -1;
+}
+
+/* 「花下生金」专属 —— 金色 highlight，比 em 多一点光泽感 */
+.hero-title .gold {
+  font-weight: inherit;
+  font-style: normal;
+  color: #6b4520;
+  position: relative;
+  background: linear-gradient(
+    180deg,
+    transparent 60%,
+    var(--gold-soft) 60%,
+    var(--gold-soft) 92%,
+    transparent 92%
+  );
+  padding: 0 0.05em;
+}
+
+/* 印章红强调字（"润笔"两个字独立排版时用） */
+.seal-text {
+  color: var(--seal);
+  font-family: var(--font-serif);
+  font-weight: 700;
 }
 
 .hero-subtitle {

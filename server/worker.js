@@ -1,5 +1,5 @@
 /**
- * 公众号改写排版台 · Cloudflare Workers 授权服务
+ * 润笔 · Cloudflare Workers 授权服务
  * ----------------------------------------------------------------------
  * 单文件 Worker。所有路由 + 鉴权 + 密码哈希 + JWT + Lemon Squeezy webhook
  * 验签 + 限速都在这里实现，不引入任何 npm 包，全部走 Web Crypto / fetch。
@@ -1205,7 +1205,7 @@ function buildResetUrl(env, token) {
  * 这样部署方可以"先上线、后接邮件"，不阻塞发布。
  */
 async function sendResetEmail(env, toEmail, resetUrl) {
-  const subject = "公众号写手 · 重置你的密码";
+  const subject = "润笔 · 重置你的密码";
   const text = `你好，
 
 我们收到了一个把这个邮箱关联账号密码重置的请求。
@@ -1215,7 +1215,8 @@ ${resetUrl}
 
 如果不是你本人发起的，可以忽略本邮件 —— 你的密码不会被更改。
 
-— 公众号写手`;
+— 润笔 DocuEarn
+让你多一份安稳`;
 
   if (env.RESEND_API_KEY) {
     try {
@@ -1226,7 +1227,7 @@ ${resetUrl}
           authorization: `Bearer ${env.RESEND_API_KEY}`
         },
         body: JSON.stringify({
-          from: env.RESET_EMAIL_FROM || "no-reply@gzh.example.com",
+          from: env.RESET_EMAIL_FROM || "no-reply@docuearn.com",
           to: [toEmail],
           subject,
           text
