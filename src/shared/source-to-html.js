@@ -93,11 +93,15 @@ export function buildSourceMetaDraft(source) {
   if (!source) return null;
   const description = String(source.description || "").trim();
   const lead = description.slice(0, 160);
+  // 公众号草稿箱 API 字段上限：title 32 / author 16 / digest 128
+  // （subtitle 不入接口；这里参照列表页显示宽度截到 32）
+  // 一进编辑器就截到合规长度，避免用户一打开就看到红色超限提示
   return {
-    title: String(source.title || "").trim(),
-    subtitle: String(source.siteName || "").trim(),
+    title: String(source.title || "").trim().slice(0, 32),
+    subtitle: String(source.siteName || "").trim().slice(0, 32),
+    author: String(source.author || "").trim().slice(0, 16),
     lead,
-    digest: lead.slice(0, 120)
+    digest: lead.slice(0, 128)
   };
 }
 

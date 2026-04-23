@@ -492,6 +492,10 @@ export function normalizeImportedSource(source) {
     title: String(source.title || "").trim(),
     url: String(source.url || "").trim(),
     description: String(source.description || "").trim(),
+    // 新增：保留 author / siteName，让 autoFillEditorFromSource 能填进作者输入框
+    // 公众号 author API 上限 16 字符
+    author: String(source.author || "").trim().slice(0, 16),
+    siteName: String(source.siteName || "").trim(),
     wordCount:
       Number(source.wordCount || 0) || blocks.reduce((sum, block) => sum + String(block.text || "").length, 0),
     images,

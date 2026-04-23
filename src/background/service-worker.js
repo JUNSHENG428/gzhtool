@@ -655,6 +655,27 @@ function isScrapableUrl(url = "") {
   }
 }
 
+// 后台静默抓取的健全检查：抓到 1 个 block / 极少正文，
+// 几乎可确定是登录墙、错误页、403 拦截页、或 SPA 还没 hydrate。
+// 这种情况直接抛错让上层告知用户，不要静默落 session。
+const CAPTURE_MIN_BLOCKS = 2;
+const CAPTURE_MIN_TEXT_LEN = 300;
+function assertCaptureHealth(capture, targetUrl) {
+  if (!capture || !Array.isArray(capture.blocks) || capture.blocks.length === 0) {
+    throw new Error("抓取失败或正文为空，请确认目标站点支持免登录公开访问。");
+  }
+  const textLen = capture.blocks
+    .filter((b) => b && (b.type === "paragraph" || b.type === "heading" || b.type === "quote"))
+    .map((b) => String(b.text || "").length)
+    .reduce((a, b) => a + b, 0);
+  if (capture.blocks.length < CAPTURE_MIN_BLOCKS || textLen < CAPTURE_MIN_TEXT_LEN) {
+    const hint = `（抓到 ${capture.blocks.length} 块 / ${textLen} 字）`;
+    throw new Error(
+      `抓到的内容太少 ${hint}，可能命中了登录墙、错误页或反爬拦截页。请在浏览器里打开 ${targetUrl} 确认页面正常，或换一种抓取方式。`
+    );
+  }
+}
+
 async function scrapeBackgroundSilent(targetUrl) {
   if (!isScrapableUrl(targetUrl)) {
     throw new Error("不是一个合法的可抓取网址。");
@@ -672,6 +693,7 @@ async function scrapeBackgroundSilent(targetUrl) {
         url: targetUrl,
         captureMode: "readable"
       });
+      assertCaptureHealth(capture, targetUrl);
       await saveSession({
         lastSourceTabId: null,
         lastSourceTitle: capture.title || targetUrl,
@@ -706,9 +728,7 @@ async function scrapeBackgroundSilent(targetUrl) {
     });
 
     capture = results?.[0]?.result;
-    if (!capture || !Array.isArray(capture.blocks) || capture.blocks.length === 0) {
-      throw new Error("抓取失败或正文为空，请确认目标站点支持免登录公开访问。");
-    }
+    assertCaptureHealth(capture, targetUrl);
 
     const finalTab = await chrome.tabs.get(tab.id).catch(() => null);
     await saveSession({

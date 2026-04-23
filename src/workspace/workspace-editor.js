@@ -9,6 +9,19 @@ import { THEME_PRESETS } from "../shared/defaults.js";
 import { escapeHtml, escapeAttribute, sanitizeHtml } from "../shared/utils.js";
 import { getSettings, saveSettings } from "../shared/storage.js";
 
+// 微信公众号草稿箱 API（draft/add）的字段长度上限，全部字段共用一份常量：
+//   title 32 / author 16 / digest 128 / content 20000 字符（且整体 < 1MB）
+// 见 https://developers.weixin.qq.com/doc/subscription/api/draftbox/draftmanage/api_draft_add.html
+// 超限后调用 add 会失败（returncode 非 0），所以这里的硬上限按 API 走。
+// subtitle 不入接口，是我们编辑台自己用的辅助字段；32 是公众号列表页显示宽度。
+export const WECHAT_FIELD_LIMITS = Object.freeze({
+  title: 32,
+  subtitle: 32,
+  author: 16,
+  digest: 128,
+  contentChars: 20000
+});
+
 let _ctx;
 
 export function init(ctx) {
@@ -309,17 +322,40 @@ function _buildFigureHtml(image) {
 }
 
 // ── 字数统计 ──
+//
+// 两个独立度量同时显示：
+//   1) 中文正文字数（写作长度参考，800~4000 字算合适推送区间）
+//   2) HTML 字符数 / 20000（公众号草稿箱 API content 字段硬上限）
+//
+// 后者尤其关键：杂志主题加完 inline-style 后 HTML 体积比纯文本大 5~20 倍，
+// 经常出现"看着才 1500 字，HTML 已经 25000 字符 → API 推送失败"的情况。
+const CONTENT_HTML_LIMIT = WECHAT_FIELD_LIMITS.contentChars;
 
 export function updateEditorWordCount() {
   const { view } = _ctx;
   const text = view.editor.innerText.replace(/\s+/g, "");
-  const count = text.length;
+  const charCount = text.length;
+  const htmlLen = (view.editor.innerHTML || "").length;
   const el = view.editorWordCount;
-  el.textContent = `正文 ${count} 字`;
+
+  const htmlPart = htmlLen > CONTENT_HTML_LIMIT
+    ? `· HTML <strong>${htmlLen.toLocaleString()}</strong> / ${CONTENT_HTML_LIMIT.toLocaleString()}（已超限，公众号 API 会拒绝推送）`
+    : htmlLen > CONTENT_HTML_LIMIT * 0.9
+      ? `· HTML <strong>${htmlLen.toLocaleString()}</strong> / ${CONTENT_HTML_LIMIT.toLocaleString()}（接近上限）`
+      : `· HTML ${htmlLen.toLocaleString()} / ${CONTENT_HTML_LIMIT.toLocaleString()}`;
+  el.innerHTML = `正文 ${charCount} 字 ${htmlPart}`;
+
   el.classList.remove("under", "good", "over");
-  if (count < 800) el.classList.add("under");
-  else if (count > 4000) el.classList.add("over");
-  else el.classList.add("good");
+  // 优先级：HTML 超限 > 文字过长 > 文字偏短 > 良好
+  if (htmlLen > CONTENT_HTML_LIMIT) {
+    el.classList.add("over");
+  } else if (charCount > 4000 || htmlLen > CONTENT_HTML_LIMIT * 0.9) {
+    el.classList.add("over");
+  } else if (charCount < 800) {
+    el.classList.add("under");
+  } else {
+    el.classList.add("good");
+  }
 }
 
 // ── 阅读进度条 ──
@@ -340,14 +376,27 @@ export function updateReadingProgress() {
 
 export function bindFieldHints() {
   const { controls } = _ctx;
-  bindLengthHint(controls.title, document.querySelector('[data-for="titleInput"]'), 64, { hard: true });
-  bindLengthHint(controls.subtitle, document.querySelector('[data-for="subtitleInput"]'), 32, { hard: true });
-  bindLengthHint(controls.author, document.querySelector('[data-for="authorInput"]'), 8, { hard: true });
-  bindLengthHint(controls.digest, document.querySelector('[data-for="digestInput"]'), 120, { hard: true });
+  bindLengthHint(controls.title, document.querySelector('[data-for="titleInput"]'),
+    WECHAT_FIELD_LIMITS.title, { hard: true });
+  bindLengthHint(controls.subtitle, document.querySelector('[data-for="subtitleInput"]'),
+    WECHAT_FIELD_LIMITS.subtitle, { hard: true });
+  bindLengthHint(controls.author, document.querySelector('[data-for="authorInput"]'),
+    WECHAT_FIELD_LIMITS.author, { hard: true });
+  bindLengthHint(controls.digest, document.querySelector('[data-for="digestInput"]'),
+    WECHAT_FIELD_LIMITS.digest, { hard: true });
 }
+
+// 不同字段超限/接近的解释文案。文案明确点出"草稿箱 API 上限"以避免用户误以为是软提示。
+const FIELD_HINT_NOTES = {
+  titleInput: "公众号草稿箱 API 上限 32 字，超出会推送失败",
+  subtitleInput: "副标题不入接口，但列表页通常截到 32 字最美观",
+  authorInput: "草稿箱 API 上限 16 字",
+  digestInput: "草稿箱 API 上限 128 字；不填则自动取正文前 54 字"
+};
 
 function bindLengthHint(inputEl, hintEl, limit, { hard = true } = {}) {
   if (!inputEl || !hintEl) return;
+  const note = FIELD_HINT_NOTES[inputEl.id] || "";
 
   function update() {
     const length = inputEl.value.length;
@@ -356,25 +405,16 @@ function bindLengthHint(inputEl, hintEl, limit, { hard = true } = {}) {
 
     if (length > limit) {
       const over = length - limit;
-      hintEl.textContent = `已超出公众号限制 ${over} 字`;
+      hintEl.textContent = `已超出 ${over} 字${note ? ` · ${note}` : ""}`;
       hintEl.classList.add("over");
       hintEl.classList.remove("warning");
     } else if (ratio >= 0.9) {
-      hintEl.textContent = `还能输入 ${remaining} 字`;
+      hintEl.textContent = `还能输入 ${remaining} 字${note ? ` · ${note}` : ""}`;
       hintEl.classList.add("warning");
       hintEl.classList.remove("over");
     } else {
       hintEl.textContent = `${length} / ${limit}`;
       hintEl.classList.remove("warning", "over");
-    }
-
-    if (inputEl.id === "titleInput" && length > 32) {
-      const extra = hintEl.classList.contains("over") || hintEl.classList.contains("warning");
-      if (!extra) {
-        hintEl.textContent += " · 公众号列表页最多显示 32 字，超出部分会截断";
-      } else if (length <= limit) {
-        hintEl.textContent += " · 列表页最多显示 32 字";
-      }
     }
   }
 

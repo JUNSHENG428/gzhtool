@@ -175,6 +175,8 @@ function autoFillEditorFromSource(article) {
     article.meta = article.meta || {};
     if (!article.meta.title && draft.title) article.meta.title = draft.title;
     if (!article.meta.subtitle && draft.subtitle) article.meta.subtitle = draft.subtitle;
+    // author 仅在原值（含设置里的默认作者）为空时填，避免覆盖用户的署名习惯
+    if (!article.meta.author && draft.author) article.meta.author = draft.author;
     if (!article.meta.lead && draft.lead) article.meta.lead = draft.lead;
     if (!article.meta.digest && draft.digest) article.meta.digest = draft.digest;
   }

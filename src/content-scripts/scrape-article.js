@@ -377,16 +377,86 @@
         document.querySelector("meta[property='og:site_name']")?.getAttribute("content") ||
         document.querySelector("meta[name='application-name']")?.getAttribute("content") ||
         "",
-      author:
-        document.querySelector("meta[name='author']")?.getAttribute("content") ||
-        document.querySelector("meta[property='article:author']")?.getAttribute("content") ||
-        "",
+      author: extractAuthor(),
       extractedAt: new Date().toISOString(),
       wordCount: plainText.length,
       blocks,
       images,
       captureMode: raw ? "raw" : "readable"
     };
+  }
+
+  // ── 作者抽取 ──
+  // 顺序：JSON-LD（schema.org/Article 规范，少数派/NYT/华尔街日报等都用）
+  //   → meta 标签（最常见的 OG/twitter）
+  //   → DOM 中文站专属 selector（知乎专栏、36kr、虎嗅、微信公众号、新榜...）
+  // 任一拿到非空就返回；都拿不到才返回 ""
+  function extractAuthor() {
+    const cleaned = (s) =>
+      String(s || "")
+        .replace(/^\s*by[\s:：]+/i, "")
+        .replace(/[\u200b\u00a0]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 60);
+
+    // 1. JSON-LD 解析
+    const ldScripts = document.querySelectorAll("script[type='application/ld+json']");
+    for (const script of ldScripts) {
+      try {
+        const raw = script.textContent || "";
+        if (!raw.includes("author")) continue;
+        const data = JSON.parse(raw);
+        const candidates = Array.isArray(data) ? data : [data];
+        for (const node of candidates) {
+          if (!node || typeof node !== "object") continue;
+          const author = node.author;
+          if (!author) continue;
+          const name = Array.isArray(author)
+            ? author.map((a) => (typeof a === "string" ? a : a?.name)).filter(Boolean).join("、")
+            : (typeof author === "string" ? author : author?.name);
+          if (name) return cleaned(name);
+        }
+      } catch {}
+    }
+
+    // 2. meta 标签
+    const metaName =
+      document.querySelector("meta[name='author']")?.getAttribute("content") ||
+      document.querySelector("meta[property='article:author']")?.getAttribute("content") ||
+      document.querySelector("meta[name='twitter:creator']")?.getAttribute("content") ||
+      document.querySelector("meta[name='byl']")?.getAttribute("content") || // NYT byline
+      "";
+    if (metaName && !/^https?:/i.test(metaName)) return cleaned(metaName);
+
+    // 3. 中文站常见 selector（按命中概率排）
+    const DOM_SELECTORS = [
+      "#js_name",                                      // 微信公众号正文
+      ".rich_media_meta_nickname",                     // 微信备用
+      ".AuthorInfo .UserLink-link",                    // 知乎专栏
+      ".AuthorInfo-name",                              // 知乎专栏备用
+      ".article-author-name", ".author-info-name",     // 36kr
+      ".author-name",                                  // 通用
+      ".byline-name", ".byline__name", ".byline a",    // 英文新闻站
+      ".post-author a", ".post-author",                // WP 主题
+      ".entry-author-name", ".entry-author",
+      ".article__author", ".article-author",
+      "[itemprop='author'] [itemprop='name']",
+      "[itemprop='author']",
+      "[rel='author']",
+      ".ss__user-card__nickname",                      // 少数派 DOM 兜底
+      ".author-card .nickname",                        // 虎嗅
+      ".article-meta .author"                          // 通用兜底
+    ];
+    for (const sel of DOM_SELECTORS) {
+      try {
+        const el = document.querySelector(sel);
+        const text = (el?.textContent || el?.getAttribute?.("content") || "").trim();
+        if (text && text.length <= 60) return cleaned(text);
+      } catch {}
+    }
+
+    return "";
   }
 
   // ── 块提取器 ──
