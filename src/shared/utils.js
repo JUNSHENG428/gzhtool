@@ -22,6 +22,23 @@ export function clampIndex(value, length) {
   return Math.max(0, Math.min(Number(value || 0), length - 1));
 }
 
+/**
+ * 把抓取模式归一化到三档：selection / readable / raw。
+ * - selection: 只抓选中文字（页内选区，永远走 content script，不走 DrissionPage）
+ * - readable:  智能识别正文（默认）
+ * - raw:       原样抓取整页
+ *
+ * 任何不认识的值都回退到 "readable"，让链路一致。
+ * （之前 drission.js 错误地从 utils.js import 了一个不存在的同名函数，
+ *  这里把它落地为正经的实现，方便所有抓取分支共享。）
+ */
+export function normalizeCaptureMode(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "selection") return "selection";
+  if (raw === "raw") return "raw";
+  return "readable";
+}
+
 export function createId(prefix = "id") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }

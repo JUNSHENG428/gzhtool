@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-Hans" class="no-js">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>忘记密码 · 公众号写手</title>
+  <meta name="description" content="通过注册邮箱重置公众号写手账号密码。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+  />
+  <link rel="stylesheet" href="./assets/css/site.css" />
+  <meta name="api-base" content="" />
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="site-nav-inner">
+      <a class="site-brand" href="./index.html">
+        <span class="site-brand-mark">写</span>
+        <span>公众号写手</span>
+      </a>
+      <div class="site-nav-links">
+        <a href="./index.html">首页</a>
+        <a href="./pricing.html">定价</a>
+        <a href="./dashboard.html">控制台</a>
+      </div>
+      <div class="site-nav-cta"></div>
+    </div>
+  </nav>
+
+  <main class="auth-shell">
+    <aside class="auth-side">
+      <div>
+        <p style="font-size:0.78rem;letter-spacing:0.16em;text-transform:uppercase;color:rgba(240,212,176,0.7);">忘记密码</p>
+        <h2>30 分钟内完成重置。</h2>
+        <p>填写注册邮箱，我们会发一封一次性链接邮件。链接有效期 30 分钟，使用后立即失效，不会留下后门。</p>
+      </div>
+      <blockquote>
+        提交后无论该邮箱是否存在都会显示"已发送"——这是为了防止有人通过这个接口推断哪些邮箱注册过。
+        如果几分钟内没收到邮件，先看垃圾箱。
+      </blockquote>
+    </aside>
+
+    <section class="auth-form-side">
+      <div class="auth-card">
+        <h1>找回密码</h1>
+        <p class="auth-card-sub">输入注册邮箱，我们会发送重置链接到这里。</p>
+
+        <form id="forgotForm" autocomplete="on" novalidate>
+          <div class="field">
+            <label for="email">注册邮箱</label>
+            <input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" />
+          </div>
+          <button class="btn btn-primary btn-block" id="submitBtn" type="submit">发送重置链接</button>
+          <p class="feedback" id="feedback"></p>
+        </form>
+
+        <div class="divider"></div>
+        <p class="muted text-center" style="font-size:0.85rem;">
+          想起来了？<a href="./login.html">直接登录</a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./assets/js/site.js"></script>
+  <script type="module" src="./assets/js/forgot.js"></script>
+</body>
+</html>

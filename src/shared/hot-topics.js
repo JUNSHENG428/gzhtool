@@ -1,151 +1,300 @@
 /**
  * 热点资讯抓取（在扩展后台调用，不受页面 CORS 限制）
- * 数据源：
- *  - 聚合 API: newsnow.busiyi.world (覆盖国内数十平台)
- *  - 国外 Reddit 直连
- *  - X / 小红书 无稳定公开 JSON，采用「门户引导」模式。
+ *
+ * 数据源策略（按顺序尝试，**任一返回空都自动 fallback**）：
+ *  1. DailyHotApi（默认 https://api-hot.imsyy.top/，开源、可自托）
+ *     仓库：https://github.com/imsyy/DailyHotApi
+ *  2. NewsNow 聚合 API（备用）
+ *  3. 直连 API（如 Bilibili 排行榜公共接口）
+ *  4. Reddit 直连（独立通道）
+ *  5. 门户引导（X / 小红书）
+ *
+ * 用户可在「设置 → 热点接口」里把默认 DailyHotApi 改成自托地址，
+ * 或填写 NewsNow 自托地址，避免公共服务被限流。
  */
+
+import { fetchHotTopicSourceItems } from "./hot-topics-sources.js";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
+export const DEFAULT_DAILYHOT_BASE = "https://api-hot.imsyy.top/";
+export const DEFAULT_NEWSNOW_BASE = "https://newsnow.busiyi.world/";
+
+const FETCH_TIMEOUT_MS = 8000;
+// 仅当 items 少于这个数量才认为「实际为空」并触发 fallback
+const MIN_VALID_ITEMS = 1;
+
 export const HOT_SOURCE_META = {
   // 综合 / 社区
-  zhihu: { id: "zhihu", label: "知乎热榜", detail: "知乎热门内容", category: "china", newsNow: "zhihu" },
-  weibo: { id: "weibo", label: "微博热搜", detail: "新浪微博实时热点", category: "china", newsNow: "weibo" },
-  tieba: { id: "tieba", label: "百度贴吧", detail: "贴吧热议话题", category: "china", newsNow: "tieba" },
-  baidu: { id: "baidu", label: "百度热搜", detail: "百度搜索实时榜", category: "china", newsNow: "baidu" },
-  toutiao: { id: "toutiao", label: "今日头条", detail: "头条热点资讯", category: "china", newsNow: "toutiao" },
-  hupu: { id: "hupu", label: "虎扑步行街", detail: "主干道热门讨论", category: "china", newsNow: "hupu" },
-  thepaper: { id: "thepaper", label: "澎湃新闻", detail: "热榜资讯", category: "china", newsNow: "thepaper" },
-  tencent: { id: "tencent-hot", label: "腾讯新闻", detail: "综合早报与热点", category: "china", newsNow: "tencent-hot" },
-  
+  zhihu: { id: "zhihu", label: "知乎热榜", detail: "知乎热门内容", category: "china", dailyhot: "zhihu", newsNow: "zhihu" },
+  weibo: { id: "weibo", label: "微博热搜", detail: "新浪微博实时热点", category: "china", dailyhot: "weibo", newsNow: "weibo" },
+  tieba: { id: "tieba", label: "百度贴吧", detail: "贴吧热议话题", category: "china", dailyhot: "tieba", newsNow: "tieba" },
+  baidu: { id: "baidu", label: "百度热搜", detail: "百度搜索实时榜", category: "china", dailyhot: "baidu", newsNow: "baidu" },
+  toutiao: { id: "toutiao", label: "今日头条", detail: "头条热点资讯", category: "china", dailyhot: "toutiao", newsNow: "toutiao" },
+  hupu: { id: "hupu", label: "虎扑步行街", detail: "主干道热门讨论", category: "china", dailyhot: "hupu", newsNow: "hupu" },
+  thepaper: { id: "thepaper", label: "澎湃新闻", detail: "热榜资讯", category: "china", dailyhot: "thepaper", newsNow: "thepaper" },
+  tencent: { id: "tencent-hot", label: "腾讯新闻", detail: "综合早报与热点", category: "china", dailyhot: "qq-news", newsNow: "tencent-hot" },
+  netease: { id: "netease-news", label: "网易新闻", detail: "热点头条", category: "china", dailyhot: "netease-news" },
+  weread: { id: "weread", label: "微信读书", detail: "飙升榜", category: "china", dailyhot: "weread" },
+
   // 科技 / 数码 / 开发
-  sspai: { id: "sspai", label: "少数派", detail: "高效工具与生活方式", category: "tech", newsNow: "sspai" },
-  juejin: { id: "juejin", label: "稀土掘金", detail: "开发者技术热点", category: "tech", newsNow: "juejin" },
-  coolapk: { id: "coolapk", label: "酷安", detail: "数码科技数码圈热议", category: "tech", newsNow: "coolapk" },
-  ithome: { id: "ithome", label: "IT之家", detail: "每日科技要闻", category: "tech", newsNow: "ithome" },
-  "36kr": { id: "36kr-quick", label: "36氪", detail: "科技创投最新快讯", category: "tech", newsNow: "36kr-quick" },
-  v2ex: { id: "v2ex", label: "V2EX", detail: "极客社区最新分享", category: "tech", newsNow: "v2ex" },
-  github: { id: "github-trending-today", label: "GitHub", detail: "Trending今日趋势", category: "tech", newsNow: "github-trending-today" },
-  hackernews: { id: "hackernews", label: "Hacker News", detail: "前沿科技资讯 (英)", category: "tech", newsNow: "hackernews" },
-  producthunt: { id: "producthunt", label: "Product Hunt", detail: "每日全球新产品", category: "tech", newsNow: "producthunt" },
+  sspai: { id: "sspai", label: "少数派", detail: "高效工具与生活方式", category: "tech", dailyhot: "sspai", newsNow: "sspai" },
+  juejin: { id: "juejin", label: "稀土掘金", detail: "开发者技术热点", category: "tech", dailyhot: "juejin", newsNow: "juejin" },
+  coolapk: { id: "coolapk", label: "酷安", detail: "数码科技数码圈热议", category: "tech", dailyhot: "coolapk", newsNow: "coolapk" },
+  ithome: { id: "ithome", label: "IT之家", detail: "每日科技要闻", category: "tech", dailyhot: "ithome", newsNow: "ithome" },
+  "36kr": { id: "36kr-quick", label: "36氪", detail: "科技创投最新快讯", category: "tech", dailyhot: "36kr", newsNow: "36kr-quick" },
+  v2ex: { id: "v2ex", label: "V2EX", detail: "极客社区最新分享", category: "tech", dailyhot: "v2ex", newsNow: "v2ex" },
+  github: { id: "github-trending-today", label: "GitHub", detail: "Trending今日趋势", category: "tech", dailyhot: "github", newsNow: "github-trending-today" },
+  hackernews: { id: "hackernews", label: "Hacker News", detail: "前沿科技资讯 (英)", category: "tech", dailyhot: "hackernews", newsNow: "hackernews" },
+  producthunt: { id: "producthunt", label: "Product Hunt", detail: "每日全球新产品", category: "tech", dailyhot: "producthunt", newsNow: "producthunt" },
+  hellogithub: { id: "hellogithub", label: "HelloGitHub", detail: "高质量开源项目", category: "tech", dailyhot: "hellogithub" },
+  nodeseek: { id: "nodeseek", label: "NodeSeek", detail: "服务器圈热议", category: "tech", dailyhot: "nodeseek" },
+  csdn: { id: "csdn", label: "CSDN", detail: "技术博客排行", category: "tech", dailyhot: "csdn" },
+  huxiu: { id: "huxiu", label: "虎嗅", detail: "商业科技深度", category: "tech", dailyhot: "huxiu" },
 
   // 财经
-  wallstreetcn: { id: "wallstreetcn-hot", label: "华尔街见闻", detail: "全球金融要闻", category: "finance", newsNow: "wallstreetcn-hot" },
-  xueqiu: { id: "xueqiu-hotstock", label: "雪球", detail: "热门讨论与股票", category: "finance", newsNow: "xueqiu-hotstock" },
+  wallstreetcn: { id: "wallstreetcn-hot", label: "华尔街见闻", detail: "全球金融要闻", category: "finance", dailyhot: "wallstreetcn", newsNow: "wallstreetcn-hot" },
+  xueqiu: { id: "xueqiu-hotstock", label: "雪球", detail: "热门讨论与股票", category: "finance", dailyhot: "xueqiu", newsNow: "xueqiu-hotstock" },
   cls: { id: "cls-telegraph", label: "财联社", detail: "财经电报实时动态", category: "finance", newsNow: "cls-telegraph" },
 
   // 视频 / 娱乐
-  bilibili: { id: "bilibili-hot-search", label: "B站热搜", detail: "Bilibili 热搜词", category: "video", newsNow: "bilibili-hot-search" },
-  bilibili_rank: { id: "bilibili-ranking", label: "B站排行榜", detail: "最受全站欢迎视频", category: "video", newsNow: "bilibili-ranking" },
-  douyin: { id: "douyin", label: "抖音热点", detail: "抖音全网热榜", category: "video", newsNow: "douyin" },
-  douban: { id: "douban", label: "豆瓣电影", detail: "近期热门影视", category: "video", newsNow: "douban" },
+  bilibili: { id: "bilibili-hot-search", label: "B站热搜", detail: "Bilibili 热搜词", category: "video", dailyhot: "bilibili", newsNow: "bilibili-hot-search" },
+  bilibili_rank: { id: "bilibili-ranking", label: "B站排行榜", detail: "最受全站欢迎视频", category: "video", direct: "bilibili-ranking", newsNow: "bilibili-ranking" },
+  douyin: { id: "douyin", label: "抖音热点", detail: "抖音全网热榜", category: "video", dailyhot: "douyin", newsNow: "douyin" },
+  douban_movie: { id: "douban-movie", label: "豆瓣电影", detail: "近期热门影视", category: "video", dailyhot: "douban-movie", newsNow: "douban" },
+  douban_group: { id: "douban-group", label: "豆瓣小组", detail: "热门小组讨论", category: "video", dailyhot: "douban-group" },
+  acfun: { id: "acfun", label: "AcFun", detail: "弹幕视频热门", category: "video", dailyhot: "acfun" },
 
   // 国际视野 / 其他门户
   reddit: { id: "reddit", label: "Reddit", detail: "r/popular 全球热帖", category: "world" },
-  zaobao: { id: "zaobao", label: "联合早报", detail: "早晨国际要闻", category: "world", newsNow: "zaobao" },
+  zaobao: { id: "zaobao", label: "联合早报", detail: "早晨国际要闻", category: "world", dailyhot: "zaobao", newsNow: "zaobao" },
   x: { id: "x", label: "X (Twitter)", detail: "官方趋势引导", category: "world" },
-  xiaohongshu: { id: "xiaohongshu", label: "小红书", detail: "发现页引导", category: "china" }
+  xiaohongshu: { id: "xiaohongshu", label: "小红书", detail: "发现页引导", category: "china" },
+
+  // AI / 技术 RSS（直连 RSS / 自托 RSSHub，实现见 hot-topics-sources.js）
+  techcrunch: { id: "techcrunch", label: "TechCrunch", detail: "硅谷创投与产品快讯", category: "ai", rss: true, rssSourceId: "techcrunch" },
+  theverge: { id: "theverge", label: "The Verge", detail: "科技产品与文化", category: "ai", rss: true, rssSourceId: "theverge" },
+  "arxiv-ai": { id: "arxiv-ai", label: "arXiv AI", detail: "cs.AI 最新论文", category: "ai", rss: true, rssSourceId: "arxiv-ai" },
+  "arxiv-ml": { id: "arxiv-ml", label: "arXiv ML", detail: "cs.LG 最新论文", category: "ai", rss: true, rssSourceId: "arxiv-ml" },
+  "ml-mastery": { id: "ml-mastery", label: "ML Mastery", detail: "机器学习教程", category: "ai", rss: true, rssSourceId: "ml-mastery" },
+  "towards-ds": { id: "towards-ds", label: "Towards Data Science", detail: "数据科学专栏", category: "ai", rss: true, rssSourceId: "towards-ds" },
+  "import-ai": { id: "import-ai", label: "Import AI", detail: "Jack Clark 的 AI 周报", category: "ai", rss: true, rssSourceId: "import-ai" },
+  leiphone: { id: "leiphone", label: "雷锋网", detail: "中文 AI 与硬科技", category: "ai", rss: true, rssSourceId: "leiphone" },
+  "hackernews-rss": { id: "hackernews-rss", label: "HN 100+ 高分", detail: "Hacker News 100 分以上", category: "ai", rss: true, rssSourceId: "hackernews-rss" }
 };
 
-const CACHE_TTL_MS = 3 * 60 * 1000; // 3分钟
+const CACHE_TTL_MS = 3 * 60 * 1000;
 const _cache = new Map();
+
+const BACKEND_LABEL = {
+  dailyhot: "DailyHotApi",
+  newsnow: "NewsNow",
+  direct: "官方接口",
+  reddit: "Reddit",
+  portal: "门户",
+  rss: "RSS 直连"
+};
 
 /**
  * 获取指定平台的热榜数据
  * @param {keyof typeof HOT_SOURCE_META} sourceId
- * @param {boolean} forceRefresh 是否强制刷新忽略缓存
+ * @param {Object} [opts]
+ * @param {boolean} [opts.forceRefresh] 强制忽略缓存
+ * @param {string} [opts.dailyhotBase] DailyHotApi 自定义地址
+ * @param {string} [opts.newsnowBase] NewsNow 自定义地址
  */
-export async function fetchHotTopics(sourceId, forceRefresh = false) {
+export async function fetchHotTopics(sourceId, opts = {}) {
+  const { forceRefresh = false, dailyhotBase, newsnowBase, rsshubBaseUrl } = opts;
+
   const meta = HOT_SOURCE_META[sourceId];
   if (!meta) {
     return { ok: false, message: "未知的热点来源。" };
   }
 
-  // 读取缓存
   if (!forceRefresh) {
     const cached = _cache.get(sourceId);
-    if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       return { ok: true, payload: cached.payload };
     }
   }
 
   const fetchedAt = new Date().toISOString();
+  const errors = [];
 
-  try {
-    let payload = null;
-    if (meta.newsNow) {
-      payload = await fetchNewsNowHot(fetchedAt, meta);
-    } else if (sourceId === "reddit") {
-      payload = await fetchRedditHot(fetchedAt, meta);
-    } else if (sourceId === "x") {
-      payload = portalPayload(fetchedAt, meta, xPortal());
-    } else if (sourceId === "xiaohongshu") {
-      payload = portalPayload(fetchedAt, meta, xhsPortal());
-    }
+  // X / 小红书：门户引导
+  if (sourceId === "x") {
+    const payload = portalPayload(fetchedAt, meta, xPortal());
+    _cache.set(sourceId, { timestamp: Date.now(), payload });
+    return { ok: true, payload };
+  }
+  if (sourceId === "xiaohongshu") {
+    const payload = portalPayload(fetchedAt, meta, xhsPortal());
+    _cache.set(sourceId, { timestamp: Date.now(), payload });
+    return { ok: true, payload };
+  }
 
-    if (payload) {
+  // RSS / RSSHub 直连
+  if (meta.rss) {
+    try {
+      const result = await fetchHotTopicSourceItems(
+        meta.rssSourceId || sourceId,
+        { rsshubBaseUrl },
+        30
+      );
+      const items = (result.items || []).map((item, i) => ({
+        id: `${meta.id}-${i}`,
+        title: item.title,
+        url: item.url,
+        subtitle: [item.hotScore, item.summary].filter(Boolean).join(" · ") || meta.label
+      }));
+      if (items.length === 0) {
+        return { ok: false, message: friendlyEmpty(meta.label, meta) };
+      }
+      const payload = {
+        mode: "list",
+        source: meta.id,
+        label: meta.label,
+        detail: meta.detail,
+        fetchedAt: result.fetchedAt || fetchedAt,
+        items,
+        backend: "rss",
+        notice: ""
+      };
       _cache.set(sourceId, { timestamp: Date.now(), payload });
       return { ok: true, payload };
+    } catch (e) {
+      return { ok: false, message: friendlyMessage(meta.label, e) };
     }
-  } catch (e) {
+  }
+
+  // Reddit：独立通道
+  if (sourceId === "reddit") {
+    try {
+      const payload = await fetchRedditHot(fetchedAt, meta);
+      if (payload.items.length >= MIN_VALID_ITEMS) {
+        _cache.set(sourceId, { timestamp: Date.now(), payload });
+        return { ok: true, payload };
+      }
+      return { ok: false, message: friendlyEmpty("Reddit", meta) };
+    } catch (e) {
+      return { ok: false, message: friendlyMessage("Reddit", e) };
+    }
+  }
+
+  // 主链路：DailyHot → 直连 API → NewsNow
+  let payload = null;
+
+  if (meta.dailyhot) {
+    try {
+      const candidate = await fetchDailyHotApi(
+        fetchedAt,
+        meta,
+        normalizeBase(dailyhotBase, DEFAULT_DAILYHOT_BASE)
+      );
+      if (candidate.items.length >= MIN_VALID_ITEMS) {
+        payload = candidate;
+      } else {
+        errors.push("DailyHotApi: 返回空列表");
+      }
+    } catch (e) {
+      errors.push(`DailyHotApi: ${shortMessage(e)}`);
+    }
+  }
+
+  if (!payload && meta.direct === "bilibili-ranking") {
+    try {
+      const candidate = await fetchBilibiliRanking(fetchedAt, meta);
+      if (candidate.items.length >= MIN_VALID_ITEMS) {
+        payload = candidate;
+      } else {
+        errors.push("Bilibili 官方接口: 返回空列表");
+      }
+    } catch (e) {
+      errors.push(`Bilibili 官方接口: ${shortMessage(e)}`);
+    }
+  }
+
+  if (!payload && meta.newsNow) {
+    try {
+      const candidate = await fetchNewsNowHot(
+        fetchedAt,
+        meta,
+        normalizeBase(newsnowBase, DEFAULT_NEWSNOW_BASE)
+      );
+      if (candidate.items.length >= MIN_VALID_ITEMS) {
+        payload = candidate;
+      } else {
+        errors.push("NewsNow: 返回空列表");
+      }
+    } catch (e) {
+      errors.push(`NewsNow: ${shortMessage(e)}`);
+    }
+  }
+
+  if (payload) {
+    _cache.set(sourceId, { timestamp: Date.now(), payload });
+    return { ok: true, payload };
+  }
+
+  if (errors.length === 0) {
     return {
       ok: false,
-      message: e?.message || "拉取热点失败，可能是网络问题或接口被拦截，请稍后重试。"
+      message: `「${meta.label}」暂未配置可用的数据接口，建议改用其他源（推荐：知乎热榜 / 微博热搜 / GitHub Trending），或在「设置 → 热点接口」填写自托 DailyHotApi 地址。`
     };
   }
 
-  return { ok: false, message: "未知的热点处理管线。" };
+  // 区分「全员失败」「全员返回空」「部分失败部分空」三种情况
+  const allEmpty = errors.every((line) => line.includes("返回空列表"));
+  const advice = allEmpty
+    ? `当前时段「${meta.label}」榜单可能没有新数据，可以稍后再试或换个源（推荐：知乎热榜 / GitHub Trending / 36氪）。`
+    : `公共聚合服务可能限流或暂时不可达。建议在「设置 → 热点接口」里改成自托 DailyHotApi（github.com/imsyy/DailyHotApi）。`;
+
+  return {
+    ok: false,
+    message: `「${meta.label}」拉取失败：${errors.join("；")}。${advice}`
+  };
 }
 
-// ── 通用爬取 (NewsNow 聚合 API) ──
+// ── DailyHotApi ──
 
-async function fetchNewsNowHot(fetchedAt, meta) {
-  const url = `https://newsnow.busiyi.world/api/s?id=${meta.newsNow}&latest`;
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": UA,
-      Accept: "application/json, text/plain, */*"
-    }
+async function fetchDailyHotApi(fetchedAt, meta, base) {
+  const url = `${base}${meta.dailyhot}?cache=true`;
+  const res = await fetchWithTimeout(url, {
+    headers: { "User-Agent": UA, Accept: "application/json" }
   });
 
-  if (!res.ok) {
-    throw new Error(`聚合数据接口返回 ${res.status}。`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const json = await res.json().catch(() => null);
+  if (!json) throw new Error("响应不是合法 JSON");
+  if (json.code != null && Number(json.code) !== 200) {
+    throw new Error(json.message || `code ${json.code}`);
   }
 
-  const json = await res.json();
-  const rawItems = json?.data || [];
+  const rawItems = Array.isArray(json.data) ? json.data : [];
   const items = [];
-
-  for (let i = 0; i < rawItems.length; i++) {
-    const d = rawItems[i];
+  for (let i = 0; i < rawItems.length && items.length < 35; i++) {
+    const d = rawItems[i] || {};
     const title = String(d.title || "").trim();
-    if (!title || d.stickied) {
-      continue;
-    }
-    
+    if (!title) continue;
+
     let link = d.url || d.mobileUrl || "";
-    // B站搜索URL补全
     if (link && link.startsWith("bilibili://")) {
-       link = `https://search.bilibili.com/all?keyword=${encodeURIComponent(title)}`;
+      link = `https://search.bilibili.com/all?keyword=${encodeURIComponent(title)}`;
     }
-    
-    let subtitleComponents = [];
-    if (d.hot) subtitleComponents.push(`热度 ${d.hot}`);
-    if (d.desc) subtitleComponents.push(String(d.desc).slice(0, 40));
+
+    const subtitleParts = [];
+    if (d.hot != null) subtitleParts.push(`热度 ${formatHotValue(d.hot)}`);
+    if (d.author) subtitleParts.push(String(d.author).slice(0, 24));
+    if (d.desc) subtitleParts.push(String(d.desc).replace(/\s+/g, " ").slice(0, 50));
 
     items.push({
       id: `${meta.id}-${d.id || i}`,
-      title: title,
+      title,
       url: link,
-      subtitle: subtitleComponents.length ? subtitleComponents.join(" · ") : `${meta.label}热榜`
+      subtitle: subtitleParts.length ? subtitleParts.join(" · ") : `${meta.label}热榜`
     });
-    
-    // 我们限制取前 35 条就够了，减轻DOM渲染压力
-    if (items.length >= 35) {
-      break;
-    }
   }
 
   return {
@@ -155,28 +304,129 @@ async function fetchNewsNowHot(fetchedAt, meta) {
     detail: meta.detail,
     fetchedAt,
     items,
-    notice: items.length === 0 ? "当前时段该平台可能无热点，或接口遭遇反爬。" : ""
+    backend: "dailyhot",
+    notice: ""
   };
 }
 
-// ── 独立爬取 (Reddit) ──
+// ── NewsNow ──
+
+async function fetchNewsNowHot(fetchedAt, meta, base) {
+  const url = `${base}api/s?id=${meta.newsNow}&latest`;
+  const res = await fetchWithTimeout(url, {
+    headers: { "User-Agent": UA, Accept: "application/json, text/plain, */*" }
+  });
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const json = await res.json().catch(() => null);
+  if (!json) throw new Error("响应不是合法 JSON");
+
+  const rawItems = json?.data || [];
+  const items = [];
+
+  for (let i = 0; i < rawItems.length && items.length < 35; i++) {
+    const d = rawItems[i];
+    const title = String(d.title || "").trim();
+    if (!title || d.stickied) continue;
+
+    let link = d.url || d.mobileUrl || "";
+    if (link && link.startsWith("bilibili://")) {
+      link = `https://search.bilibili.com/all?keyword=${encodeURIComponent(title)}`;
+    }
+
+    const subtitleComponents = [];
+    if (d.hot) subtitleComponents.push(`热度 ${formatHotValue(d.hot)}`);
+    if (d.desc) subtitleComponents.push(String(d.desc).slice(0, 40));
+
+    items.push({
+      id: `${meta.id}-${d.id || i}`,
+      title,
+      url: link,
+      subtitle: subtitleComponents.length ? subtitleComponents.join(" · ") : `${meta.label}热榜`
+    });
+  }
+
+  return {
+    mode: "list",
+    source: meta.id,
+    label: meta.label,
+    detail: meta.detail,
+    fetchedAt,
+    items,
+    backend: "newsnow",
+    notice: ""
+  };
+}
+
+// ── Bilibili 排行榜直连 ──
+
+async function fetchBilibiliRanking(fetchedAt, meta) {
+  const url = "https://api.bilibili.com/x/web-interface/ranking/v2?rid=0&type=all";
+  const res = await fetchWithTimeout(url, {
+    headers: {
+      "User-Agent": UA,
+      Accept: "application/json, text/plain, */*",
+      Referer: "https://www.bilibili.com/v/popular/rank/all"
+    }
+  });
+
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json().catch(() => null);
+  if (!json) throw new Error("响应不是合法 JSON");
+  if (json.code !== 0) throw new Error(json.message || `code ${json.code}`);
+
+  const list = Array.isArray(json?.data?.list) ? json.data.list : [];
+  const items = [];
+  for (let i = 0; i < list.length && items.length < 35; i++) {
+    const d = list[i] || {};
+    const title = String(d.title || "").trim();
+    if (!title) continue;
+
+    const link = d.short_link_v2 || (d.bvid ? `https://www.bilibili.com/video/${d.bvid}` : "");
+    const subtitleParts = [];
+    if (d.owner?.name) subtitleParts.push(String(d.owner.name).slice(0, 20));
+    if (d.stat?.view) subtitleParts.push(`播放 ${formatHotValue(d.stat.view)}`);
+    if (d.stat?.like) subtitleParts.push(`点赞 ${formatHotValue(d.stat.like)}`);
+
+    items.push({
+      id: `bilibili-rank-${d.bvid || d.aid || i}`,
+      title,
+      url: link,
+      subtitle: subtitleParts.length ? subtitleParts.join(" · ") : "B站排行榜"
+    });
+  }
+
+  return {
+    mode: "list",
+    source: meta.id,
+    label: meta.label,
+    detail: meta.detail,
+    fetchedAt,
+    items,
+    backend: "direct",
+    notice: ""
+  };
+}
+
+// ── Reddit ──
 
 async function fetchRedditHot(fetchedAt, meta) {
   const url = "https://www.reddit.com/r/popular/hot.json?limit=35&raw_json=1";
-  const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" } });
+  const res = await fetchWithTimeout(url, {
+    headers: { "User-Agent": UA, Accept: "application/json" }
+  });
 
-  if (!res.ok) {
-    throw new Error(`Reddit 接口返回 ${res.status}，请稍后再试。`);
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-  const json = await res.json();
+  const json = await res.json().catch(() => null);
   const children = json?.data?.children || [];
   const items = [];
 
-  for (let i = 0; i < children.length; i++) {
+  for (let i = 0; i < children.length && items.length < 30; i++) {
     const d = children[i]?.data;
     if (!d || d.stickied) continue;
-    
+
     const permalink = d.permalink || "";
     const link = permalink.startsWith("http") ? permalink : `https://www.reddit.com${permalink}`;
 
@@ -186,18 +436,21 @@ async function fetchRedditHot(fetchedAt, meta) {
       url: link,
       subtitle: `r/${d.subreddit || "?"} · ↑${d.ups ?? d.score ?? 0} · 💬${d.num_comments ?? 0}`
     });
-    if (items.length >= 30) break;
   }
 
   return {
     mode: "list",
-    source: meta.id, label: meta.label, detail: meta.detail,
-    fetchedAt, items,
-    notice: items.length === 0 ? "当前未解析到帖子，可能是接口限流或地区策略导致。" : ""
+    source: meta.id,
+    label: meta.label,
+    detail: meta.detail,
+    fetchedAt,
+    items,
+    backend: "reddit",
+    notice: ""
   };
 }
 
-// ── 引导平台 ──
+// ── 门户引导 ──
 
 function xPortal() {
   return {
@@ -220,8 +473,66 @@ function xhsPortal() {
 function portalPayload(fetchedAt, meta, portal) {
   return {
     mode: "portal",
-    source: meta.id, label: meta.label, detail: meta.detail,
-    fetchedAt, items: [], portal,
+    source: meta.id,
+    label: meta.label,
+    detail: meta.detail,
+    fetchedAt,
+    items: [],
+    portal,
+    backend: "portal",
     notice: "该平台无稳定极简 API，已为你链接到官方入口。"
   };
+}
+
+// ── 工具函数 ──
+
+function normalizeBase(value, fallback) {
+  const text = String(value || "").trim() || fallback;
+  return text.endsWith("/") ? text : `${text}/`;
+}
+
+function shortMessage(error) {
+  const text = String(error?.message || error || "未知错误");
+  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+}
+
+function friendlyMessage(label, error) {
+  const message = shortMessage(error);
+  if (/abort/i.test(message)) {
+    return `${label} 拉取超时（>${Math.round(FETCH_TIMEOUT_MS / 1000)}s），请检查网络或在设置里换个接口地址。`;
+  }
+  if (/failed to fetch|networkerror|load failed/i.test(message)) {
+    return `${label} 无法连接，可能是网络受限或接口不可达。`;
+  }
+  return `${label} 拉取失败：${message}`;
+}
+
+function friendlyEmpty(label, meta) {
+  return `${label} 当前没有返回任何榜单数据。可换个源（推荐：${meta?.id === "reddit" ? "Hacker News / GitHub Trending" : "知乎热榜 / 微博热搜"}）。`;
+}
+
+function formatHotValue(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return String(value);
+  if (num >= 100000000) return `${(num / 100000000).toFixed(1)}亿`;
+  if (num >= 10000) return `${(num / 10000).toFixed(1)}万`;
+  return String(num);
+}
+
+async function fetchWithTimeout(url, init = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function clearHotTopicsCache() {
+  _cache.clear();
+}
+
+export function backendLabel(id) {
+  return BACKEND_LABEL[id] || id || "";
 }

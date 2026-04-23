@@ -76,6 +76,39 @@
 
   /* 入场错开（与 .fade-in-children / .hero-stagger 配合） */
   --enter-step: 55ms;
+
+  /* ============== 工作台 / 应用外壳特化 ============== */
+  /* 240px 是壹伴侧栏的常用宽度，主流 SaaS（Notion/Linear/Slack）也都在 220-260 之间 */
+  --shell-side-width: 240px;
+  /* 顶部状态栏高度（含 padding） */
+  --shell-top-height: 56px;
+  /* 主内容区最小宽度，低于这个值在小窗里会自动让出更多 */
+  --shell-main-min: 880px;
+
+  /* 侧栏配色 — 比页面背景更深一档，强化"区域感" */
+  --side-bg: #f3efe5;
+  --side-item-hover: rgba(23, 55, 34, 0.06);
+  --side-item-active-bg: rgba(23, 55, 34, 0.1);
+  --side-item-active-ink: #173722;
+  --side-divider: rgba(168, 156, 134, 0.32);
+
+  /* 状态色（成功/警告/危险/信息），Stat 卡和徽章共用 */
+  --state-success: #2e7d4f;
+  --state-success-soft: rgba(46, 125, 79, 0.12);
+  --state-warning: #b87514;
+  --state-warning-soft: rgba(184, 117, 20, 0.14);
+  --state-danger: #b94540;
+  --state-danger-soft: rgba(185, 69, 64, 0.12);
+  --state-info: #2d6f99;
+  --state-info-soft: rgba(45, 111, 153, 0.12);
+
+  /* 会员金色（Pro 徽章 / 会员入口） */
+  --gold: #b8893f;
+  --gold-soft: rgba(184, 137, 63, 0.16);
+  --gold-strong: #8d651b;
+
+  /* 数字等宽（数据卡 / 倒计时 / 余额） */
+  --num-tabular: "tnum" 1, "lnum" 1;
 }
 
 /* 轻量入场：避免布局抖动，仅透明度 + 位移 */

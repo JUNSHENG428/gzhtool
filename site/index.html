@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-Hans" class="no-js">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>公众号写手 · 让 AI 帮你把公众号写起来</title>
+  <meta name="description" content="抓素材、AI 改写、批量推送公众号，一个 Chrome 扩展全部搞定。免费版包含全部基础功能；Pro 解锁多账号、DrissionPage、高级模板与无限改写。" />
+  <!-- 字体策略：preconnect 减少 DNS/TLS 延迟；display=swap 在字体未到达时先用系统字体。 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+  />
+  <link rel="stylesheet" href="./assets/css/site.css" />
+  <!-- 部署到生产环境时，把下面 content 改成真正的 worker 域名 -->
+  <meta name="api-base" content="" />
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="site-nav-inner">
+      <a class="site-brand" href="./index.html">
+        <span class="site-brand-mark">写</span>
+        <span>公众号写手</span>
+      </a>
+      <div class="site-nav-links">
+        <a href="./index.html">首页</a>
+        <a href="./pricing.html">定价</a>
+        <a href="./dashboard.html">控制台</a>
+        <a href="https://github.com/" target="_blank" rel="noopener">GitHub</a>
+      </div>
+      <div class="site-nav-cta">
+        <a class="btn btn-ghost" href="./login.html">登录</a>
+        <a class="btn btn-primary" href="./pricing.html">购买 Pro</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <section class="hero">
+      <div class="wrap layer">
+        <div class="hero-grid">
+          <div class="hero-stagger">
+            <span class="hero-eyebrow">Chrome 扩展 · 公众号写作助手</span>
+            <h1 class="hero-title">把<em>找选题、改写、排版、发文</em>都收进一个浏览器侧栏。</h1>
+            <p class="hero-subtitle">
+              公众号写手是一个为运营者打磨的 Chrome 扩展：从今日头条 / 知乎 / 微博热榜里挑素材，一键 AI 改写成你的声音，
+              排版后直接推到公众号草稿箱。免费版包含全部基础功能；Pro 解锁多账号、DrissionPage 增强抓取、高级改写模板与无限调用。
+            </p>
+            <div class="hero-actions">
+              <a class="btn btn-primary" href="./pricing.html">查看 Pro 套餐 →</a>
+              <a class="btn btn-ghost" href="https://chromewebstore.google.com/" target="_blank" rel="noopener">安装扩展</a>
+            </div>
+            <div class="hero-meta">
+              <span><strong>免费版</strong> · 单账号 · 每日 5 次 AI 改写</span>
+              <span><strong>Pro</strong> · 多账号 · 无限改写 · DrissionPage 抓取</span>
+              <span><strong>本地优先</strong> · 数据不上传</span>
+            </div>
+          </div>
+
+          <!-- Hero 插画：抽象的"杂志桌面 + 一棵小盆栽 + 跳动的小标签"
+               全 inline SVG（不依赖外部资源）；颜色完全用 CSS 变量复用主题。
+               aria-hidden 避免读屏器念这堆装饰元素。 -->
+          <div class="hero-art" aria-hidden="true">
+            <svg viewBox="0 0 420 420" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="paperGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#fffdf6" />
+                  <stop offset="100%" stop-color="#f5ecd9" />
+                </linearGradient>
+                <linearGradient id="leafGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#3d6a4c" />
+                  <stop offset="100%" stop-color="#1d4329" />
+                </linearGradient>
+                <pattern id="paperGrid" width="14" height="14" patternUnits="userSpaceOnUse">
+                  <path d="M 14 0 L 0 0 0 14" fill="none" stroke="rgba(50,40,28,0.05)" stroke-width="1"/>
+                </pattern>
+              </defs>
+
+              <!-- 桌面圆形背板 -->
+              <circle cx="210" cy="220" r="170" fill="rgba(184,114,46,0.10)" />
+              <circle cx="210" cy="220" r="170" fill="none" stroke="rgba(23,55,34,0.12)" stroke-width="1" stroke-dasharray="2 6"/>
+
+              <!-- 主稿纸（轻微旋转） -->
+              <g transform="translate(110 90) rotate(-4)">
+                <rect x="0" y="0" width="200" height="240" rx="10" fill="url(#paperGrad)"
+                      stroke="rgba(45,40,30,0.18)" stroke-width="1"/>
+                <rect x="0" y="0" width="200" height="240" rx="10" fill="url(#paperGrid)"/>
+                <!-- 标题与正文线 -->
+                <rect x="20" y="22" width="120" height="14" rx="3" fill="#1a2620" />
+                <rect x="20" y="46" width="60" height="6" rx="2" fill="rgba(184,114,46,0.7)" />
+                <g fill="rgba(58,72,62,0.55)">
+                  <rect x="20" y="74" width="160" height="4" rx="2"/>
+                  <rect x="20" y="86" width="150" height="4" rx="2"/>
+                  <rect x="20" y="98" width="155" height="4" rx="2"/>
+                  <rect x="20" y="110" width="120" height="4" rx="2"/>
+                  <rect x="20" y="130" width="160" height="4" rx="2"/>
+                  <rect x="20" y="142" width="140" height="4" rx="2"/>
+                  <rect x="20" y="154" width="148" height="4" rx="2"/>
+                  <rect x="20" y="166" width="100" height="4" rx="2"/>
+                </g>
+                <!-- 红印章感的 emphasis 圆点 -->
+                <circle cx="170" cy="200" r="14" fill="#b8722e" opacity="0.85"/>
+                <text x="170" y="205" font-family="serif" font-size="14" fill="#fffdf6" text-anchor="middle" font-weight="700">写</text>
+              </g>
+
+              <!-- 后面叠的一张稿纸（仅露出一角，制造层次） -->
+              <g transform="translate(190 60) rotate(8)">
+                <rect x="0" y="0" width="160" height="200" rx="10" fill="#fbf4e2"
+                      stroke="rgba(45,40,30,0.14)" stroke-width="1"/>
+                <rect x="14" y="20" width="130" height="6" rx="2" fill="rgba(184,114,46,0.5)"/>
+                <rect x="14" y="36" width="80" height="4" rx="2" fill="rgba(58,72,62,0.4)"/>
+              </g>
+
+              <!-- 小盆栽 -->
+              <g transform="translate(50 230)" class="float-slow">
+                <rect x="0" y="44" width="60" height="46" rx="6" fill="#9c6a3b"/>
+                <rect x="0" y="44" width="60" height="6" fill="#7c5126"/>
+                <!-- 叶片 -->
+                <path d="M30 44 C 0 0, 22 -10, 30 -8 C 36 -2, 36 24, 30 44 Z" fill="url(#leafGrad)"/>
+                <path d="M30 44 C 60 4, 50 -8, 36 -4 C 30 6, 26 28, 30 44 Z" fill="url(#leafGrad)" opacity="0.85"/>
+                <path d="M30 44 C 14 24, 0 18, 4 30 C 12 38, 24 44, 30 44 Z" fill="url(#leafGrad)" opacity="0.6"/>
+              </g>
+
+              <!-- 飘出的小标签（"AI 改写"） -->
+              <g transform="translate(290 280)" class="float-mid" style="--r: -6deg;">
+                <rect x="0" y="0" width="118" height="32" rx="16"
+                      fill="#173722" stroke="rgba(255,253,248,0.2)" stroke-width="1"/>
+                <circle cx="16" cy="16" r="5" fill="#f0d4b0"/>
+                <text x="30" y="20" font-family="sans-serif" font-size="12" font-weight="600" fill="#f0d4b0">AI 改写中…</text>
+              </g>
+
+              <!-- 飘出的小标签（"已推草稿"） -->
+              <g transform="translate(20 100)" class="float-fast" style="--r: 4deg;">
+                <rect x="0" y="0" width="110" height="30" rx="15"
+                      fill="#fffdf6" stroke="rgba(45,40,30,0.18)" stroke-width="1"/>
+                <text x="14" y="19" font-family="sans-serif" font-size="11" font-weight="600" fill="#2e7d4f">✓ 已推草稿</text>
+              </g>
+
+              <!-- 装饰星点 -->
+              <g fill="#b8722e" opacity="0.55">
+                <circle cx="370" cy="120" r="3"/>
+                <circle cx="80" cy="380" r="2"/>
+                <circle cx="380" cy="320" r="2.5"/>
+              </g>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="wrap layer">
+        <div class="section-head reveal">
+          <span class="section-eyebrow">FEATURES</span>
+          <h2 class="section-title">不是又一个 ChatGPT 套壳</h2>
+          <p class="section-sub">围绕公众号运营真实工作流打磨的 6 件事，每一件都能省出至少 10 分钟。</p>
+        </div>
+        <div class="card-grid">
+          <article class="card reveal">
+            <span class="card-icon" aria-hidden="true">📰</span>
+            <h3 class="card-title">热点抓取</h3>
+            <p class="card-desc">内置今日头条、知乎、微博、B 站等 20+ 热榜源；支持单页深度抓取与 DrissionPage 兜底，反爬不再头疼。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-icon" aria-hidden="true">✍️</span>
+            <h3 class="card-title">AI 改写 / 续写</h3>
+            <p class="card-desc">10+ 个内置写作模板（深度行业观察、轻短嘴炮、亲历叙事、辟谣帖…），调用你自己的 OpenAI / Claude / 国产大模型 Key。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-icon" aria-hidden="true">🎨</span>
+            <h3 class="card-title">公众号排版</h3>
+            <p class="card-desc">所见即所得编辑器，自带 12 种公众号专属样式；图文一键插入；导出 HTML 直接粘到公众号后台。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-icon" aria-hidden="true">📤</span>
+            <h3 class="card-title">一键发草稿</h3>
+            <p class="card-desc">填好 AppID / Secret，文章一键推送到公众号草稿箱，跳过复制粘贴黑洞。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-icon" aria-hidden="true">🧰</span>
+            <h3 class="card-title">多账号矩阵</h3>
+            <p class="card-desc">Pro 用户可同时管理多个公众号，账号切换零摩擦，矩阵号运营党的福音。</p>
+          </article>
+          <article class="card reveal">
+            <span class="card-icon" aria-hidden="true">🔒</span>
+            <h3 class="card-title">本地优先</h3>
+            <p class="card-desc">所有素材、草稿、改写结果默认存浏览器本地。我们只在你激活会员时校验一次 License，其余时间不向服务器发任何请求。</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-tight">
+      <div class="wrap wrap-narrow layer text-center reveal">
+        <div class="section-head" style="margin-bottom:24px;">
+          <span class="section-eyebrow">PRICING</span>
+          <h2 class="section-title">不绑卡也能从今天开始</h2>
+          <p class="section-sub">免费版包含全部基础功能。需要多账号、无限调用、深度抓取时再升级。</p>
+        </div>
+        <a class="btn btn-primary" href="./pricing.html">查看完整定价 →</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-foot">
+    <div class="site-foot-inner">
+      <span>© <span id="year"></span> 公众号写手 · 一个不打扰创作者的工具</span>
+      <nav>
+        <a href="./pricing.html">定价</a>
+        <a href="./login.html">登录</a>
+        <a href="./dashboard.html">控制台</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+  <script type="module" src="./assets/js/site.js"></script>
+</body>
+</html>

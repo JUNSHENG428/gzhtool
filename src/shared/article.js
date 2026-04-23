@@ -164,27 +164,119 @@ function nodeToMarkdown(node) {
 }
 
 function renderSection(section, sourceImages) {
-  const imageBlocks = (section.imageRefs || [])
-    .map((imageRef) => renderImageRef(imageRef, sourceImages))
-    .join("");
-  const paragraphs = (section.paragraphs || [])
-    .map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`)
-    .join("");
+  const heading = section.heading
+    ? `<h2>${escapeHtml(section.heading)}</h2>`
+    : "";
+  const paragraphs = (section.paragraphs || []).map(
+    (paragraph) => `<p>${escapeHtml(paragraph)}</p>`
+  );
   const bullets =
     section.bulletPoints?.length > 0
       ? `<ul>${section.bulletPoints
           .map((point) => `<li>${escapeHtml(point)}</li>`)
           .join("")}</ul>`
       : "";
-  const quote = section.quote ? `<blockquote>${escapeHtml(section.quote)}</blockquote>` : "";
+  const quote = section.quote
+    ? `<blockquote>${escapeHtml(section.quote)}</blockquote>`
+    : "";
+
+  const codeHtml = (section.codeBlocks || [])
+    .map((block) => renderCodeBlock(block))
+    .join("");
+  const tableHtml = (section.tables || [])
+    .map((table) => renderTableBlock(table))
+    .join("");
+  const mathHtml = (section.mathBlocks || [])
+    .map((block) => renderMathBlock(block))
+    .join("");
+  const imageBlocks = (section.imageRefs || [])
+    .map((imageRef) => renderImageRef(imageRef, sourceImages));
+
+  // 让图片不再总是粘在 section 末尾：把 imageRefs 均匀分布到 paragraphs 之间，
+  // 每张图后面跟一段相邻段落（如果还有的话）。结构、代码、表格、数学块依次跟在最后，
+  // 它们更像"补充信息"，放结尾不会破坏阅读节奏。
+  const inlineImages = [...imageBlocks];
+  const interleaved = [];
+  for (let i = 0; i < paragraphs.length; i += 1) {
+    interleaved.push(paragraphs[i]);
+    if (inlineImages.length > 0) {
+      const everyN = Math.max(1, Math.ceil(paragraphs.length / inlineImages.length));
+      if ((i + 1) % everyN === 0) {
+        interleaved.push(inlineImages.shift());
+      }
+    }
+  }
+  // 剩下没塞下的图按原顺序追加在段落之后、结构块之前
+  while (inlineImages.length > 0) interleaved.push(inlineImages.shift());
 
   return `<section class="article-section">
-    ${section.heading ? `<h2>${escapeHtml(section.heading)}</h2>` : ""}
-    ${paragraphs}
+    ${heading}
+    ${interleaved.join("")}
     ${bullets}
     ${quote}
-    ${imageBlocks}
+    ${tableHtml}
+    ${codeHtml}
+    ${mathHtml}
   </section>`;
+}
+
+function renderCodeBlock(block) {
+  const language = String(block.language || "").trim();
+  const text = String(block.text || "");
+  const preStyle =
+    "background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;" +
+    "font-family:'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;font-size:13px;" +
+    "line-height:1.6;white-space:pre-wrap;word-break:break-all;margin:1em 0;";
+  const codeStyle =
+    "font-family:inherit;font-size:inherit;color:inherit;background:transparent;padding:0;";
+  const langTag = language
+    ? `<span style="display:inline-block;font-size:11px;color:#94a3b8;margin-bottom:6px;">${escapeHtml(
+        language.toUpperCase()
+      )}</span>`
+    : "";
+  return `<pre style="${preStyle}">${langTag}<code style="${codeStyle}">${escapeHtml(text)}</code></pre>`;
+}
+
+function renderTableBlock(table) {
+  const headers = Array.isArray(table.headers) ? table.headers : [];
+  const rows = Array.isArray(table.rows) ? table.rows : [];
+  if (headers.length === 0 && rows.length === 0) return "";
+  const tableStyle =
+    "width:100%;border-collapse:collapse;margin:1em 0;font-size:14px;line-height:1.6;";
+  const thStyle =
+    "border:1px solid #d1d5db;background:#f3f4f6;padding:8px 12px;text-align:left;font-weight:600;";
+  const tdStyle = "border:1px solid #d1d5db;padding:8px 12px;vertical-align:top;";
+  const thead = headers.length
+    ? `<thead><tr>${headers
+        .map((h) => `<th style="${thStyle}">${escapeHtml(h || "")}</th>`)
+        .join("")}</tr></thead>`
+    : "";
+  const tbody = rows.length
+    ? `<tbody>${rows
+        .map(
+          (row) =>
+            `<tr>${row
+              .map((cell) => `<td style="${tdStyle}">${escapeHtml(cell || "")}</td>`)
+              .join("")}</tr>`
+        )
+        .join("")}</tbody>`
+    : "";
+  return `<table style="${tableStyle}">${thead}${tbody}</table>`;
+}
+
+function renderMathBlock(block) {
+  // 公众号原生不支持 KaTeX/MathJax；为保留信息又不让公式渲染失败，
+  // 我们把 latex 用代码块样式包起来，并加一行小字提示「数学公式（LaTeX）」。
+  // 这样阅读时仍能看到公式来源；后期如要真渲染，可在 workspace 端做 KaTeX → SVG 替换。
+  const latex = String(block.latex || "").trim();
+  if (!latex) return "";
+  const wrap =
+    "background:#fdf6e3;color:#2c2720;padding:12px 16px;border-left:3px solid #d6a86a;" +
+    "border-radius:6px;font-family:'Times New Roman',serif;font-size:15px;line-height:1.7;" +
+    "margin:1em 0;white-space:pre-wrap;";
+  const tag =
+    "display:inline-block;font-size:11px;color:#a87548;margin-bottom:6px;font-family:sans-serif;";
+  return `<div style="${wrap}"><span style="${tag}">数学公式（LaTeX）</span><br/>${escapeHtml(latex)}</div>`;
 }
 
 function renderImageRef(imageRef, sourceImages) {

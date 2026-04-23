@@ -214,3 +214,23 @@
   line-height: var(--leading-relaxed);
   color: var(--muted);
 }
+
+/* 一键入库失败时的视觉态：按钮变红 + 条目左侧描边，让用户即使错过 toast 也能定位到上次失败的条目 */
+.hot-item.is-error {
+  box-shadow: inset 3px 0 0 #c25455;
+}
+
+.hot-item-error {
+  margin-top: 6px !important;
+  color: #b53b3c !important;
+}
+
+button[data-action="express"].is-error {
+  background: #fdeaea;
+  border-color: #c25455;
+  color: #a02e2f;
+}
+
+button[data-action="express"].is-error:hover {
+  background: #f9d7d7;
+}

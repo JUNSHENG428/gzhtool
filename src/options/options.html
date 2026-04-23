@@ -6,42 +6,146 @@
     <title>设置 API</title>
     <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
     <link rel="stylesheet" href="./options.css" />
+    <link rel="stylesheet" href="./options-platform-grid.css" />
   </head>
-  <body class="ambient-page">
+  <body class="ambient-page" data-novice-mode="on">
+    <aside class="settings-quicknav" id="settingsQuicknav" aria-label="设置分区">
+      <div class="settings-quicknav-inner">
+        <p class="settings-quicknav-title">分区导航</p>
+        <nav class="settings-quicknav-list">
+          <p class="settings-quicknav-group">引导</p>
+          <a href="#quickStart" class="settings-quicknav-item" data-section-target="start">上手 3 步</a>
+
+          <p class="settings-quicknav-group">AI</p>
+          <a href="#opt-anchor-ai" class="settings-quicknav-item" data-section-target="ai">AI 接口</a>
+          <a href="#opt-anchor-brand" class="settings-quicknav-item" data-section-target="brand">品牌信息</a>
+          <a href="#opt-anchor-pref" class="settings-quicknav-item" data-section-target="pref">改写偏好</a>
+          <a href="#opt-anchor-prompt" class="settings-quicknav-item" data-section-target="prompt">Prompt 模板</a>
+
+          <p class="settings-quicknav-group">公众号</p>
+          <a href="#opt-anchor-wechat" class="settings-quicknav-item" data-section-target="wechat">直连发布</a>
+          <a href="#opt-anchor-profiles" class="settings-quicknav-item" data-section-target="profiles">多账号管理</a>
+
+          <p class="settings-quicknav-group">抓取</p>
+          <a href="#drissionSettings" class="settings-quicknav-item" data-section-target="drission">DrissionPage</a>
+          <a href="#opt-anchor-hot" class="settings-quicknav-item" data-section-target="hot">热点接口</a>
+          <a href="#agentSettings" class="settings-quicknav-item" data-section-target="agent">选题代笔</a>
+
+          <p class="settings-quicknav-group">授权</p>
+          <a href="#licenseSection" class="settings-quicknav-item" data-section-target="license">会员激活</a>
+
+          <p class="settings-quicknav-group">数据</p>
+          <a href="#opt-anchor-pages" class="settings-quicknav-item" data-section-target="pages">相关页面 / 数据</a>
+        </nav>
+      </div>
+    </aside>
+
     <main class="settings-shell fade-in-children">
       <section class="hero settings-hero">
         <p class="eyebrow">设置</p>
         <h1>AI 改写与公众号发布设置</h1>
         <p class="intro">
-          在这里填好 AI 改写接口和公众号发布所需的信息，保存后就能在编辑台里使用。所有信息只保存在当前浏览器中。
+          在这里填好 AI 改写接口和公众号发布所需的信息，保存后就能在编辑台里使用。所有信息只保存在当前浏览器中，不上传任何服务器。
         </p>
+        <div class="mode-switch" role="tablist" aria-label="设置显示模式">
+          <button class="mode-pill is-active" data-mode="novice" type="button" role="tab">
+            <span class="mode-pill-icon" aria-hidden="true">🌱</span>新手模式
+          </button>
+          <button class="mode-pill" data-mode="expert" type="button" role="tab">
+            <span class="mode-pill-icon" aria-hidden="true">⚙️</span>高级模式
+          </button>
+          <span class="mode-hint" id="modeHint">新手模式只显示最关键的几张配置卡，进阶能力默认收起。</span>
+        </div>
       </section>
 
-      <section class="card">
+      <section class="card quick-start" id="quickStart" data-section-key="start">
         <div class="section-heading">
-          <h2>AI 改写接口</h2>
-          <p>支持任何兼容 OpenAI 格式的接口，例如 OpenAI、OpenRouter，或你已有的代理地址。</p>
+          <h2>3 步上手</h2>
+          <p>跟着下面的清单走，绿色对勾出现就说明这一步已经填完。任何一步卡住可以点「展开说明」看图文步骤。</p>
+        </div>
+        <ol class="checklist">
+          <li class="checklist-item" data-step="ai">
+            <span class="step-num">1</span>
+            <div class="step-body">
+              <div class="step-head">
+                <strong>填 AI 改写接口</strong>
+                <span class="step-status" data-status="missing">未完成</span>
+              </div>
+              <p class="step-desc">在第一张「AI 改写接口」卡片里填好 API Key 和模型名。还没有 Key？可以去 <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">OpenAI</a>、<a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">OpenRouter</a>（支持国内信用卡）申请；只想试用可以直接填免费的中转地址。</p>
+              <button type="button" class="step-jump" data-jump="apiBaseUrl">跳到这一步 ↓</button>
+            </div>
+          </li>
+          <li class="checklist-item" data-step="wechat">
+            <span class="step-num">2</span>
+            <div class="step-body">
+              <div class="step-head">
+                <strong>填公众号发布凭证<span class="step-tag">可选</span></strong>
+                <span class="step-status" data-status="missing">未完成</span>
+              </div>
+              <p class="step-desc">登录公众号后台 → 开发 → 基本配置，把 <code>AppID</code> 和 <code>AppSecret</code> 复制过来，并在「IP 白名单」里加上当前出口 IP。如果你只想用 AI 改写、不直推到公众号，这一步可以跳过。</p>
+              <button type="button" class="step-jump" data-jump="wechatAppId">跳到这一步 ↓</button>
+            </div>
+          </li>
+          <li class="checklist-item" data-step="save">
+            <span class="step-num">3</span>
+            <div class="step-body">
+              <div class="step-head">
+                <strong>点击底部「保存设置」</strong>
+                <span class="step-status" data-status="missing">未保存</span>
+              </div>
+              <p class="step-desc">填完后页面底部有绿色「保存设置」按钮，保存成功后就能去编辑台抓网页 → AI 改写 → 一键发草稿。</p>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="card" data-section="ai" data-section-key="ai" id="opt-anchor-ai">
+        <div class="section-heading">
+          <h2><span class="section-step-pill">第 1 步</span>AI 改写接口</h2>
+          <p>支持任何兼容 OpenAI 格式的接口，例如 OpenAI、OpenRouter、Azure、DeepSeek、月之暗面，或你已有的代理地址。</p>
+          <details class="field-help">
+            <summary>第一次配置？点这里看图文教程</summary>
+            <ol>
+              <li>去 <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">OpenAI</a> 或 <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">OpenRouter</a> 申请一个 API Key（OpenRouter 支持国内信用卡和 Apple Pay）。</li>
+              <li>把 Key 粘贴到下方「API Key」框；不要把 Key 直接发给别人。</li>
+              <li>「接口地址」用对应平台的 chat completions 地址；OpenAI 官方就是默认值。</li>
+              <li>「模型名称」填该平台支持的型号，常用便宜的：<code>gpt-4.1-mini</code>、<code>gpt-4o-mini</code>、<code>deepseek-chat</code>、<code>openai/gpt-4o-mini</code>（OpenRouter）。</li>
+              <li>填完点「测试连接」，看到「✅ 连接成功」就说明可用。</li>
+            </ol>
+          </details>
         </div>
 
         <label>
-          <span>API Base URL</span>
+          <span>接口地址 <small class="field-meta">API Base URL</small></span>
           <input id="apiBaseUrl" type="url" required placeholder="https://api.openai.com/v1/chat/completions" />
+          <small class="field-hint">必须是 chat completions 接口完整地址。OpenAI 官方填默认值即可；OpenRouter 用 <code>https://openrouter.ai/api/v1/chat/completions</code>。</small>
         </label>
 
         <div class="split-grid">
           <label>
-            <span>API Key</span>
-            <input id="apiKey" type="password" required placeholder="sk-..." minlength="8" />
+            <span>密钥 <small class="field-meta">API Key</small></span>
+            <input id="apiKey" type="password" required placeholder="sk-..." minlength="8" autocomplete="off" />
+            <small class="field-hint">一长串以 <code>sk-</code> 开头的字符串。只保存在你本机浏览器，不会上传。</small>
           </label>
           <label>
-            <span>Model</span>
-            <input id="model" type="text" required placeholder="gpt-4.1-mini" />
+            <span>模型名称 <small class="field-meta">Model</small></span>
+            <input id="model" type="text" required placeholder="gpt-4.1-mini" list="commonModelList" />
+            <datalist id="commonModelList">
+              <option value="gpt-4.1-mini">OpenAI · gpt-4.1-mini（性价比首选）</option>
+              <option value="gpt-4o-mini">OpenAI · gpt-4o-mini</option>
+              <option value="gpt-4.1">OpenAI · gpt-4.1（更强但更贵）</option>
+              <option value="deepseek-chat">DeepSeek · deepseek-chat（国内便宜）</option>
+              <option value="openai/gpt-4o-mini">OpenRouter · openai/gpt-4o-mini</option>
+              <option value="anthropic/claude-3.5-sonnet">OpenRouter · Claude 3.5 Sonnet</option>
+            </datalist>
+            <small class="field-hint">不知道填啥就先用 <code>gpt-4.1-mini</code>，便宜效果稳。</small>
           </label>
         </div>
 
-        <label>
-          <span>Temperature</span>
+        <label class="field-narrow">
+          <span>采样温度 <small class="field-meta">Temperature · 0~2</small></span>
           <input id="temperature" type="number" required min="0" max="2" step="0.1" />
+          <small class="field-hint">越接近 0 越严谨稳定，越接近 1 越有创意；改写公众号文章一般填 <code>0.7</code>。</small>
         </label>
 
         <div class="test-action-row">
@@ -50,9 +154,9 @@
         </div>
       </section>
 
-      <section class="card split-grid">
+      <section class="card split-grid" data-advanced="true" data-section-key="brand" id="opt-anchor-brand">
         <div class="section-heading split-full">
-          <h2>品牌与联系方式</h2>
+          <h2>品牌与联系方式<span class="section-tag soft">进阶</span></h2>
           <p>这些信息会自动显示在欢迎页、帮助中心和政策页面上，方便用户在需要时联系到你。</p>
         </div>
 
@@ -74,10 +178,10 @@
         </label>
       </section>
 
-      <section class="card split-grid">
+      <section class="card split-grid" data-section-key="pref" id="opt-anchor-pref">
         <div class="section-heading split-full">
-          <h2>默认改写偏好</h2>
-          <p>这些偏好会在每次打开编辑台时自动填入，你仍然可以在编辑时临时调整。</p>
+          <h2>默认改写偏好<span class="section-tag soft">可选</span></h2>
+          <p>这些偏好会在每次打开编辑台时自动填入，你仍然可以在编辑时临时调整。<strong>留空也能用</strong>，AI 会按内置默认风格写。</p>
         </div>
 
         <label>
@@ -98,36 +202,51 @@
         </label>
       </section>
 
-      <section class="card split-grid">
+      <section class="card split-grid" data-section="wechat" data-section-key="wechat" id="opt-anchor-wechat">
         <div class="section-heading split-full">
-          <h2>公众号直连发布</h2>
+          <h2><span class="section-step-pill">第 2 步</span>公众号直连发布<span class="section-tag">可选</span></h2>
           <p>
-            填好后即可直接推送到公众号草稿箱或发布。如果你的公众号后台开启了「IP 白名单」，请先在公众号后台把当前电脑的 IP 添加进去。
+            填好后可一键把改写好的文章推到公众号草稿箱或直接发布。<strong>如果只用 AI 改写、不直推到公众号，这一节可以跳过。</strong>
           </p>
+          <details class="field-help">
+            <summary>不知道 AppID/AppSecret 在哪？点这里看获取步骤</summary>
+            <ol>
+              <li>登录 <a href="https://mp.weixin.qq.com/" target="_blank" rel="noreferrer">微信公众平台</a>（订阅号 / 服务号 / 个人订阅号都行）。</li>
+              <li>左侧菜单 → <strong>设置与开发</strong> → <strong>开发接口管理</strong>（旧版叫「基本配置」）。</li>
+              <li>页面里能看到 <strong>开发者 ID（AppID）</strong> 和 <strong>开发者密码（AppSecret）</strong>。AppSecret 第一次生成后会隐藏，记得本地存好。</li>
+              <li>同一页找到「IP 白名单」，把你当前电脑的出口 IP 加进去（百度搜「我的 IP」可看到当前 IP），否则会提示 <code>40164</code>。</li>
+              <li>个人订阅号没有「群发图文」权限，但可以推到「草稿箱」，之后在手机微信里手动发布。</li>
+            </ol>
+          </details>
         </div>
 
         <label>
-          <span>公众号 AppID</span>
+          <span>公众号 AppID <small class="field-meta">开发者 ID</small></span>
           <input id="wechatAppId" type="text" placeholder="wx..." pattern="^wx[a-f0-9]{16}$" title="微信 AppID 格式为 wx 开头，后跟 16 位小写字母或数字" />
+          <small class="field-hint">格式：<code>wx</code> 开头 + 16 位小写字母或数字。</small>
         </label>
         <label>
-          <span>公众号 AppSecret</span>
-          <input id="wechatAppSecret" type="password" placeholder="填写公众号密钥" minlength="8" />
+          <span>公众号 AppSecret <small class="field-meta">开发者密码</small></span>
+          <input id="wechatAppSecret" type="password" placeholder="填写公众号密钥" minlength="8" autocomplete="off" />
+          <small class="field-hint">同样在开发接口管理页里查看；只保存在本机浏览器。</small>
         </label>
         <label>
           <span>默认作者</span>
           <input id="wechatDefaultAuthor" type="text" placeholder="文章作者署名" maxlength="8" title="公众号作者最多 8 个字" />
+          <small class="field-hint">公众号要求作者最多 8 个字，可留空。</small>
         </label>
         <label>
           <span>默认来源链接</span>
           <input id="wechatDefaultSourceUrl" type="url" placeholder="https://你的官网或原文地址" />
+          <small class="field-hint">文章底部「阅读原文」会跳到这个链接，可留空。</small>
         </label>
         <label>
           <span>默认发布模式</span>
           <select id="wechatDefaultPublishMode">
-            <option value="draft">推草稿箱</option>
-            <option value="publish">直接发布</option>
+            <option value="draft">推草稿箱（推荐，再到手机审核后发）</option>
+            <option value="publish">直接发布（需要服务号权限）</option>
           </select>
+          <small class="field-hint">不确定就选「推草稿箱」，最安全；直接发布对个人订阅号是无效的。</small>
         </label>
         <div class="checkbox-stack">
           <label class="checkbox-row">
@@ -143,13 +262,14 @@
         <div class="test-action-row split-full">
           <button id="testWechatConnectionButton" class="ghost" type="button">测试公众号连接</button>
           <p id="testWechatConnectionResult" class="test-result" aria-live="polite"></p>
+          <small class="field-hint">注意：测试只能验证 AppID/AppSecret 能换到 token，不代表你账号有「群发」「草稿」接口权限——真正发的时候还可能因为权限不足报错。</small>
         </div>
       </section>
 
-      <section class="card">
+      <section class="card" data-advanced="true" data-section-key="profiles" id="opt-anchor-profiles">
         <div class="section-heading split-full">
-          <h2>多账号管理</h2>
-          <p>如果你有多个公众号，可以在这里保存多套凭证，发布时在编辑台里切换。</p>
+          <h2>多账号管理<span class="section-tag soft">进阶</span></h2>
+          <p>如果你有多个公众号，可以在这里保存多套凭证，发布时在编辑台里切换。只用一个号的话不用管这里。</p>
         </div>
 
         <div id="wechatProfilesContainer" class="profiles-list"></div>
@@ -178,7 +298,357 @@
         </div>
       </section>
 
-      <section class="card">
+      <section class="card" data-advanced="true" data-section-key="hot" id="opt-anchor-hot">
+        <div class="section-heading">
+          <h2>热点接口<span class="section-tag soft">进阶</span></h2>
+          <p>
+            热点捕捉默认走开源
+            <a href="https://github.com/imsyy/DailyHotApi" target="_blank" rel="noreferrer">DailyHotApi</a>
+            （公共地址 <code>https://api-hot.imsyy.top/</code>）。如果公共服务被限流，建议自己用一行 Docker 跑一份，再把地址填到这里：
+          </p>
+          <p class="muted">
+            <code>docker run -d --name daily-hot-api -p 6688:6688 imsyy/dailyhot-api:latest</code>
+          </p>
+        </div>
+
+        <label class="split-full">
+          <span>DailyHotApi 地址（留空使用公共地址）</span>
+          <input id="hotTopicsDailyHotBase" type="url" placeholder="https://api-hot.imsyy.top/" />
+        </label>
+
+        <label class="split-full">
+          <span>NewsNow 备用地址（留空使用公共地址）</span>
+          <input id="hotTopicsNewsnowBase" type="url" placeholder="https://newsnow.busiyi.world/" />
+        </label>
+
+        <p class="muted">
+          抓取顺序：先 DailyHotApi，失败时自动回退到 NewsNow，再失败才提示错误。
+        </p>
+      </section>
+
+      <section class="card" data-advanced="true" id="drissionSettings" data-section-key="drission">
+        <div class="section-heading">
+          <h2>DrissionPage 增强抓取<span class="section-tag soft">可选 / 进阶</span></h2>
+          <p>
+            遇到反爬严重、需要登录的页面时，可以在本机起一个
+            <a href="https://github.com/g1879/DrissionPage" target="_blank" rel="noreferrer">DrissionPage</a>
+            helper 服务（自带 Chromium），扩展会优先把抓取请求转给它；helper 不可达或抓不到内容时会自动回退到内置抓取，不会让你卡死。
+          </p>
+          <p class="muted">
+            选区抓取（在网页上选中文字 → 抓取）永远走扩展内置脚本，不经过 DrissionPage。
+          </p>
+        </div>
+
+        <label class="checkbox-row">
+          <input id="drissionEnabled" type="checkbox" />
+          <span>启用 DrissionPage 优先抓取</span>
+        </label>
+
+        <label class="split-full">
+          <span>helper 地址（如 <code>http://127.0.0.1:8765/</code>）</span>
+          <input id="drissionHelperUrl" type="url" placeholder="http://127.0.0.1:8765/" autocomplete="off" />
+        </label>
+
+        <label class="split-full">
+          <span>抓取超时（毫秒，5000 - 120000）</span>
+          <input id="drissionTimeoutMs" type="number" min="5000" max="120000" step="1000" placeholder="30000" />
+        </label>
+
+        <div class="test-action-row split-full">
+          <button id="testDrissionConnectionButton" class="ghost" type="button">测试 helper 连接</button>
+          <p id="testDrissionConnectionResult" class="test-result" aria-live="polite"></p>
+          <small class="field-hint">测试只检查 helper 的 <code>/health</code> 接口可达。真正抓取效果取决于目标站点 + 浏览器内核。</small>
+        </div>
+      </section>
+
+      <section class="card" id="agentSettings" data-advanced="true" data-section-key="agent">
+        <div class="section-heading">
+          <h2>AI 选题代笔 Agent<span class="section-tag soft">进阶</span></h2>
+          <p>
+            为 <a href="./../pages/agent.html" target="_blank" rel="noreferrer">AI 选题代笔</a> 控制台设默认值：默认勾选哪些平台、每平台抓多少条、并发与抖动、是否调用一次 AI 生成选题总结。这些值仍可在控制台临时修改。
+          </p>
+          <p class="muted">
+            凭据完全靠浏览器自身 cookie，扩展不存账号密码。如未登录，对应平台会被自动跳过。
+          </p>
+        </div>
+
+        <fieldset class="platform-grid-fieldset">
+          <legend>默认抓取平台</legend>
+          <div id="agentPlatformsGrid" class="platform-grid"></div>
+        </fieldset>
+
+        <div class="split-grid">
+          <label>
+            <span>每平台抓取上限</span>
+            <input id="agentPerPlatformLimit" type="number" min="1" max="30" />
+          </label>
+          <label>
+            <span>最终保留条数</span>
+            <input id="agentFinalLimit" type="number" min="1" max="30" />
+          </label>
+          <label>
+            <span>并发数（建议 1-2）</span>
+            <input id="agentConcurrency" type="number" min="1" max="4" />
+          </label>
+          <label>
+            <span>抖动下限（毫秒）</span>
+            <input id="agentJitterMin" type="number" min="0" max="8000" />
+          </label>
+          <label>
+            <span>抖动上限（毫秒）</span>
+            <input id="agentJitterMax" type="number" min="0" max="12000" />
+          </label>
+        </div>
+
+        <div class="checkbox-stack">
+          <label class="checkbox-row">
+            <input id="agentEnableBrief" type="checkbox" />
+            <span>跑完后让 AI 生成「选题总结 + 推荐角度」（消耗一次模型调用）</span>
+          </label>
+          <label class="checkbox-row">
+            <input id="agentShowAnglesAside" type="checkbox" />
+            <span>在结果区同时展示推荐角度提示</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="card prompt-template-card" data-advanced="true" data-section-key="prompt" id="opt-anchor-prompt">
+        <div class="section-heading">
+          <h2>改写 Prompt 模板<span class="section-tag soft">进阶</span></h2>
+          <p>
+            选择或自定义改写风格。预设了 5 套常用模板（深度行业观察、故事化叙述、清单整理、新闻速读、教程拆解），可以直接编辑、复制成新模板，或一键设为编辑台默认。
+          </p>
+          <p id="templateActivePill" class="template-active-pill" data-state="idle">当前未启用任何模板（使用内置默认 prompt）</p>
+        </div>
+
+        <div class="template-toolbar">
+          <div class="template-toolbar-left">
+            <button id="addTemplateButton" type="button" class="primary">+ 新建模板</button>
+            <button id="duplicateTemplateButton" type="button" class="ghost">复制当前</button>
+            <button id="restoreTemplateButton" type="button" class="ghost" hidden>恢复默认</button>
+            <button id="deleteTemplateButton" type="button" class="ghost danger" hidden>删除</button>
+          </div>
+          <div class="template-toolbar-right">
+            <button id="previewPromptButton" type="button" class="ghost">预览最终 Prompt</button>
+            <button id="exportTemplatesButton" type="button" class="ghost">导出</button>
+            <button id="importTemplatesButton" type="button" class="ghost">导入</button>
+            <input id="importTemplatesInput" type="file" accept="application/json" hidden />
+          </div>
+        </div>
+
+        <div class="template-layout">
+          <aside class="template-sidebar">
+            <ul id="templateList" class="templates-list"></ul>
+          </aside>
+
+          <div class="template-main">
+            <p id="templateEmptyState" class="templates-empty" hidden>
+              还没有选中任何模板，从左侧列表选一个开始编辑。
+            </p>
+
+            <form id="templateEditorForm" class="template-form">
+              <div class="template-form-head">
+                <span id="templateBadge" class="template-badge" hidden>预设模板</span>
+                <span id="templateLiveMeta" class="template-live-meta">未选择模板</span>
+                <button id="setActiveTemplateButton" type="button" class="ghost active-button">设为编辑台默认</button>
+              </div>
+
+              <div class="split-grid">
+                <label>
+                  <span>图标</span>
+                  <input id="templateIcon" type="text" maxlength="2" placeholder="📝" />
+                </label>
+                <label>
+                  <span>名称</span>
+                  <input id="templateName" type="text" placeholder="模板名称" />
+                </label>
+              </div>
+
+              <label class="template-textarea-label">
+                <span class="template-textarea-head">
+                  <span>System 提示词</span>
+                  <span id="templateSystemStats" class="template-stats">0 字符</span>
+                </span>
+                <textarea id="templateSystem" rows="9" placeholder="给模型的系统人设和硬约束"></textarea>
+              </label>
+
+              <div class="template-var-row">
+                <span class="template-var-label">点击插入变量：</span>
+                <button type="button" class="var-chip" data-var="title">{{title}}</button>
+                <button type="button" class="var-chip" data-var="url">{{url}}</button>
+                <button type="button" class="var-chip" data-var="siteName">{{siteName}}</button>
+                <button type="button" class="var-chip" data-var="wordCount">{{wordCount}}</button>
+                <button type="button" class="var-chip" data-var="imageCount">{{imageCount}}</button>
+                <button type="button" class="var-chip" data-var="audience">{{audience}}</button>
+                <button type="button" class="var-chip" data-var="tone">{{tone}}</button>
+                <button type="button" class="var-chip" data-var="angle">{{angle}}</button>
+                <button type="button" class="var-chip" data-var="length">{{length}}</button>
+                <button type="button" class="var-chip" data-var="cta">{{cta}}</button>
+                <button type="button" class="var-chip" data-var="content">{{content}}</button>
+              </div>
+
+              <label class="template-textarea-label">
+                <span class="template-textarea-head">
+                  <span>User 提示词</span>
+                  <span id="templateUserStats" class="template-stats">0 字符</span>
+                </span>
+                <textarea id="templateUser" rows="10" placeholder="给模型的当次任务输入，可使用 {{...}} 变量"></textarea>
+              </label>
+
+              <details class="template-defaults" open>
+                <summary>默认改写偏好（可被编辑台临时覆盖）</summary>
+                <div class="split-grid">
+                  <label>
+                    <span>默认受众</span>
+                    <input id="templateDefaultAudience" type="text" placeholder="例如：关注 AI 工具的产品经理" />
+                  </label>
+                  <label>
+                    <span>默认语气</span>
+                    <input id="templateDefaultTone" type="text" placeholder="例如：专业、有判断" />
+                  </label>
+                  <label>
+                    <span>默认角度</span>
+                    <input id="templateDefaultAngle" type="text" placeholder="例如：提炼观点，给出反方视角" />
+                  </label>
+                  <label>
+                    <span>默认篇幅</span>
+                    <select id="templateDefaultLength">
+                      <option value="short">短文 800-1200 字</option>
+                      <option value="medium">标准 1200-1800 字</option>
+                      <option value="long">长文 1800-2600 字</option>
+                    </select>
+                  </label>
+                  <label class="split-full">
+                    <span>默认 CTA</span>
+                    <input id="templateDefaultCta" type="text" placeholder="例如：结尾给出一个可执行建议" />
+                  </label>
+                  <label>
+                    <span>Temperature（留空跟随全局）</span>
+                    <input id="templateTemperature" type="number" min="0" max="2" step="0.05" placeholder="例如 0.7" />
+                  </label>
+                  <label>
+                    <span>专属 Model（留空跟随全局）</span>
+                    <input id="templateModel" type="text" placeholder="例如 gpt-4.1-mini" />
+                  </label>
+                </div>
+              </details>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <div id="promptPreviewBackdrop" class="prompt-preview-backdrop" hidden>
+        <div class="prompt-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="promptPreviewTitle">
+          <div class="prompt-preview-head">
+            <h3 id="promptPreviewTitle">最终发送给模型的 Prompt 预览</h3>
+            <button id="promptPreviewCloseBtn" type="button" class="ghost">关闭</button>
+          </div>
+          <p id="promptPreviewMeta" class="prompt-preview-meta">等待生成预览…</p>
+          <pre id="promptPreviewSystem" class="prompt-preview-block"></pre>
+          <pre id="promptPreviewUser" class="prompt-preview-block"></pre>
+        </div>
+      </div>
+
+      <section class="card license-card" id="licenseSection" data-section-key="license">
+        <div class="section-heading">
+          <h2><span class="section-step-pill license-step-pill">会员</span>会员激活</h2>
+          <p id="licenseHeroHint">免费版包含全部基础功能。如需多账号、DrissionPage、高级模板与无限改写，请登录账号绑定 Pro License。</p>
+        </div>
+
+        <div class="license-status-box" id="licenseStatusBox" data-status="free">
+          <span class="license-status-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path
+                fill="currentColor"
+                d="M12 2.7l2.6 5.27 5.82.85-4.21 4.1.99 5.78L12 15.96l-5.2 2.74.99-5.78L3.58 8.82l5.82-.85L12 2.7z"
+              />
+            </svg>
+          </span>
+          <div class="license-status-meta">
+            <strong id="licenseStatusLabel">免费版</strong>
+            <span id="licenseStatusHint" class="license-status-hint">未激活会员，所有基础功能均可使用</span>
+          </div>
+          <span id="licenseStatusKey" class="license-status-key" hidden></span>
+          <button id="licenseRefreshBtn" class="ghost-button" type="button" title="向服务器复验当前 License 状态">刷新状态</button>
+        </div>
+
+        <!-- 子区块 1：账号 -->
+        <div class="license-block" id="licenseAccountBlock">
+          <div class="license-block-head">
+            <h3>账号</h3>
+            <span class="license-block-hint" id="licenseAccountStatus">未登录</span>
+          </div>
+
+          <!-- 未登录：登录 / 注册 切换表单 -->
+          <div class="license-auth-tabs" id="licenseAuthTabs">
+            <button type="button" class="license-tab active" data-auth-tab="login">登录</button>
+            <button type="button" class="license-tab" data-auth-tab="register">注册</button>
+          </div>
+          <div class="license-auth-form" id="licenseAuthForm">
+            <input id="licenseEmailInput" type="email" class="license-input" placeholder="邮箱" autocomplete="email" />
+            <input id="licensePasswordInput" type="password" class="license-input" placeholder="密码（至少 8 位）" autocomplete="current-password" />
+            <button id="licenseAuthSubmitBtn" class="primary-button" type="button">登录</button>
+          </div>
+          <p id="licenseAuthFeedback" class="license-feedback" data-tone="muted" hidden></p>
+
+          <!-- 已登录：账号信息 + 退出 -->
+          <div class="license-account-info" id="licenseAccountInfo" hidden>
+            <div class="license-account-row">
+              <span class="license-account-label">已登录账号</span>
+              <strong id="licenseAccountEmail">—</strong>
+            </div>
+            <button id="licenseLogoutBtn" class="ghost-button" type="button">退出登录</button>
+          </div>
+        </div>
+
+        <!-- 子区块 2：License Key 绑定 -->
+        <div class="license-block" id="licenseKeyBlock">
+          <div class="license-block-head">
+            <h3>License Key</h3>
+            <span class="license-block-hint">购买后会以邮件形式发到你的邮箱</span>
+          </div>
+          <div class="license-input-row">
+            <label for="licenseKeyInput" class="license-input-label">激活码</label>
+            <input
+              id="licenseKeyInput"
+              type="text"
+              class="license-input"
+              placeholder="GZHT-XXXX-XXXX-XXXX"
+              autocomplete="off"
+              spellcheck="false"
+              maxlength="19"
+            />
+            <button id="licenseActivateBtn" class="primary-button" type="button">激活并绑定</button>
+            <button id="licenseClearBtn" class="ghost-button" type="button" hidden>解绑本机</button>
+          </div>
+          <p id="licenseFeedback" class="license-feedback" data-tone="muted">
+            未购买？查看
+            <a id="licensePricingLink" href="#" target="_blank" rel="noopener">Pro 套餐与定价</a>。
+          </p>
+        </div>
+
+        <!-- 子区块 3：当前账号下的 License 列表 -->
+        <div class="license-block" id="licenseListBlock" hidden>
+          <div class="license-block-head">
+            <h3>账号下的所有 License</h3>
+            <span class="license-block-hint">点击「绑定」可把任一 Key 激活到本机</span>
+          </div>
+          <div id="licenseListContainer" class="license-list">
+            <p class="license-list-empty">暂未在该账号下查到 License Key。</p>
+          </div>
+        </div>
+
+        <!-- 子区块 4：付费功能解锁清单（一目了然让用户知道激活能开什么） -->
+        <div class="license-block" id="licenseFeaturesBlock">
+          <div class="license-block-head">
+            <h3>付费功能</h3>
+            <span class="license-block-hint">下表展示当前账号可解锁的能力</span>
+          </div>
+          <ul id="licenseFeaturesList" class="license-features"></ul>
+        </div>
+      </section>
+
+      <section class="card" data-section-key="pages" id="opt-anchor-pages">
         <div class="section-heading">
           <h2>相关页面</h2>
           <p>快速打开欢迎页、热点捕捉、帮助中心以及与本扩展相关的政策页面。</p>
@@ -199,20 +669,30 @@
         </div>
       </section>
 
-      <div class="actions">
-        <button id="saveButton" class="primary">保存设置</button>
-        <details class="reset-menu">
-          <summary class="ghost reset-summary">分区重置…</summary>
-          <div class="reset-options">
-            <button id="resetAiButton" type="button" class="ghost">仅重置 AI 接口</button>
-            <button id="resetWechatButton" type="button" class="ghost">仅重置公众号凭证</button>
-            <button id="resetPreferencesButton" type="button" class="ghost">仅重置改写偏好</button>
-            <p class="reset-note muted">分区重置不会影响其它分区的配置；多账号列表 (wechatProfiles) 永远不会被一键清空。</p>
-          </div>
-        </details>
-      </div>
-      <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <p class="advanced-toast" id="advancedToast" role="note">
+        <span aria-hidden="true">💡</span>
+        还有「品牌信息 / 多账号 / 热点接口 / AI 选题代笔 / 改写 Prompt 模板」等进阶配置已收起。
+        <button type="button" class="link-button" data-mode="expert">切到高级模式查看</button>
+      </p>
     </main>
+
+    <div class="save-bar" role="region" aria-label="保存设置">
+      <div class="save-bar-inner">
+        <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+        <div class="actions">
+          <details class="reset-menu">
+            <summary class="ghost reset-summary">分区重置…</summary>
+            <div class="reset-options">
+              <button id="resetAiButton" type="button" class="ghost">仅重置 AI 接口</button>
+              <button id="resetWechatButton" type="button" class="ghost">仅重置公众号凭证</button>
+              <button id="resetPreferencesButton" type="button" class="ghost">仅重置改写偏好</button>
+              <p class="reset-note muted">分区重置不会影响其它分区的配置；多账号列表 (wechatProfiles) 永远不会被一键清空。</p>
+            </div>
+          </details>
+          <button id="saveButton" class="primary save-bar-primary">保存设置</button>
+        </div>
+      </div>
+    </div>
     <script type="module" src="./options.js"></script>
   </body>
 </html>

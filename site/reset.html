@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-Hans" class="no-js">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>重置密码 · 公众号写手</title>
+  <meta name="description" content="设置新的公众号写手账号密码。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+  />
+  <link rel="stylesheet" href="./assets/css/site.css" />
+  <meta name="api-base" content="" />
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="site-nav-inner">
+      <a class="site-brand" href="./index.html">
+        <span class="site-brand-mark">写</span>
+        <span>公众号写手</span>
+      </a>
+      <div class="site-nav-links">
+        <a href="./index.html">首页</a>
+        <a href="./pricing.html">定价</a>
+        <a href="./dashboard.html">控制台</a>
+      </div>
+      <div class="site-nav-cta"></div>
+    </div>
+  </nav>
+
+  <main class="auth-shell">
+    <aside class="auth-side">
+      <div>
+        <p style="font-size:0.78rem;letter-spacing:0.16em;text-transform:uppercase;color:rgba(240,212,176,0.7);">设置新密码</p>
+        <h2>这一步只做一次。</h2>
+        <p>设置成功后，已登录的所有设备会保持原 token；下次重新登录请使用新密码。</p>
+      </div>
+      <blockquote>
+        小提示：如果你换设备登录，可以在控制台「我的 License」面板里"解绑设备"
+        把不再用的浏览器移出去，避免占用 Pro 设备数。
+      </blockquote>
+    </aside>
+
+    <section class="auth-form-side">
+      <div class="auth-card">
+        <h1>设置新密码</h1>
+        <p class="auth-card-sub" id="resetSub">链接 30 分钟内有效；超时请回到「忘记密码」重新申请。</p>
+
+        <form id="resetForm" autocomplete="off" novalidate>
+          <div class="field">
+            <label for="newPassword">新密码</label>
+            <div class="password-wrap">
+              <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" required minlength="8" placeholder="至少 8 位" />
+              <button type="button" class="password-toggle" id="passwordToggle" aria-label="显示密码">显示</button>
+            </div>
+            <div class="password-strength" id="passwordStrength" data-mode="reset">
+              <div class="password-strength-bar"><span></span></div>
+              <span class="password-strength-text" id="passwordStrengthText">—</span>
+            </div>
+            <span class="field-hint">至少 8 位，建议字母 + 数字 + 符号。</span>
+          </div>
+          <div class="field">
+            <label for="newPassword2">再输一次新密码</label>
+            <input id="newPassword2" name="newPassword2" type="password" autocomplete="new-password" required minlength="8" placeholder="再输一次" />
+          </div>
+          <button class="btn btn-primary btn-block" id="submitBtn" type="submit">保存新密码</button>
+          <p class="feedback" id="feedback"></p>
+        </form>
+
+        <div class="divider"></div>
+        <p class="muted text-center" style="font-size:0.85rem;">
+          没收到链接？<a href="./forgot.html">重新发送 →</a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./assets/js/site.js"></script>
+  <script type="module" src="./assets/js/reset.js"></script>
+</body>
+</html>

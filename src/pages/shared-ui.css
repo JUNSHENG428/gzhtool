@@ -1,0 +1,756 @@
+/**
+ * 共享 UI 组件类 - 跨 popup / workspace / options / pages 复用
+ * ----------------------------------------------------------------
+ * 命名约定：所有类都以 `ui-` 开头，避免和老类名冲突。
+ * 已有的 `.button`、`.panel`、`.eyebrow` 留在 page.css 不动。
+ *
+ * 包含：
+ *   1. App Shell      `.ui-shell` / `.ui-shell-side` / `.ui-shell-main` / `.ui-shell-top`
+ *   2. Side Nav       `.ui-nav-section` / `.ui-nav-item` / `.ui-nav-badge`
+ *   3. Top Status     `.ui-top-meta` / `.ui-top-pill` / `.ui-top-divider`
+ *   4. Stat Tile      `.ui-stat` / `.ui-stat-num` / `.ui-stat-trend`
+ *   5. Section Card   `.ui-section` / `.ui-section-head`
+ *   6. Quick Tile     `.ui-quick-grid` / `.ui-quick-tile`
+ *   7. Empty State    `.ui-empty`
+ *   8. Tab Bar        `.ui-tabbar` / `.ui-tab`
+ *   9. Member Pill    `.ui-member-pill`
+ *  10. Icon Button    `.ui-icon-btn`
+ *  11. Mini list      `.ui-mini-list`
+ *
+ * 依赖：design-tokens.css 必须先于本文件加载。
+ */
+
+/* ===================== 1. App Shell ===================== */
+/* 整个工作台外壳：左侧固定 240 + 主区滚动；顶部 sticky 状态栏 */
+.ui-shell {
+  display: grid;
+  grid-template-columns: var(--shell-side-width) minmax(0, 1fr);
+  min-height: 100vh;
+  background:
+    var(--bg-bloom-1),
+    var(--bg-bloom-2),
+    var(--bg-bloom-3),
+    var(--bg-base);
+  background-attachment: fixed;
+}
+
+.ui-shell-side {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 14px 14px;
+  background: var(--side-bg);
+  border-right: 1px solid var(--side-divider);
+  z-index: 5;
+  overflow-y: auto;
+}
+
+/* 侧栏顶部品牌区 */
+.ui-shell-side-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px 14px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--side-divider);
+}
+
+.ui-shell-side-brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--brand) 0%, #2a4f37 100%);
+  display: grid;
+  place-items: center;
+  color: var(--cream);
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-xs);
+}
+
+.ui-shell-side-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ui-shell-side-brand-name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+.ui-shell-side-brand-slogan {
+  font-size: 11px;
+  color: var(--soft-ink);
+  letter-spacing: 0.02em;
+}
+
+.ui-shell-main {
+  min-width: 0; /* 允许内部 grid/flex 收缩，避免横向溢出 */
+  display: flex;
+  flex-direction: column;
+}
+
+.ui-shell-top {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: var(--shell-top-height);
+  padding: 0 var(--space-3);
+  background: rgba(255, 253, 248, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+
+.ui-shell-content {
+  flex: 1;
+  padding: var(--space-3);
+  min-width: 0;
+}
+
+.ui-shell-content-narrow {
+  width: min(1080px, 100%);
+  margin: 0 auto;
+}
+
+/* ===================== 2. Side Nav ===================== */
+.ui-nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 0 6px;
+}
+
+.ui-nav-section + .ui-nav-section {
+  border-top: 1px solid var(--side-divider);
+  margin-top: 6px;
+}
+
+.ui-nav-section-title {
+  margin: 0 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ui-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink-secondary);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+  width: 100%;
+}
+
+.ui-nav-item:hover {
+  background: var(--side-item-hover);
+  color: var(--ink);
+}
+
+.ui-nav-item[aria-current="page"],
+.ui-nav-item.is-active {
+  background: var(--side-item-active-bg);
+  color: var(--side-item-active-ink);
+  font-weight: 600;
+}
+
+.ui-nav-item-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  color: currentColor;
+}
+
+.ui-nav-item-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ui-nav-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--gold-soft);
+  color: var(--gold-strong);
+  letter-spacing: 0.04em;
+}
+
+.ui-nav-badge[data-tone="new"] {
+  background: var(--state-success-soft);
+  color: var(--state-success);
+}
+
+.ui-nav-badge[data-tone="info"] {
+  background: var(--state-info-soft);
+  color: var(--state-info);
+}
+
+/* 侧栏底部固定区（设置 / 帮助 / 用户入口） */
+.ui-nav-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--side-divider);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ===================== 3. Top Status Bar ===================== */
+.ui-top-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ui-top-meta-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.ui-top-meta-sub {
+  font-size: 12px;
+  color: var(--soft-ink);
+}
+
+.ui-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-top-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-secondary);
+  font-feature-settings: var(--num-tabular);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
+  font-family: inherit;
+}
+
+.ui-top-pill:hover {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.ui-top-pill[data-tone="success"] {
+  background: var(--state-success-soft);
+  border-color: transparent;
+  color: var(--state-success);
+}
+
+.ui-top-pill[data-tone="warning"] {
+  background: var(--state-warning-soft);
+  border-color: transparent;
+  color: var(--state-warning);
+}
+
+.ui-top-pill[data-tone="danger"] {
+  background: var(--state-danger-soft);
+  border-color: transparent;
+  color: var(--state-danger);
+}
+
+.ui-top-pill[data-tone="gold"] {
+  background: var(--gold-soft);
+  border-color: transparent;
+  color: var(--gold-strong);
+}
+
+.ui-top-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+}
+
+/* ===================== 4. Stat Tile ===================== */
+.ui-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.ui-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.ui-stat:hover {
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.ui-stat-label {
+  font-size: 12px;
+  color: var(--soft-ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ui-stat-num {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  font-feature-settings: var(--num-tabular);
+  line-height: 1.1;
+}
+
+.ui-stat-num-unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--soft-ink);
+  margin-left: 4px;
+  font-family: var(--font-sans);
+}
+
+.ui-stat-trend {
+  font-size: 12px;
+  color: var(--soft-ink);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-feature-settings: var(--num-tabular);
+}
+
+.ui-stat-trend[data-tone="up"] {
+  color: var(--state-success);
+}
+
+.ui-stat-trend[data-tone="down"] {
+  color: var(--state-danger);
+}
+
+/* ===================== 5. Section Card ===================== */
+.ui-section {
+  background: var(--surface-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 22px 24px;
+  box-shadow: var(--shadow-xs);
+}
+
+.ui-section + .ui-section {
+  margin-top: 16px;
+}
+
+.ui-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.ui-section-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ui-section-title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.ui-section-sub {
+  font-size: 13px;
+  color: var(--soft-ink);
+  margin: 0;
+}
+
+/* ===================== 6. Quick Tile（壹伴 9 宫格风格） ===================== */
+.ui-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.ui-quick-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  transition: all var(--duration-fast) var(--ease-out);
+  font-family: inherit;
+  position: relative;
+  text-decoration: none;
+  color: inherit;
+}
+
+.ui-quick-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm);
+  border-color: var(--brand);
+}
+
+.ui-quick-tile-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.ui-quick-tile[data-tone="accent"] .ui-quick-tile-icon {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.ui-quick-tile[data-tone="gold"] .ui-quick-tile-icon {
+  background: var(--gold-soft);
+  color: var(--gold-strong);
+}
+
+.ui-quick-tile-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ui-quick-tile-desc {
+  font-size: 12px;
+  color: var(--soft-ink);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ui-quick-tile-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--state-danger);
+  color: white;
+  letter-spacing: 0.04em;
+}
+
+/* ===================== 7. Empty State ===================== */
+.ui-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--soft-ink);
+}
+
+.ui-empty-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+  background: var(--brand-soft);
+  color: var(--brand);
+  margin-bottom: 4px;
+}
+
+.ui-empty-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+}
+
+.ui-empty-desc {
+  font-size: 13px;
+  color: var(--soft-ink);
+  max-width: 36ch;
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* ===================== 8. Tab Bar（popup 用） ===================== */
+.ui-tabbar {
+  display: flex;
+  background: var(--surface-elevated);
+  border-bottom: 1px solid var(--line);
+  padding: 4px 6px 0;
+  gap: 2px;
+}
+
+.ui-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px 8px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  position: relative;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.ui-tab:hover {
+  color: var(--ink-secondary);
+}
+
+.ui-tab[aria-selected="true"],
+.ui-tab.is-active {
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.ui-tab[aria-selected="true"]::after,
+.ui-tab.is-active::after {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 0;
+  height: 2px;
+  background: var(--brand);
+  border-radius: 2px 2px 0 0;
+}
+
+.ui-tab-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.ui-tab-dot {
+  position: absolute;
+  top: 8px;
+  right: calc(50% - 14px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--state-danger);
+}
+
+/* ===================== 9. Member Pill ===================== */
+.ui-member-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter var(--duration-fast) var(--ease-out);
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--soft-ink);
+}
+
+.ui-member-pill:hover {
+  filter: brightness(0.97);
+}
+
+.ui-member-pill[data-status="pro"] {
+  background: var(--gold-soft);
+  color: var(--gold-strong);
+  border-color: rgba(184, 137, 63, 0.3);
+}
+
+.ui-member-pill[data-status="free"] {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.ui-member-pill[data-status="expired"] {
+  background: var(--state-warning-soft);
+  color: var(--state-warning);
+}
+
+.ui-member-pill[data-status="invalid"] {
+  background: var(--state-danger-soft);
+  color: var(--state-danger);
+}
+
+.ui-member-pill svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ===================== 10. Icon Button ===================== */
+.ui-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-secondary);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+  font-family: inherit;
+}
+
+.ui-icon-btn:hover {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.ui-icon-btn[data-active="true"] {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+/* ===================== 11. Mini List（最近草稿/最近抓取） ===================== */
+.ui-mini-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-mini-list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+  text-decoration: none;
+  color: inherit;
+}
+
+.ui-mini-list-item:hover {
+  background: var(--brand-soft);
+}
+
+.ui-mini-list-rank {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: var(--cream);
+  color: var(--soft-ink);
+  font-size: 12px;
+  font-weight: 700;
+  font-feature-settings: var(--num-tabular);
+  flex-shrink: 0;
+}
+
+.ui-mini-list-item:nth-child(1) .ui-mini-list-rank,
+.ui-mini-list-item:nth-child(2) .ui-mini-list-rank,
+.ui-mini-list-item:nth-child(3) .ui-mini-list-rank {
+  background: var(--state-danger-soft);
+  color: var(--state-danger);
+}
+
+.ui-mini-list-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ui-mini-list-meta {
+  font-size: 11px;
+  color: var(--muted);
+  font-feature-settings: var(--num-tabular);
+  flex-shrink: 0;
+}
+
+/* ===================== 响应式：窄屏侧栏隐藏 ===================== */
+@media (max-width: 900px) {
+  .ui-shell {
+    grid-template-columns: 1fr;
+  }
+  .ui-shell-side {
+    display: none;
+  }
+}

@@ -1,0 +1,10 @@
+# Cloudflare Pages 友好 URL 重写：
+# 让 /pricing 自动指向 /pricing.html，省一个 .html 后缀。
+# 顺序：精确路径优先；fallback 200 = 内部 rewrite，不会改地址栏。
+
+/login        /login.html      200
+/register     /login.html?mode=register  200
+/forgot       /forgot.html     200
+/reset        /reset.html      200
+/pricing      /pricing.html    200
+/dashboard    /dashboard.html  200

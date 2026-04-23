@@ -1,5 +1,7 @@
 import { formatRuntimeError, escapeHtml } from "../shared/utils.js";
 
+/* ============== 单平台浏览 ============== */
+
 const hotContent = document.querySelector("#hotContent");
 const hotMeta = document.querySelector("#hotMeta");
 const hotStatus = document.querySelector("#hotStatus");
@@ -27,9 +29,7 @@ filterInput?.addEventListener("input", (e) => {
 
 document.querySelector("[data-open-workspace]")?.addEventListener("click", (e) => {
   e.preventDefault();
-  if (!runtimeOk) {
-    return;
-  }
+  if (!runtimeOk) return;
   chrome.tabs.create({ url: chrome.runtime.getURL("src/workspace/workspace.html") });
 });
 
@@ -62,7 +62,9 @@ async function loadSource(source, forceRefresh = false) {
   });
 
   if (!response?.ok) {
-    hotStatus.textContent = formatRuntimeError(response?.error, "加载失败。");
+    const friendly = formatRuntimeError(response?.error, "加载失败。");
+    hotStatus.textContent = friendly;
+    hotContent.innerHTML = `<p class="hot-notice">${escapeHtml(friendly)}</p>`;
     return;
   }
 
@@ -70,7 +72,13 @@ async function loadSource(source, forceRefresh = false) {
   hotStatus.textContent = "";
 
   const time = data.fetchedAt ? new Date(data.fetchedAt).toLocaleString("zh-CN") : "";
-  hotMeta.textContent = [data.label && `${data.label}`, data.detail, time && `更新：${time}`]
+  const backendLabel = formatBackend(data.backend);
+  hotMeta.textContent = [
+    data.label && `${data.label}`,
+    data.detail,
+    backendLabel && `源：${backendLabel}`,
+    time && `更新：${time}`
+  ]
     .filter(Boolean)
     .join(" · ");
 
@@ -115,23 +123,29 @@ function renderList(data) {
   const rows = items
     .map((item, index) => {
       const idx = index + 1;
+      const hasUrl = typeof item.url === "string" && item.url.trim().length > 0;
+      const safeUrl = hasUrl ? escapeAttr(item.url) : "";
+      // 没有 url 的条目（多数是榜单纯文本/付费墙）只展示标题，不挂死按钮
+      const titleHtml = hasUrl
+        ? `<a href="${safeUrl}" target="_blank" rel="noreferrer noopener">${escapeHtml(item.title)}</a>`
+        : `<span class="hot-item-title-text">${escapeHtml(item.title)}</span>`;
+      const disabledAttr = hasUrl ? "" : ' disabled aria-disabled="true" title="该条目没有可访问的原文链接"';
       return `
       <article class="hot-item">
         <div>
           <p class="hot-item-title">
             <span class="hot-item-index">${idx}</span>
-            <a href="${escapeAttr(item.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(
-              item.title
-            )}</a>
+            ${titleHtml}
           </p>
           ${item.subtitle ? `<p class="hot-item-sub">${escapeHtml(item.subtitle)}</p>` : ""}
+          ${hasUrl ? "" : '<p class="hot-item-sub" style="color:#a87548">⚠️ 该条目没有原文链接，无法一键入库</p>'}
         </div>
         <div class="hot-item-actions">
-          <button type="button" class="primary ghost" data-action="express" data-url="${escapeAttr(item.url)}">📥 一键入库</button>
-          <button type="button" class="ghost" data-action="card" data-url="${escapeAttr(item.url)}">分享截屏</button>
+          <button type="button" class="primary ghost" data-action="express" data-url="${safeUrl}"${disabledAttr}>📥 一键入库</button>
+          <button type="button" class="ghost" data-action="card" data-url="${safeUrl}">分享截屏</button>
           <div style="display:flex;gap:6px">
-            <button type="button" class="ghost" style="flex:1" data-action="open" data-url="${escapeAttr(item.url)}">打开</button>
-            <button type="button" class="ghost" style="flex:1" data-action="copy" data-url="${escapeAttr(item.url)}">复制链</button>
+            <button type="button" class="ghost" style="flex:1" data-action="open" data-url="${safeUrl}"${disabledAttr}>打开</button>
+            <button type="button" class="ghost" style="flex:1" data-action="copy" data-url="${safeUrl}"${disabledAttr}>复制链</button>
           </div>
         </div>
       </article>`;
@@ -142,20 +156,28 @@ function renderList(data) {
     data.notice ? `<p class="hot-notice">${escapeHtml(data.notice)}</p>` : ""
   }`;
 
-  hotContent.querySelectorAll("button[data-action]").forEach((btn) => {
+  bindItemActions(hotContent, items, data.label || "热点捕捉器");
+}
+
+function bindItemActions(container, items, sourceLabel) {
+  container.querySelectorAll("button[data-action]").forEach((btn) => {
     btn.addEventListener("click", async () => {
+      if (btn.disabled) return;
       const url = btn.getAttribute("data-url");
-      if (!url) {
-        return;
-      }
-      
       const action = btn.dataset.action;
-      
+      if (!url) {
+        if (action === "card") {
+          // 截图卡片不需要 url
+        } else {
+          showToast("该条目没有原文链接，跳过该操作。");
+          return;
+        }
+      }
+
       if (action === "open") {
         chrome.tabs.create({ url });
         return;
       }
-
       if (action === "copy") {
         try {
           await navigator.clipboard.writeText(url);
@@ -165,9 +187,13 @@ function renderList(data) {
         }
         return;
       }
-
       if (action === "express") {
         const originalText = btn.innerHTML;
+        const itemEl = btn.closest(".hot-item");
+        // 清掉这个条目上一次留下的失败提示（如有）
+        itemEl?.querySelector(".hot-item-error")?.remove();
+        itemEl?.classList.remove("is-error");
+
         btn.innerHTML = "📡 拉取中...";
         btn.disabled = true;
         try {
@@ -176,38 +202,59 @@ function renderList(data) {
             payload: { url }
           });
           if (res?.ok && res.data) {
+            // 后台已经写过 lastCapture，这里直接打开 workspace 即可恢复到编辑台
             showToast("拉取成功，正在打开排版台...");
             setTimeout(() => {
-              chrome.tabs.create({ url: chrome.runtime.getURL("src/workspace/workspace.html") });
+              chrome.tabs.create({
+                url: chrome.runtime.getURL("src/workspace/workspace.html") + "?import=1"
+              });
               btn.innerHTML = "✅ 成功";
             }, 600);
           } else {
             throw new Error(formatRuntimeError(res?.error, "拉取失败。"));
           }
         } catch (e) {
-          showToast(e.message || "后台抓取失败，建议在此页面点「打开」后尝试标准抓取。");
-          btn.innerHTML = originalText;
+          // 同时在 toolbar 顶部给个 toast、按钮上变红、条目下方留一行 inline 错误，
+          // 三层提示叠加让用户绝对不会"按下去没反应"。
+          const reason = e.message || "后台抓取失败";
+          showToast(reason);
+          btn.innerHTML = "❌ 失败 · 重试";
           btn.disabled = false;
+          btn.classList.add("is-error");
+          if (itemEl) {
+            itemEl.classList.add("is-error");
+            const note = document.createElement("p");
+            note.className = "hot-item-sub hot-item-error";
+            note.textContent = `❗ ${reason}（可点「打开」后用扩展面板手动抓取，或换一条试试）`;
+            itemEl.querySelector("div")?.appendChild(note);
+          }
+          // 几秒后把按钮文字恢复，但保留 is-error 样式与 inline 提示，
+          // 让用户既能看见上次失败，也能再点一次重试
+          setTimeout(() => {
+            if (btn.innerHTML.includes("失败")) {
+              btn.innerHTML = originalText;
+            }
+          }, 5000);
         }
         return;
       }
-
       if (action === "card") {
-        const itemObj = items.find(i => i.url === url);
-        if (itemObj) {
-          await drawShareCard(itemObj, data.label || "热点捕捉器");
-        }
+        const itemObj = items.find((i) => i.url === url);
+        if (itemObj) await drawShareCard(itemObj, sourceLabel);
         return;
       }
     });
   });
 }
 
-function showToast(msg) {
+function showToast(msg, durationMs) {
   hotStatus.textContent = msg;
+  // 错误信息（包含❌/失败/错误等关键字）默认停留更久；普通成功提示 3.5s
+  const isErr = /❌|失败|错误|抓取失败|拉取失败|超时|无法/.test(msg);
+  const ttl = durationMs ?? (isErr ? 7000 : 3500);
   setTimeout(() => {
     if (hotStatus.textContent === msg) hotStatus.textContent = "";
-  }, 3500);
+  }, ttl);
 }
 
 async function drawShareCard(item, sourceLabel) {
@@ -234,7 +281,6 @@ async function drawShareCard(item, sourceLabel) {
     const blob = new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const img = new Image();
-    
     await new Promise((resolve, reject) => {
       img.onload = resolve;
       img.onerror = reject;
@@ -245,18 +291,17 @@ async function drawShareCard(item, sourceLabel) {
     canvas.width = 600;
     canvas.height = 300;
     const ctx = canvas.getContext("2d");
-    
-    // Fill white background just in case
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, 600, 300);
     ctx.drawImage(img, 0, 0, 600, 300);
-    
-    const pngBlob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
-    
+
+    const pngBlob = await new Promise((resolve) =>
+      canvas.toBlob(resolve, "image/png")
+    );
+
     await navigator.clipboard.write([
       new ClipboardItem({ "image/png": pngBlob })
     ]);
-    
     URL.revokeObjectURL(url);
     showToast("🎉 卡片已生成并成功复制到剪贴板，可直接粘贴！");
   } catch (error) {
@@ -268,4 +313,15 @@ function escapeAttr(s) {
   return escapeHtml(s).replace(/'/g, "&#39;");
 }
 
+function formatBackend(backend) {
+  if (backend === "dailyhot") return "DailyHotApi";
+  if (backend === "newsnow") return "NewsNow（备用）";
+  if (backend === "direct") return "官方接口直连";
+  if (backend === "reddit") return "Reddit 直连";
+  if (backend === "portal") return "门户引导";
+  if (backend === "rss") return "RSS 直连";
+  return "";
+}
+
 void loadSource(activeSource);
+

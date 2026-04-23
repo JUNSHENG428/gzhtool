@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN" data-page="agent">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 选题代笔 - 公众号改写排版台</title>
+    <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+    <link rel="stylesheet" href="./page.css" />
+    <link rel="stylesheet" href="./shared-ui.css" />
+    <link rel="stylesheet" href="./agent.css" />
+    <script src="./embed-detect.js"></script>
+  </head>
+  <body class="ambient-page">
+    <a class="skip-link" href="#main">跳到主内容</a>
+    <main id="main" class="page-shell fade-in-children" role="main">
+      <header class="topbar">
+        <a class="brand" href="./welcome.html" data-product-name>公众号改写排版台</a>
+        <nav class="topnav" data-topnav aria-label="主导航"></nav>
+      </header>
+
+      <section class="hero agent-hero hero-stagger">
+        <p class="eyebrow">AI Agent · 选题代笔</p>
+        <h1>主题词一键调研，热帖直出选题</h1>
+        <p class="hero-lead">
+          输入一个主题，Agent 借用浏览器现有登录态，并发去 4 个平台搜热帖、按相关度+热度+时新度综合排序，
+          再用一次 AI 生成「选题总结 + 推荐角度 + 候选标题」。每条 angle 可一键展开成完整提纲，直进编辑台开稿。
+        </p>
+      </section>
+
+      <div class="agent-banner" role="note">
+        凭据完全靠浏览器现有 cookie，扩展不存账号密码、不上传任何凭据。所有抓取由你主动触发，请遵守各平台 ToS 与频率限制。
+      </div>
+
+      <div class="agent-layout">
+        <!-- 左侧：最近任务抽屉 -->
+        <aside class="panel agent-history" aria-labelledby="agentHistoryHeading">
+          <div class="agent-history-head">
+            <h3 id="agentHistoryHeading">最近任务</h3>
+            <span class="agent-history-count" id="agentHistoryCount">0</span>
+          </div>
+          <div id="agentHistoryList" class="agent-history-list" role="list"></div>
+        </aside>
+
+        <!-- 右侧：工作台 -->
+        <div class="agent-main">
+          <!-- 控制台：单行大输入 + 主按钮 + chip + 高级选项 -->
+          <section class="panel agent-console" aria-labelledby="agentInputHeading">
+            <div class="panel-head" style="margin-bottom: 12px">
+              <p class="eyebrow">控制台</p>
+              <h2 id="agentInputHeading" style="font-size: 17px; margin: 0">配置任务</h2>
+            </div>
+
+            <div class="agent-console-row">
+              <input
+                id="agentQuery"
+                class="agent-query"
+                type="text"
+                placeholder="主题关键词（例：AI 笔记软件、家用咖啡机、美联储加息）"
+                autocomplete="off"
+              />
+              <button id="agentRunButton" type="button" class="button primary agent-run">开始跑任务</button>
+            </div>
+
+            <div id="agentPlatforms" class="agent-chip-row" role="group" aria-label="抓取平台"></div>
+
+            <details class="agent-advanced">
+              <summary>高级选项</summary>
+              <div class="agent-advanced-grid">
+                <label>
+                  <span>每平台抓取上限</span>
+                  <input id="agentPerPlatform" type="number" min="1" max="30" value="8" />
+                </label>
+                <label>
+                  <span>最终保留条数</span>
+                  <input id="agentFinalLimit" type="number" min="1" max="30" value="10" />
+                </label>
+                <label>
+                  <span>并发数</span>
+                  <input id="agentConcurrency" type="number" min="1" max="4" value="2" />
+                </label>
+                <label class="full">
+                  <span>包含关键词（可选，逗号分隔）</span>
+                  <input id="agentIncludeKeywords" type="text" placeholder="例：评测,对比,真实体验" />
+                </label>
+                <label class="full">
+                  <span>排除关键词（可选，逗号分隔）</span>
+                  <input id="agentExcludeKeywords" type="text" placeholder="例：广告,代购" />
+                </label>
+                <label class="checkbox">
+                  <input id="agentEnableBrief" type="checkbox" checked />
+                  <span>跑完后让 AI 生成选题总结（消耗一次模型调用）</span>
+                </label>
+              </div>
+            </details>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px">
+              <p id="agentStatus" class="agent-status" role="status" aria-live="polite"></p>
+              <button id="agentRefreshCredButton" type="button" class="button ghost" style="font-size: 12px; padding: 6px 12px">
+                刷新登录状态
+              </button>
+            </div>
+          </section>
+
+          <!-- 三态主体 -->
+          <section
+            id="agentStage"
+            class="panel agent-stage"
+            data-agent-stage="empty"
+            aria-labelledby="agentResultHeading"
+          >
+            <div
+              class="panel-head"
+              style="display: flex; align-items: baseline; justify-content: space-between; padding: 18px 20px 0"
+            >
+              <div>
+                <p class="eyebrow">实时进度 / 结果</p>
+                <h2 id="agentResultHeading" style="font-size: 17px; margin: 0">运行情况</h2>
+              </div>
+              <button id="agentLogToggle" type="button" class="agent-log-toggle" aria-expanded="false">
+                详细日志
+              </button>
+            </div>
+
+            <div id="agentLogPanel" class="agent-log-panel" hidden></div>
+
+            <!-- 空态：示例主题词 -->
+            <div class="agent-stage-empty">
+              <div class="ui-empty">
+                <div class="ui-empty-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="M16 16l5 5" stroke-linecap="round" />
+                  </svg>
+                </div>
+                <p class="ui-empty-title">还没有跑过任务</p>
+                <p class="ui-empty-desc">填一个主题关键词、选好平台，点「开始跑任务」就行。下面是一些常见主题，点击可填入。</p>
+              </div>
+              <div id="agentSampleQueries" class="agent-empty-grid"></div>
+            </div>
+
+            <!-- 运行态：4 平台圆点 + 骨架 -->
+            <div class="agent-stage-running">
+              <div id="agentProgressDots" class="agent-progress-dots" aria-live="polite"></div>
+              <div class="agent-running-skeletons" aria-hidden="true">
+                <div class="agent-skel"></div>
+                <div class="agent-skel" style="opacity: 0.7"></div>
+                <div class="agent-skel" style="opacity: 0.45"></div>
+              </div>
+            </div>
+
+            <!-- 完成态：brief + hits -->
+            <div class="agent-stage-done">
+              <div id="agentBriefCard" class="agent-brief" hidden>
+                <div class="agent-brief-head">
+                  <h3>选题总结</h3>
+                </div>
+                <p id="agentBriefSummary" class="agent-brief-summary"></p>
+                <div class="agent-brief-grid">
+                  <div>
+                    <h4>关键洞察</h4>
+                    <ul id="agentBriefTakeaways"></ul>
+                  </div>
+                  <div>
+                    <h4>推荐角度（点「展开」生成提纲）</h4>
+                    <ul id="agentBriefAngles"></ul>
+                  </div>
+                </div>
+                <div class="agent-brief-titles">
+                  <h4>候选标题</h4>
+                  <ul id="agentBriefTitles"></ul>
+                </div>
+                <p id="agentBriefRisk" class="agent-brief-risk"></p>
+              </div>
+
+              <div class="agent-results-head">
+                <h3>命中热帖</h3>
+                <div class="agent-results-head-right">
+                  <span id="agentHitsMeta" class="agent-hits-meta">等待开始…</span>
+                  <button id="agentResetButton" type="button" class="agent-reset" title="清空当前结果，回到主题输入">
+                    新任务
+                  </button>
+                </div>
+              </div>
+              <div id="agentHitsList" class="agent-hits"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- Drill-Down 提纲 modal -->
+      <div id="agentOutlineModal" class="agent-modal-backdrop" hidden role="dialog" aria-modal="true" aria-labelledby="agentOutlineTitle">
+        <div class="agent-modal">
+          <div class="agent-modal-head">
+            <h3 id="agentOutlineTitle">展开提纲</h3>
+            <button id="agentOutlineClose" type="button" class="agent-modal-close" aria-label="关闭">×</button>
+          </div>
+          <div class="agent-modal-body" id="agentOutlineBody">
+            <div class="agent-modal-loading">AI 正在生成提纲…</div>
+          </div>
+          <div class="agent-modal-foot">
+            <button id="agentOutlineCancel" type="button" class="button ghost">关闭</button>
+            <button id="agentOutlineImport" type="button" class="button primary" disabled>进工作台开稿</button>
+          </div>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="./page.js"></script>
+    <script type="module" src="./agent.js"></script>
+  </body>
+</html>

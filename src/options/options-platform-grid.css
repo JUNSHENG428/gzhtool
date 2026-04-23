@@ -1,0 +1,52 @@
+/* 平台勾选网格（Agent 设置等通用） */
+
+.platform-grid-fieldset {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin: 12px 0 16px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.platform-grid-fieldset legend {
+  padding: 0 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px 22px;
+  margin-top: 6px;
+}
+
+.platform-grid-group-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+  letter-spacing: 0.04em;
+}
+
+.platform-grid-group-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.platform-grid-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 3px 0;
+}
+
+.platform-grid-checkbox input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}

@@ -13,6 +13,7 @@ export const LAST_UPDATED_AT = "2026-04-22";
 const TOPNAV_ITEMS = [
   { id: "welcome", href: "./welcome.html", label: "欢迎" },
   { id: "hot-topics", href: "./hot-topics.html", label: "热点捕捉" },
+  { id: "agent", href: "./agent.html", label: "AI 选题代笔" },
   { id: "workspace", action: "open-workspace", label: "编辑台" },
   { id: "help", href: "./help.html", label: "帮助中心" },
   { id: "options", action: "open-options", label: "设置" }

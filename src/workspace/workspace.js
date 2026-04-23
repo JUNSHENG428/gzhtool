@@ -5,9 +5,10 @@
  */
 
 import { DEFAULT_SETTINGS } from "../shared/defaults.js";
-import { getSession, getSettings } from "../shared/storage.js";
+import { getSession, getSettings, saveSettings } from "../shared/storage.js";
 import { escapeHtml } from "../shared/utils.js";
 import { initWorkspaceShortcuts } from "./shortcuts.js";
+import { initWorkspaceRouter } from "./workspace-router.js";
 
 import {
   init as initState,
@@ -54,7 +55,7 @@ import {
   applyTheme
 } from "./workspace-render.js";
 
-import { init as initCapture, captureSource } from "./workspace-capture.js";
+import { init as initCapture, captureSource, importCurrentSourceToArticle } from "./workspace-capture.js";
 import { init as initRewrite, rewriteArticle, copyManualPrompt } from "./workspace-rewrite.js";
 
 import {
@@ -177,50 +178,6 @@ export function openHotTopicsPage() {
 }
 export function openSettings() { chrome.runtime.openOptionsPage(); }
 
-// ── Dark mode ──
-
-const THEME_STORAGE_KEY = "workspace-theme-preference";
-
-export function getThemePreference() {
-  try {
-    return localStorage.getItem(THEME_STORAGE_KEY) || "auto";
-  } catch {
-    return "auto";
-  }
-}
-
-export function setThemePreference(preference) {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, preference);
-  } catch { /* ignore */ }
-  applyThemePreference();
-}
-
-export function applyThemePreference() {
-  const preference = getThemePreference();
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const isDark = preference === "dark" || (preference === "auto" && prefersDark);
-  document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
-  updateThemeToggleIcon(isDark);
-}
-
-function updateThemeToggleIcon(isDark) {
-  const icon = document.querySelector("#themeToggleIcon");
-  if (!icon) return;
-  if (isDark) {
-    icon.innerHTML = '<path d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>';
-  } else {
-    icon.innerHTML = '<path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>';
-  }
-}
-
-function toggleTheme() {
-  const current = getThemePreference();
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const isCurrentlyDark = current === "dark" || (current === "auto" && prefersDark);
-  setThemePreference(isCurrentlyDark ? "light" : "dark");
-}
-
 // ── 状态栏 ──
 
 let statusFadeTimer = null;
@@ -313,7 +270,7 @@ async function bootstrap() {
     copyHtml, copyMarkdown, downloadHtml, downloadMarkdown,
     toggleOutputPreviewTab, cycleEditorTheme, insertSourceImage, updateEditorWordCount,
     // workspace-capture.js
-    captureSource,
+    captureSource, importCurrentSourceToArticle,
     // workspace-rewrite.js
     rewriteArticle, copyManualPrompt,
     // workspace-publish.js
@@ -336,8 +293,6 @@ async function bootstrap() {
   // 启动
   fillThemeOptions();
   _bindFirstRunEvents();
-  _bindThemeToggle();
-  applyThemePreference();
 
   state.settings = await getSettings();
   state.session = await getSession();
@@ -363,25 +318,43 @@ async function bootstrap() {
     closeOverlays, blurEditor, moveCurrentArticle
   });
 
+  // 初始化左侧导航 + hash 路由（依赖 openOptionsButton/openHelpButton 已绑事件）
+  initWorkspaceRouter();
+
   const params = new URLSearchParams(location.search);
   const wantAutoCapture = params.get("autocapture") === "1";
+  const wantImportSession = params.get("import") === "1";
+  const validCaptureModes = new Set(["selection", "raw", "readable"]);
+  const requestedCaptureMode = params.get("mode");
+  const pendingCaptureMode =
+    requestedCaptureMode && validCaptureModes.has(requestedCaptureMode)
+      ? requestedCaptureMode
+      : "readable";
 
   const isFirstRun =
     !state.session?.lastSourceUrl && !state.settings?.apiKey && !state.settings?.apiBaseUrl;
 
-  // 从工具栏「抓取并打开」进入时优先完成抓取，避免被首次引导挡住
-  if (isFirstRun && !wantAutoCapture) {
+  // 从工具栏「抓取并打开」或「热点一键入库」进入时优先完成入库，避免被首次引导挡住
+  const incomingFlow = wantAutoCapture || wantImportSession;
+  if (isFirstRun && !incomingFlow) {
     view.firstRunOverlay.hidden = false;
     return;
   }
-  if (isFirstRun && wantAutoCapture) {
+  if (isFirstRun && incomingFlow) {
     view.firstRunOverlay.hidden = true;
   }
 
   if (!state.source) view.emptyPromptCard.hidden = false;
 
   if (wantAutoCapture) {
-    await captureSource();
+    await captureSource(pendingCaptureMode);
+  } else if (wantImportSession) {
+    // 热点「一键入库」：service worker 已经把 capture 写进 session.lastCapture，
+    // 这里负责把它套到当前 article 上，并把正文按当前排版填入编辑器。
+    const ok = await importCurrentSourceToArticle();
+    if (!ok) {
+      setStatus("热点已入库，但解析正文失败，请到来源面板手动检查或重抓。", "warning");
+    }
   }
 }
 
@@ -411,9 +384,27 @@ function _loadWechatProfiles() {
     '<option value="-1">默认账号</option>',
     ...profiles.map((p, i) => `<option value="${i}">${escapeHtml(p.name || `账号 ${i + 1}`)}</option>`)
   ].join("");
-  const activeIndex = Number(state.settings?.activeWechatProfileIndex || -1);
+  const activeIndex = Number(state.settings?.activeWechatProfileIndex ?? -1);
   if (activeIndex >= 0 && activeIndex < profiles.length) {
     select.value = String(activeIndex);
+  } else {
+    select.value = "-1";
+  }
+  // 选择改变时把 activeWechatProfileIndex 持久化到本地 settings，
+  // 这样下次打开编辑台、或刷新页面都能恢复到上次选的账号。
+  if (!select.dataset.boundChange) {
+    select.dataset.boundChange = "1";
+    select.addEventListener("change", async () => {
+      const idx = Number(select.value);
+      try {
+        await saveSettings({
+          activeWechatProfileIndex: Number.isFinite(idx) ? idx : -1
+        });
+        state.settings = await getSettings();
+      } catch (error) {
+        console.warn("[gzh] persist active wechat profile failed:", error);
+      }
+    });
   }
 }
 
@@ -429,12 +420,6 @@ function _bindStorageSync() {
       console.warn("[gzh] settings sync failed:", error);
     }
   });
-}
-
-function _bindThemeToggle() {
-  const toggle = document.querySelector("#themeToggle");
-  if (!toggle) return;
-  toggle.addEventListener("click", toggleTheme);
 }
 
 function _bindFirstRunEvents() {

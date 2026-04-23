@@ -1,0 +1,56 @@
+# =====================================================================
+# Cloudflare Workers 配置 · 公众号改写排版台 · 授权服务
+# =====================================================================
+# 用法：
+#   1. 在 Cloudflare Dashboard 建一个 D1 数据库（推荐名 gzh-license），
+#      把它的 database_id 填到下方 [[d1_databases]].database_id；
+#   2. 建一个 KV namespace（推荐名 gzh-license-rl，做接口限速），
+#      把 id 填到下方 [[kv_namespaces]].id；
+#   3. 用 `wrangler secret put XXX` 注入下面 [vars] 列表里所有 *_SECRET 字段
+#      （生产建议用 secret，不要明文写在 wrangler.toml 里）：
+#         wrangler secret put JWT_SECRET
+#         wrangler secret put LS_WEBHOOK_SECRET
+#         wrangler secret put LICENSE_SIGNING_SECRET
+#   4. 初始化数据库：
+#         wrangler d1 execute gzh-license --file=./server/schema.sql
+#         wrangler d1 execute gzh-license --local --file=./server/schema.sql  # 本地
+#   5. 本地起服务：    wrangler dev
+#      生产部署：      wrangler deploy
+# =====================================================================
+
+name = "gzh-license"
+main = "worker.js"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ---------------- D1 ----------------
+[[d1_databases]]
+binding       = "DB"
+database_name = "gzh-license"
+database_id   = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# ---------------- KV (限速 + 短期缓存) ----------------
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id      = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# ---------------- 公开变量（可明文） ----------------
+[vars]
+# 允许跨域访问的 Origin。多个用逗号分隔；插件端 chrome-extension://xxx 也写在这里。
+# 部署生产前一定要把 chrome-extension://* 替换成你正式扩展的 ID。
+ALLOWED_ORIGINS = "https://your-marketing-site.pages.dev,chrome-extension://*"
+
+# 官网 dashboard 域名（用于注册/重置密码邮件、Lemon Squeezy 回跳）
+SITE_URL = "https://your-marketing-site.pages.dev"
+
+# Lemon Squeezy store id 和 product/variant id（webhook 里用作过滤）
+LS_STORE_ID    = ""
+LS_VARIANT_IDS = ""   # 多个 variant 用逗号分隔；为空表示该 store 下所有 variant 都视作 Pro
+
+# License key 前缀（不要带连字符）；用于 worker 端生成时区分环境
+LICENSE_KEY_PREFIX = "GZHT"
+
+# ---------------- 私密变量（必须用 wrangler secret put） ----------------
+# JWT_SECRET             —— 长度 ≥ 32 的随机字符串，用于 HS256
+# LS_WEBHOOK_SECRET      —— Lemon Squeezy webhook 的 signing secret
+# LICENSE_SIGNING_SECRET —— 用于 license key 校验位运算（与插件端无关，仅服务端用）

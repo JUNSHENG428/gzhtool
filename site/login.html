@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-Hans" class="no-js">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>登录 / 注册 · 公众号写手</title>
+  <meta name="description" content="登录公众号写手账号，管理你的 License 和绑定设备。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+  />
+  <link rel="stylesheet" href="./assets/css/site.css" />
+  <meta name="api-base" content="" />
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="site-nav-inner">
+      <a class="site-brand" href="./index.html">
+        <span class="site-brand-mark">写</span>
+        <span>公众号写手</span>
+      </a>
+      <div class="site-nav-links">
+        <a href="./index.html">首页</a>
+        <a href="./pricing.html">定价</a>
+        <a href="./dashboard.html">控制台</a>
+      </div>
+      <div class="site-nav-cta"></div>
+    </div>
+  </nav>
+
+  <main class="auth-shell">
+    <aside class="auth-side">
+      <div>
+        <p style="font-size:0.78rem;letter-spacing:0.16em;text-transform:uppercase;color:rgba(240,212,176,0.7);">公众号写手账号</p>
+        <h2>把 License 和你的人绑定，而不是和这台机器。</h2>
+        <p>注册后可以在多台电脑使用同一张 License，更换设备时点一下"解绑"就行；所有付费记录、激活历史都在一个面板里看见。</p>
+      </div>
+      <blockquote>
+        "之前用过两个写公众号的工具，要么把内容传他们服务器，要么改个套餐就要重买；
+        这个直接给我 Key + Webhook，干净得像一个真正的工程师做出来的东西。"
+        <p style="font-size:0.85rem;font-style:normal;color:rgba(240,212,176,0.6);margin:8px 0 0;">— 早期内测用户</p>
+      </blockquote>
+    </aside>
+
+    <section class="auth-form-side">
+      <div class="auth-card">
+        <h1 id="authTitle">登录</h1>
+        <p class="auth-card-sub" id="authSub">使用注册时的邮箱和密码登录</p>
+
+        <div class="auth-tabs" role="tablist">
+          <button type="button" class="active" data-tab="login" role="tab">登录</button>
+          <button type="button" data-tab="register" role="tab">注册</button>
+        </div>
+
+        <form id="authForm" autocomplete="on" novalidate>
+          <div class="field">
+            <label for="email">邮箱</label>
+            <input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com" />
+            <span class="field-hint" id="emailHint" hidden></span>
+          </div>
+          <div class="field">
+            <label for="password">密码</label>
+            <div class="password-wrap">
+              <input id="password" name="password" type="password" autocomplete="current-password" required minlength="8" placeholder="至少 8 位" />
+              <button type="button" class="password-toggle" id="passwordToggle" aria-label="显示密码">显示</button>
+            </div>
+            <!-- 注册模式下出现的强度指示条；CSS 控制可见性 -->
+            <div class="password-strength" id="passwordStrength" data-mode="login" hidden>
+              <div class="password-strength-bar"><span id="passwordStrengthFill"></span></div>
+              <span class="password-strength-text" id="passwordStrengthText">弱</span>
+            </div>
+            <span class="field-hint" id="passwordHint">建议字母数字混合，至少 8 位。</span>
+          </div>
+          <div class="field-row">
+            <label class="checkbox">
+              <input type="checkbox" id="rememberMe" checked />
+              <span>记住邮箱</span>
+            </label>
+            <a class="link-quiet" href="./forgot.html" id="forgotLink">忘记密码？</a>
+          </div>
+          <button class="btn btn-primary btn-block" id="submitBtn" type="submit">登录</button>
+          <p class="feedback" id="feedback" data-tone="error"></p>
+        </form>
+
+        <div class="divider"></div>
+        <p class="muted text-center" style="font-size:0.85rem;">
+          还没买 Pro？<a href="./pricing.html">查看定价 →</a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./assets/js/site.js"></script>
+  <script type="module" src="./assets/js/login.js"></script>
+</body>
+</html>

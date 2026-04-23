@@ -7,91 +7,104 @@ import {
 } from "../shared/storage.js";
 import { buildRewriteMessages } from "../shared/ai.js";
 import { escapeHtml } from "../shared/utils.js";
+import {
+  PAID_FEATURES,
+  PRO_TEMPLATE_IDS,
+  checkTemplateAccess,
+  subscribeLicenseChanges
+} from "../shared/license.js";
+import { showUpgradeModal } from "../shared/upgrade-modal.js";
 
 let _templates = [];
 let _selectedId = "";
+let _activeId = "";
 let _lastFocusedTextarea = null;
 let _setStatus = () => {};
-let _filterQuery = "";
 
 const PRESET_IDS = new Set(DEFAULT_PROMPT_TEMPLATES.map((t) => t.id));
+const PRO_IDS = new Set(PRO_TEMPLATE_IDS);
 
-const els = {
-  list: document.querySelector("#templateList"),
-  form: document.querySelector("#templateEditorForm"),
-  empty: document.querySelector("#templateEmptyState"),
-  icon: document.querySelector("#templateIcon"),
-  name: document.querySelector("#templateName"),
-  system: document.querySelector("#templateSystem"),
-  user: document.querySelector("#templateUser"),
-  defaultTone: document.querySelector("#templateDefaultTone"),
-  defaultAngle: document.querySelector("#templateDefaultAngle"),
-  defaultLength: document.querySelector("#templateDefaultLength"),
-  defaultCta: document.querySelector("#templateDefaultCta"),
-  defaultAudience: document.querySelector("#templateDefaultAudience"),
-  temperature: document.querySelector("#templateTemperature"),
-  model: document.querySelector("#templateModel"),
-  badge: document.querySelector("#templateBadge"),
-  addBtn: document.querySelector("#addTemplateButton"),
-  restoreBtn: document.querySelector("#restoreTemplateButton"),
-  dupBtn: document.querySelector("#duplicateTemplateButton"),
-  delBtn: document.querySelector("#deleteTemplateButton"),
-  previewBtn: document.querySelector("#previewPromptButton"),
-  exportBtn: document.querySelector("#exportTemplatesButton"),
-  importBtn: document.querySelector("#importTemplatesButton"),
-  importInput: document.querySelector("#importTemplatesInput"),
-  previewBackdrop: document.querySelector("#promptPreviewBackdrop"),
-  previewCloseBtn: document.querySelector("#promptPreviewCloseBtn"),
-  previewMeta: document.querySelector("#promptPreviewMeta"),
-  previewSystem: document.querySelector("#promptPreviewSystem"),
-  previewUser: document.querySelector("#promptPreviewUser"),
-  searchInput: document.querySelector("#templateSearchInput"),
-  totalCount: document.querySelector("#templateTotalCount"),
-  presetCount: document.querySelector("#templatePresetCount"),
-  customCount: document.querySelector("#templateCustomCount"),
-  liveMeta: document.querySelector("#templateLiveMeta"),
-  kindPill: document.querySelector("#templateKindPill"),
-  systemStats: document.querySelector("#templateSystemStats"),
-  userStats: document.querySelector("#templateUserStats"),
-  runtimePreview: document.querySelector("#runtimePromptPreview"),
-  runtimePreviewMeta: document.querySelector("#runtimePromptPreviewMeta"),
-  runtimePreviewSystem: document.querySelector("#runtimePromptPreviewSystem"),
-  runtimePreviewUser: document.querySelector("#runtimePromptPreviewUser"),
-  budgetBar: document.querySelector("#runtimeBudgetBar"),
-  budgetBarValue: document.querySelector("#runtimeBudgetBarValue"),
-  budgetBarFill: document.querySelector("#runtimeBudgetBarFill"),
-  budgetBarHint: document.querySelector("#runtimeBudgetBarHint")
+const els = {};
+const SELECTORS = {
+  list: "#templateList",
+  form: "#templateEditorForm",
+  empty: "#templateEmptyState",
+  icon: "#templateIcon",
+  name: "#templateName",
+  system: "#templateSystem",
+  user: "#templateUser",
+  defaultTone: "#templateDefaultTone",
+  defaultAngle: "#templateDefaultAngle",
+  defaultLength: "#templateDefaultLength",
+  defaultCta: "#templateDefaultCta",
+  defaultAudience: "#templateDefaultAudience",
+  temperature: "#templateTemperature",
+  model: "#templateModel",
+  badge: "#templateBadge",
+  liveMeta: "#templateLiveMeta",
+  systemStats: "#templateSystemStats",
+  userStats: "#templateUserStats",
+  addBtn: "#addTemplateButton",
+  restoreBtn: "#restoreTemplateButton",
+  dupBtn: "#duplicateTemplateButton",
+  delBtn: "#deleteTemplateButton",
+  activeBtn: "#setActiveTemplateButton",
+  previewBtn: "#previewPromptButton",
+  exportBtn: "#exportTemplatesButton",
+  importBtn: "#importTemplatesButton",
+  importInput: "#importTemplatesInput",
+  previewBackdrop: "#promptPreviewBackdrop",
+  previewCloseBtn: "#promptPreviewCloseBtn",
+  previewMeta: "#promptPreviewMeta",
+  previewSystem: "#promptPreviewSystem",
+  previewUser: "#promptPreviewUser",
+  activePill: "#templateActivePill"
 };
-
-const WECHAT_HTML_LIMIT = 20000;
-const WECHAT_HTML_SAFE_LIMIT = 18000;
 
 export async function initPromptTemplates(setStatus) {
   _setStatus = typeof setStatus === "function" ? setStatus : () => {};
+
+  for (const [key, selector] of Object.entries(SELECTORS)) {
+    els[key] = document.querySelector(selector);
+  }
+
+  if (!els.list || !els.form) {
+    return;
+  }
+
   _templates = await getPromptTemplates();
-  const activeId = await getActiveTemplateId();
-  _selectedId = _templates.some((t) => t.id === activeId) ? activeId : (_templates[0]?.id || "");
+  _activeId = await getActiveTemplateId();
+  if (_activeId && !_templates.some((t) => t.id === _activeId)) {
+    _activeId = "";
+    await setActiveTemplateId("");
+  }
+  _selectedId = _activeId || _templates[0]?.id || "";
+
   renderList();
   selectTemplate(_selectedId);
-  bindEvents(setStatus);
+  bindEvents();
+  updateActivePill();
+
+  // license / 登录态变化时刷新模板列表（PRO badge 与可点击状态实时同步）
+  subscribeLicenseChanges(() => {
+    renderList();
+    updateActivePill();
+  });
 }
 
-function bindEvents(setStatus) {
-  els.addBtn?.addEventListener("click", () => createNewTemplate(setStatus));
-  els.restoreBtn?.addEventListener("click", () => restoreSelectedTemplate(setStatus));
-  els.dupBtn?.addEventListener("click", () => duplicateSelectedTemplate(setStatus));
-  els.delBtn?.addEventListener("click", () => deleteSelectedTemplate(setStatus));
-  els.previewBtn?.addEventListener("click", () => openPreviewPrompt());
-  els.exportBtn?.addEventListener("click", () => exportTemplates(setStatus));
+function bindEvents() {
+  els.addBtn?.addEventListener("click", createNewTemplate);
+  els.restoreBtn?.addEventListener("click", restoreSelectedTemplate);
+  els.dupBtn?.addEventListener("click", duplicateSelectedTemplate);
+  els.delBtn?.addEventListener("click", () => deleteTemplateById(_selectedId));
+  els.activeBtn?.addEventListener("click", setSelectedAsActive);
+  els.previewBtn?.addEventListener("click", openPreviewPrompt);
+  els.exportBtn?.addEventListener("click", exportTemplates);
   els.importBtn?.addEventListener("click", () => els.importInput?.click());
-  els.importInput?.addEventListener("change", (e) => importTemplates(e, setStatus));
+  els.importInput?.addEventListener("change", importTemplates);
   els.previewCloseBtn?.addEventListener("click", closePreviewPrompt);
   els.previewBackdrop?.addEventListener("click", (e) => {
     if (e.target === els.previewBackdrop) closePreviewPrompt();
-  });
-  els.searchInput?.addEventListener("input", () => {
-    _filterQuery = els.searchInput.value.trim().toLowerCase();
-    renderList();
   });
 
   [els.system, els.user].forEach((ta) => {
@@ -103,49 +116,54 @@ function bindEvents(setStatus) {
   document.querySelectorAll(".var-chip").forEach((btn) => {
     btn.addEventListener("click", () => {
       const variable = btn.dataset.var;
-      if (_lastFocusedTextarea) {
-        insertAtCursor(_lastFocusedTextarea, `{{${variable}}}`);
-      } else if (els.system) {
-        insertAtCursor(els.system, `{{${variable}}}`);
-      }
+      const target = _lastFocusedTextarea || els.system;
+      if (target) insertAtCursor(target, `{{${variable}}}`);
     });
   });
 
-  // Auto-save on input
   const autoSaveFields = [
-    els.icon, els.name, els.system, els.user,
-    els.defaultTone, els.defaultAngle, els.defaultLength,
-    els.defaultCta, els.defaultAudience, els.temperature, els.model
+    els.icon,
+    els.name,
+    els.system,
+    els.user,
+    els.defaultTone,
+    els.defaultAngle,
+    els.defaultLength,
+    els.defaultCta,
+    els.defaultAudience,
+    els.temperature,
+    els.model
   ];
+  const debouncedSave = debounce(async () => {
+    if (!_selectedId) return;
+    saveCurrentFormToTemplate();
+    await savePromptTemplates(_templates);
+    renderList();
+    updateTemplateMeta(_templates.find((t) => t.id === _selectedId) || null);
+  }, 350);
   autoSaveFields.forEach((field) => {
-    field?.addEventListener("input", debounce(() => {
-      if (_selectedId) {
-        saveCurrentFormToTemplate();
-        savePromptTemplates(_templates).catch(() => {});
-        renderList();
-        updateTemplateMeta(_templates.find((t) => t.id === _selectedId) || null);
-        updateRuntimePreview(_templates.find((t) => t.id === _selectedId) || null);
-      }
-    }, 400));
+    field?.addEventListener("input", debouncedSave);
   });
 }
 
 function renderList() {
   if (!els.list) return;
-  updateTemplateStats();
-  const visibleTemplates = _templates.filter(matchesFilter);
-  if (visibleTemplates.length === 0) {
-    els.list.innerHTML = '<li class="templates-list-empty">没有匹配的模板，换个关键词试试。</li>';
+  if (_templates.length === 0) {
+    els.list.innerHTML = '<li class="templates-list-empty">还没有任何模板，点右上的「新建」开始。</li>';
     return;
   }
 
-  els.list.innerHTML = visibleTemplates
+  els.list.innerHTML = _templates
     .map((t) => {
       const isPreset = PRESET_IDS.has(t.id);
       const isActive = t.id === _selectedId;
-      return `<li class="template-item ${isActive ? "active" : ""} ${isPreset ? "preset" : "custom"}" data-id="${escapeAttr(t.id)}">
+      const isCurrent = t.id === _activeId;
+      const isPro = PRO_IDS.has(t.id);
+      return `<li class="template-item${isActive ? " active" : ""}${isPreset ? " preset" : " custom"}${isPro ? " pro" : ""}" data-id="${escapeAttr(t.id)}">
         <span class="template-item-icon">${escapeHtml(t.icon || "📝")}</span>
         <span class="template-item-name">${escapeHtml(t.name || "未命名")}</span>
+        ${isCurrent ? '<span class="template-item-active" title="当前生效中">使用中</span>' : ""}
+        ${isPro ? '<span class="template-item-pro" title="Pro 套餐限定模板">PRO</span>' : ""}
         ${isPreset ? '<span class="template-item-badge">预设</span>' : ""}
         ${isPreset ? "" : `<button type="button" class="template-item-delete" data-delete-id="${escapeAttr(t.id)}" aria-label="删除模板 ${escapeAttr(t.name || "未命名")}">删除</button>`}
       </li>`;
@@ -153,15 +171,13 @@ function renderList() {
     .join("");
 
   els.list.querySelectorAll(".template-item").forEach((item) => {
-    item.addEventListener("click", () => {
-      selectTemplate(item.dataset.id);
-    });
+    item.addEventListener("click", () => selectTemplate(item.dataset.id));
   });
 
   els.list.querySelectorAll(".template-item-delete").forEach((button) => {
-    button.addEventListener("click", async (event) => {
+    button.addEventListener("click", (event) => {
       event.stopPropagation();
-      await deleteTemplateById(button.dataset.deleteId, _setStatus);
+      deleteTemplateById(button.dataset.deleteId);
     });
   });
 }
@@ -171,57 +187,57 @@ function selectTemplate(id) {
   renderList();
   const template = _templates.find((t) => t.id === id);
   if (!template) {
-    els.form.hidden = true;
-    els.empty.hidden = false;
+    if (els.form) els.form.hidden = true;
+    if (els.empty) els.empty.hidden = false;
     updateTemplateMeta(null);
-    updateRuntimePreview(null);
     return;
   }
 
-  els.form.hidden = false;
-  els.empty.hidden = true;
+  if (els.form) els.form.hidden = false;
+  if (els.empty) els.empty.hidden = true;
 
   const isPreset = PRESET_IDS.has(template.id);
-  els.badge.hidden = !isPreset;
-  els.restoreBtn.hidden = !isPreset;
-  els.delBtn.hidden = isPreset;
+  if (els.badge) els.badge.hidden = !isPreset;
+  if (els.restoreBtn) els.restoreBtn.hidden = !isPreset;
+  if (els.delBtn) els.delBtn.hidden = isPreset;
 
-  els.icon.value = template.icon || "";
-  els.name.value = template.name || "";
-  els.system.value = template.systemTemplate || "";
-  els.user.value = template.userTemplate || "";
-  els.defaultTone.value = template.defaults?.tone || "";
-  els.defaultAngle.value = template.defaults?.angle || "";
-  els.defaultLength.value = template.defaults?.length || "medium";
-  els.defaultCta.value = template.defaults?.cta || "";
-  els.defaultAudience.value = template.defaults?.audience || "";
-  els.temperature.value = template.temperature != null ? String(template.temperature) : "";
-  els.model.value = template.model || "";
+  if (els.icon) els.icon.value = template.icon || "";
+  if (els.name) els.name.value = template.name || "";
+  if (els.system) els.system.value = template.systemTemplate || "";
+  if (els.user) els.user.value = template.userTemplate || "";
+  if (els.defaultTone) els.defaultTone.value = template.defaults?.tone || "";
+  if (els.defaultAngle) els.defaultAngle.value = template.defaults?.angle || "";
+  if (els.defaultLength) els.defaultLength.value = template.defaults?.length || "medium";
+  if (els.defaultCta) els.defaultCta.value = template.defaults?.cta || "";
+  if (els.defaultAudience) els.defaultAudience.value = template.defaults?.audience || "";
+  if (els.temperature) {
+    els.temperature.value = template.temperature != null ? String(template.temperature) : "";
+  }
+  if (els.model) els.model.value = template.model || "";
   updateTemplateMeta(template);
-  updateRuntimePreview(template);
 }
 
 function saveCurrentFormToTemplate() {
   const template = _templates.find((t) => t.id === _selectedId);
   if (!template) return;
 
-  template.icon = els.icon.value.trim();
-  template.name = els.name.value.trim();
-  template.systemTemplate = els.system.value;
-  template.userTemplate = els.user.value;
+  template.icon = els.icon?.value.trim() || "📝";
+  template.name = els.name?.value.trim() || "未命名";
+  template.systemTemplate = els.system?.value || "";
+  template.userTemplate = els.user?.value || "";
   template.defaults = {
-    tone: els.defaultTone.value.trim(),
-    angle: els.defaultAngle.value.trim(),
-    length: els.defaultLength.value || "medium",
-    cta: els.defaultCta.value.trim(),
-    audience: els.defaultAudience.value.trim()
+    tone: els.defaultTone?.value.trim() || "",
+    angle: els.defaultAngle?.value.trim() || "",
+    length: els.defaultLength?.value || "medium",
+    cta: els.defaultCta?.value.trim() || "",
+    audience: els.defaultAudience?.value.trim() || ""
   };
-  const tempVal = els.temperature.value.trim();
-  template.temperature = tempVal === "" ? null : Number(tempVal);
-  template.model = els.model.value.trim() || null;
+  const tempVal = els.temperature?.value.trim();
+  template.temperature = tempVal === "" || tempVal == null ? null : Number(tempVal);
+  template.model = els.model?.value.trim() || "";
 }
 
-function createNewTemplate(setStatus) {
+async function createNewTemplate() {
   const id = `custom-${Date.now()}`;
   const newTemplate = {
     id,
@@ -262,101 +278,148 @@ function createNewTemplate(setStatus) {
       audience: ""
     },
     temperature: null,
-    model: null
+    model: ""
   };
   _templates.push(newTemplate);
-  savePromptTemplates(_templates).then(() => {
-    selectTemplate(id);
-    renderList();
-    setStatus("已创建新模板。", "success");
-    els.name?.focus();
-    els.name?.select();
-  });
+  await savePromptTemplates(_templates);
+  selectTemplate(id);
+  renderList();
+  _setStatus("已创建新模板。", "success");
+  els.name?.focus();
+  els.name?.select();
 }
 
-function duplicateSelectedTemplate(setStatus) {
+async function duplicateSelectedTemplate() {
   const template = _templates.find((t) => t.id === _selectedId);
   if (!template) return;
   const newId = `custom-${Date.now()}`;
   const copy = {
     ...template,
+    defaults: { ...template.defaults },
     id: newId,
-    name: `${template.name}（副本）`,
-    icon: template.icon
+    name: `${template.name}（副本）`
   };
   _templates.push(copy);
-  savePromptTemplates(_templates).then(() => {
-    selectTemplate(newId);
-    renderList();
-    setStatus("已复制为新模板。", "success");
-  });
+  await savePromptTemplates(_templates);
+  selectTemplate(newId);
+  renderList();
+  _setStatus("已复制为新模板。", "success");
 }
 
-function restoreSelectedTemplate(setStatus) {
+async function restoreSelectedTemplate() {
   const template = _templates.find((t) => t.id === _selectedId);
   if (!template) return;
   const original = DEFAULT_PROMPT_TEMPLATES.find((t) => t.id === template.id);
   if (!original) {
-    setStatus("找不到该预设的默认版本。", "warning");
+    _setStatus("找不到该预设的默认版本。", "warning");
     return;
   }
   const idx = _templates.findIndex((t) => t.id === template.id);
-  _templates[idx] = { ...original };
-  savePromptTemplates(_templates).then(() => {
-    selectTemplate(template.id);
-    renderList();
-    setStatus("已恢复默认内容。", "success");
-  });
+  _templates[idx] = {
+    ...original,
+    defaults: { ...original.defaults }
+  };
+  await savePromptTemplates(_templates);
+  selectTemplate(template.id);
+  renderList();
+  _setStatus("已恢复为预设默认内容。", "success");
 }
 
-function deleteSelectedTemplate(setStatus) {
-  return deleteTemplateById(_selectedId, setStatus);
-}
-
-async function deleteTemplateById(id, setStatus) {
+async function deleteTemplateById(id) {
   const template = _templates.find((t) => t.id === id);
   if (!template) return;
   if (PRESET_IDS.has(template.id)) {
-    setStatus("预设模板不能删除。", "warning");
+    _setStatus("预设模板不能删除，可点「恢复默认」回到原版。", "warning");
     return;
   }
   if (!confirm(`确定删除模板「${template.name}」？`)) return;
 
   const currentIndex = _templates.findIndex((t) => t.id === template.id);
   _templates = _templates.filter((t) => t.id !== template.id);
-  const nextTemplate =
-    _templates[currentIndex] ||
-    _templates[currentIndex - 1] ||
-    _templates[0] ||
-    null;
 
-  const activeTemplateId = await getActiveTemplateId();
-  if (activeTemplateId === template.id) {
+  if (_activeId === template.id) {
+    _activeId = "";
     await setActiveTemplateId("");
+    updateActivePill();
   }
 
-  _selectedId = nextTemplate?.id || "";
+  const next = _templates[currentIndex] || _templates[currentIndex - 1] || _templates[0] || null;
+  _selectedId = next?.id || "";
   await savePromptTemplates(_templates);
   renderList();
   selectTemplate(_selectedId);
-  setStatus(`模板「${template.name}」已删除。`, "success");
+  _setStatus(`模板「${template.name}」已删除。`, "success");
+}
+
+async function setSelectedAsActive() {
+  if (!_selectedId) return;
+  const template = _templates.find((t) => t.id === _selectedId);
+  if (!template) return;
+
+  // 闸门：如果选中的是 Pro 限定预设，但当前不是 Pro，弹升级框
+  const access = await checkTemplateAccess(template.id);
+  if (!access.ok) {
+    showUpgradeModal({
+      featureName: PAID_FEATURES["ai.advancedTemplates"].name,
+      hint: access.hint || PAID_FEATURES["ai.advancedTemplates"].hint,
+      bullets: [
+        "深度行业观察：抛事实 + 给判断 + 反方视角",
+        "故事化叙述：用场景与人物切入，把信息融进叙述",
+        "教程拆解：步骤化、可复现、含前置与坑点",
+        "免费版仍可用清单整理 / 新闻速读，以及全部自定义模板"
+      ],
+      primaryAction: {
+        label: "查看 Pro 套餐",
+        url: (typeof window !== "undefined" && window.__pricingUrl) || "https://gzh.example.com/pricing"
+      }
+    });
+    return;
+  }
+
+  _activeId = template.id;
+  await setActiveTemplateId(_activeId);
+  renderList();
+  updateActivePill();
+  _setStatus(`已把「${template.name}」设为编辑台默认改写模板。`, "success");
+}
+
+function updateActivePill() {
+  if (!els.activePill) return;
+  const active = _templates.find((t) => t.id === _activeId);
+  if (active) {
+    els.activePill.textContent = `当前生效：${active.icon || "📝"} ${active.name}`;
+    els.activePill.dataset.state = "active";
+  } else {
+    els.activePill.textContent = "当前未启用任何模板（使用内置默认 prompt）";
+    els.activePill.dataset.state = "idle";
+  }
 }
 
 function openPreviewPrompt() {
   const template = _templates.find((t) => t.id === _selectedId);
-  if (!template) return;
+  if (!template || !els.previewBackdrop) return;
 
-  const messages = buildRuntimePreviewMessages(template);
-  const systemPrompt = messages.find((message) => message.role === "system")?.content || "";
-  const userPrompt = messages.find((message) => message.role === "user")?.content || "";
+  saveCurrentFormToTemplate();
 
-  const systemChars = systemPrompt.length;
-  const userChars = userPrompt.length;
+  const messages = buildRewriteMessages(
+    DEMO_SOURCE,
+    DEMO_PREFERENCES,
+    DEMO_SETTINGS,
+    template
+  );
+  const systemPrompt = messages.find((m) => m.role === "system")?.content || "";
+  const userPrompt = messages.find((m) => m.role === "user")?.content || "";
+  const totalChars = systemPrompt.length + userPrompt.length;
 
-  els.previewMeta.textContent =
-    `System 约 ${systemChars} 字符 · User 约 ${userChars} 字符 · 总计约 ${systemChars + userChars} 字符 · 已包含图片定位、去 AI 味约束与 20000 字符限制`;
-  els.previewSystem.textContent = `SYSTEM（最终发送）:\n${systemPrompt}`;
-  els.previewUser.textContent = `USER（最终发送）:\n${userPrompt}`;
+  if (els.previewMeta) {
+    els.previewMeta.textContent = `System ${systemPrompt.length} 字符 · User ${userPrompt.length} 字符 · 共 ${totalChars} 字符 · 已用示例数据填充`;
+  }
+  if (els.previewSystem) {
+    els.previewSystem.textContent = `SYSTEM:\n${systemPrompt}`;
+  }
+  if (els.previewUser) {
+    els.previewUser.textContent = `USER:\n${userPrompt}`;
+  }
   els.previewBackdrop.hidden = false;
 }
 
@@ -364,23 +427,25 @@ function closePreviewPrompt() {
   if (els.previewBackdrop) els.previewBackdrop.hidden = true;
 }
 
-function exportTemplates(setStatus) {
+async function exportTemplates() {
   const payload = {
     version: 1,
     exportedAt: new Date().toISOString(),
     templates: _templates
   };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json;charset=utf-8"
+  });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = `prompt-templates-${new Date().toISOString().slice(0, 10)}.json`;
   anchor.click();
   URL.revokeObjectURL(url);
-  setStatus("模板已导出。", "success");
+  _setStatus("模板已导出。", "success");
 }
 
-async function importTemplates(event, setStatus) {
+async function importTemplates(event) {
   const file = event.target.files?.[0];
   event.target.value = "";
   if (!file) return;
@@ -390,18 +455,15 @@ async function importTemplates(event, setStatus) {
     const payload = JSON.parse(text);
     const imported = payload?.templates;
     if (!Array.isArray(imported) || imported.length === 0) {
-      setStatus("导入文件格式不正确。", "error");
+      _setStatus("导入文件格式不正确。", "error");
       return;
     }
-
-    // Validate shape
-    const valid = imported.filter((t) => t.id && t.systemTemplate && t.userTemplate);
+    const valid = imported.filter((t) => t && t.id && t.systemTemplate && t.userTemplate);
     if (valid.length === 0) {
-      setStatus("没有有效的模板可导入。", "error");
+      _setStatus("没有有效的模板可导入。", "error");
       return;
     }
 
-    // Merge: replace existing by id, append new ones
     const map = new Map(_templates.map((t) => [t.id, t]));
     for (const t of valid) {
       map.set(t.id, t);
@@ -413,224 +475,40 @@ async function importTemplates(event, setStatus) {
     }
     renderList();
     selectTemplate(_selectedId);
-    setStatus(`已导入 ${valid.length} 个模板。`, "success");
+    _setStatus(`已导入 ${valid.length} 个模板。`, "success");
   } catch (error) {
-    setStatus(error?.message || "导入失败。", "error");
+    _setStatus(error?.message || "导入失败。", "error");
   }
-}
-
-function updateTemplateStats() {
-  const presetCount = _templates.filter((t) => PRESET_IDS.has(t.id)).length;
-  const customCount = Math.max(0, _templates.length - presetCount);
-  if (els.totalCount) els.totalCount.textContent = String(_templates.length);
-  if (els.presetCount) els.presetCount.textContent = String(presetCount);
-  if (els.customCount) els.customCount.textContent = String(customCount);
-}
-
-function matchesFilter(template) {
-  if (!_filterQuery) return true;
-  const haystack = [
-    template.name,
-    template.icon,
-    PRESET_IDS.has(template.id) ? "预设" : "自定义",
-    template.defaults?.tone,
-    template.defaults?.angle
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  return haystack.includes(_filterQuery);
 }
 
 function updateTemplateMeta(template) {
   const systemLength = String(els.system?.value || "").length;
   const userLength = String(els.user?.value || "").length;
-  if (els.systemStats) {
-    els.systemStats.textContent = `${systemLength} 字符`;
-  }
-  if (els.userStats) {
-    els.userStats.textContent = `${userLength} 字符`;
-  }
+  if (els.systemStats) els.systemStats.textContent = `${systemLength} 字符`;
+  if (els.userStats) els.userStats.textContent = `${userLength} 字符`;
+  if (!els.liveMeta) return;
   if (!template) {
-    if (els.liveMeta) {
-      els.liveMeta.textContent = _filterQuery ? "当前筛选中，未选中模板" : "未选择模板";
-    }
+    els.liveMeta.textContent = "未选择模板";
     return;
   }
-
   const isPreset = PRESET_IDS.has(template.id);
-  if (els.kindPill) {
-    els.kindPill.textContent = isPreset ? "预设模板" : "自定义模板";
-    els.kindPill.dataset.kind = isPreset ? "preset" : "custom";
-  }
-
-  const effectiveModel = String(els.model?.value || "").trim() || "跟随全局";
-  const effectiveTemperature = String(els.temperature?.value || "").trim() || "跟随全局";
-  const defaultCount = [
-    els.defaultTone?.value,
-    els.defaultAngle?.value,
-    els.defaultLength?.value,
-    els.defaultCta?.value,
-    els.defaultAudience?.value
-  ].filter((value) => String(value || "").trim()).length;
-
-  if (els.liveMeta) {
-    els.liveMeta.textContent =
-      `${isPreset ? "预设" : "自定义"} · System ${systemLength} 字符 · User ${userLength} 字符 · 默认项 ${defaultCount} 个 · Model ${effectiveModel} · Temperature ${effectiveTemperature}`;
-  }
-}
-
-function updateRuntimePreview(template) {
-  if (!els.runtimePreview) return;
-  if (!template) {
-    els.runtimePreview.hidden = true;
-    if (els.runtimePreviewMeta) els.runtimePreviewMeta.textContent = "等待生成预览";
-    if (els.runtimePreviewSystem) els.runtimePreviewSystem.textContent = "";
-    if (els.runtimePreviewUser) els.runtimePreviewUser.textContent = "";
-    if (els.budgetBar) els.budgetBar.hidden = true;
-    return;
-  }
-
-  const messages = buildRuntimePreviewMessages(template);
-  const systemPrompt = messages.find((message) => message.role === "system")?.content || "";
-  const userPrompt = messages.find((message) => message.role === "user")?.content || "";
-  const systemChars = systemPrompt.length;
-  const userChars = userPrompt.length;
-
-  els.runtimePreview.hidden = false;
-  if (els.runtimePreviewMeta) {
-    els.runtimePreviewMeta.textContent =
-      `System ${systemChars} 字符 · User ${userChars} 字符 · 总计 ${systemChars + userChars} 字符`;
-  }
-  if (els.runtimePreviewSystem) {
-    els.runtimePreviewSystem.textContent = systemPrompt;
-  }
-  if (els.runtimePreviewUser) {
-    els.runtimePreviewUser.textContent = userPrompt;
-  }
-  updateBudgetBar(template);
-}
-
-function updateBudgetBar(template) {
-  if (!els.budgetBar) return;
-  const lengthKey = String(template?.defaults?.length || "medium");
-  const targetChars = estimateTargetChars(lengthKey);
-  const imageCount = 2; // 预览用的示例来源包含 2 张图
-  const estimatedHtml = estimateExportHtmlLength(targetChars, imageCount);
-  const percent = Math.min(100, Math.round((estimatedHtml / WECHAT_HTML_LIMIT) * 100));
-  const level =
-    estimatedHtml > WECHAT_HTML_LIMIT
-      ? "danger"
-      : estimatedHtml > WECHAT_HTML_SAFE_LIMIT
-      ? "warn"
-      : "ok";
-
-  els.budgetBar.hidden = false;
-  if (els.budgetBarFill) {
-    els.budgetBarFill.style.width = `${percent}%`;
-    els.budgetBarFill.dataset.level = level;
-  }
-  if (els.budgetBarValue) {
-    els.budgetBarValue.textContent =
-      `${estimatedHtml.toLocaleString()} / ${WECHAT_HTML_LIMIT.toLocaleString()} 字符`;
-  }
-  if (els.budgetBarHint) {
-    const lengthLabel = { short: "短文 800-1200 字", medium: "标准 1200-1800 字", long: "长文 1800-2600 字" }[lengthKey] || lengthKey;
-    const baseHint = `估算依据：${lengthLabel} × 主题样式 + ${imageCount} 张示例图（每张约 220 字符 HTML）。真实长度会随正文变化，超出 20000 会在运行时自动压缩。`;
-    els.budgetBarHint.textContent =
-      level === "danger"
-        ? `将超出 20000 字符硬上限，建议把默认篇幅切到更短档位。${baseHint}`
-        : level === "warn"
-        ? `已进入安全区上沿（>18000），请确认模板允许压缩 bulletPoints 与 quote。${baseHint}`
-        : `目前处于安全区内。${baseHint}`;
-    els.budgetBarHint.dataset.level = level;
-  }
-  els.budgetBar.querySelector(".runtime-budget-bar-track")?.setAttribute("aria-valuenow", String(estimatedHtml));
-}
-
-function estimateTargetChars(lengthKey) {
-  if (lengthKey === "short") return 1000;
-  if (lengthKey === "long") return 2200;
-  return 1500;
-}
-
-function estimateExportHtmlLength(targetChars, imageCount) {
-  const markupOverhead = Math.round(targetChars * 0.28);
-  const themeShell = 1400;
-  const perImage = 220;
-  return targetChars + markupOverhead + themeShell + imageCount * perImage;
-}
-
-function buildRuntimePreviewMessages(template) {
-  const previewTemplate = {
-    ...template,
-    systemTemplate: String(els.system?.value ?? template.systemTemplate ?? ""),
-    userTemplate: String(els.user?.value ?? template.userTemplate ?? ""),
-    defaults: {
-      tone: String(els.defaultTone?.value ?? template.defaults?.tone ?? ""),
-      angle: String(els.defaultAngle?.value ?? template.defaults?.angle ?? ""),
-      length: String(els.defaultLength?.value ?? template.defaults?.length ?? "medium"),
-      cta: String(els.defaultCta?.value ?? template.defaults?.cta ?? ""),
-      audience: String(els.defaultAudience?.value ?? template.defaults?.audience ?? "")
-    },
-    temperature: normalizeOptionalNumber(els.temperature?.value, template.temperature),
-    model: String(els.model?.value ?? template.model ?? "").trim() || null
-  };
-
-  const demoSource = {
-    title: "Google 悄悄发布 Android CLI，开发流开始往终端里挤",
-    url: "https://example.com/android-cli",
-    siteName: "示例站点",
-    wordCount: 1280,
-    keywords: ["Android CLI", "Google", "开发工具"],
-    images: [
-      { src: "https://example.com/image-1.png", alt: "命令行截图", caption: "CLI 运行界面" },
-      { src: "https://example.com/image-2.png", alt: "功能对比图", caption: "能力对比" }
-    ],
-    blocks: [
-      { type: "paragraph", text: "Google 最近把一个面向 Android 开发者的命令行工具 quietly 放了出来，核心卖点是把原来分散在 IDE、脚手架和文档里的动作，尽量压到终端里完成。" },
-      { type: "heading", level: 2, text: "它想解决的不是“能不能做”，而是“少切几个窗口”" },
-      { type: "paragraph", text: "对熟悉终端的人来说，这类工具真正有吸引力的地方，往往不是功能多，而是流程更短。初始化、编译、调试、拉起模拟器，如果能在一条链路里走完，体验会顺很多。" },
-      { type: "code", language: "bash", text: "android create project\nandroid build\nandroid emulator start" }
-    ]
-  };
-  const demoPreferences = {
-    audience: previewTemplate.defaults?.audience || "关注效率工具和开发流的读者",
-    tone: previewTemplate.defaults?.tone || "专业冷静",
-    angle: previewTemplate.defaults?.angle || "提炼观点",
-    length: previewTemplate.defaults?.length || "medium",
-    cta: previewTemplate.defaults?.cta || "结尾给出一个明确判断或可执行建议",
-    articleIndex: 1,
-    totalArticles: 1
-  };
-  const demoSettings = {
-    defaultAudience: "关注效率工具和开发流的读者",
-    defaultTone: "专业冷静",
-    defaultAngle: "提炼观点",
-    defaultCta: "结尾给出一个明确判断或可执行建议"
-  };
-
-  return buildRewriteMessages(demoSource, demoPreferences, demoSettings, previewTemplate);
-}
-
-function normalizeOptionalNumber(value, fallback) {
-  const text = String(value ?? "").trim();
-  if (!text) return fallback ?? null;
-  const parsed = Number(text);
-  return Number.isFinite(parsed) ? parsed : (fallback ?? null);
+  const model = String(els.model?.value || "").trim() || "跟随全局";
+  const temperature = String(els.temperature?.value || "").trim() || "跟随全局";
+  els.liveMeta.textContent = `${isPreset ? "预设" : "自定义"} · System ${systemLength} 字符 · User ${userLength} 字符 · Model ${model} · Temperature ${temperature}`;
 }
 
 function insertAtCursor(textarea, text) {
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
+  const start = textarea.selectionStart ?? textarea.value.length;
+  const end = textarea.selectionEnd ?? textarea.value.length;
   const before = textarea.value.slice(0, start);
   const after = textarea.value.slice(end);
   textarea.value = before + text + after;
   textarea.selectionStart = textarea.selectionEnd = start + text.length;
   textarea.focus();
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-function debounce(fn, delayMs = 250) {
+function debounce(fn, delayMs = 300) {
   let timer = null;
   return (...args) => {
     clearTimeout(timer);
@@ -639,5 +517,39 @@ function debounce(fn, delayMs = 250) {
 }
 
 function escapeAttr(value) {
-  return escapeHtml(value).replace(/"/g, "&quot;");
+  return escapeHtml(String(value)).replace(/"/g, "&quot;");
 }
+
+const DEMO_SOURCE = {
+  title: "示例：本地咖啡品牌如何用 AI 工具做内容运营",
+  url: "https://example.com/demo-article",
+  siteName: "示例站点",
+  description: "一篇用于 prompt 预览的示例稿件",
+  wordCount: 1280,
+  images: [
+    { src: "https://example.com/img-1.png", alt: "门店照片", caption: "新店开业" },
+    { src: "https://example.com/img-2.png", alt: "数据图表", caption: "增长曲线" }
+  ],
+  blocks: [
+    { type: "heading", level: 1, text: "本地咖啡品牌如何用 AI 工具做内容运营" },
+    { type: "paragraph", text: "在过去半年里，这家位于成都的本地咖啡品牌完成了一次从「门店品牌」到「内容品牌」的转身。" },
+    { type: "heading", level: 2, text: "他们用 AI 做了三件事" },
+    { type: "paragraph", text: "第一是改写门店日常拍摄的素材，第二是把顾客评价整理成短稿，第三是把活动文案模板化。" },
+    { type: "code", language: "bash", text: "ai rewrite --source feedback.txt --tone friendly" }
+  ]
+};
+
+const DEMO_PREFERENCES = {
+  audience: "",
+  tone: "",
+  angle: "",
+  length: "medium",
+  cta: ""
+};
+
+const DEMO_SETTINGS = {
+  defaultAudience: "关注内容运营与 AI 工具的从业者",
+  defaultTone: "专业、可信、像有判断的编辑在写",
+  defaultAngle: "提炼观点，重组结构，保留事实",
+  defaultCta: "在结尾给出一个可执行的行动建议"
+};

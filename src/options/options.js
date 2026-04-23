@@ -1,11 +1,35 @@
-import { applyThemePreferenceFromStorage } from "../shared/theme.js";
-
-applyThemePreferenceFromStorage();
-
 import { DEFAULT_SETTINGS } from "../shared/defaults.js";
 import { clearHistory, listSnapshots } from "../shared/history.js";
 import { getSettings, saveSettings } from "../shared/storage.js";
 import { formatRuntimeError, escapeHtml } from "../shared/utils.js";
+import { initPromptTemplates } from "./prompt-templates.js";
+import {
+  getAgentConfig,
+  setAgentConfig,
+  DEFAULT_AGENT_CONFIG
+} from "../shared/agent/agent-store.js";
+import { PLATFORM_COOKIE_RULES, PLATFORM_IDS } from "../shared/agent/credentials.js";
+import {
+  PAID_FEATURES,
+  checkAccountLimit,
+  checkLicense,
+  clearAuthRecord,
+  clearLicenseRecord,
+  deactivateDevice,
+  evaluateLicense,
+  fetchAccountSummary,
+  getAuthRecord,
+  getLicenseRecord,
+  getLicenseState,
+  login,
+  register,
+  bindLicenseToAccount,
+  unbindLicenseFromAccount,
+  validateLicenseKeyOffline,
+  verifyLicenseRemote,
+  subscribeLicenseChanges
+} from "../shared/license.js";
+import { showUpgradeModal } from "../shared/upgrade-modal.js";
 
 const fields = {
   productName: document.querySelector("#productName"),
@@ -26,7 +50,12 @@ const fields = {
   wechatDefaultSourceUrl: document.querySelector("#wechatDefaultSourceUrl"),
   wechatDefaultPublishMode: document.querySelector("#wechatDefaultPublishMode"),
   wechatDefaultOpenComment: document.querySelector("#wechatDefaultOpenComment"),
-  wechatDefaultOnlyFansCanComment: document.querySelector("#wechatDefaultOnlyFansCanComment")
+  wechatDefaultOnlyFansCanComment: document.querySelector("#wechatDefaultOnlyFansCanComment"),
+  hotTopicsDailyHotBase: document.querySelector("#hotTopicsDailyHotBase"),
+  hotTopicsNewsnowBase: document.querySelector("#hotTopicsNewsnowBase"),
+  drissionEnabled: document.querySelector("#drissionEnabled"),
+  drissionHelperUrl: document.querySelector("#drissionHelperUrl"),
+  drissionTimeoutMs: document.querySelector("#drissionTimeoutMs")
 };
 
 const statusElement = document.querySelector("#status");
@@ -34,6 +63,8 @@ const testConnectionButton = document.querySelector("#testConnectionButton");
 const testConnectionResult = document.querySelector("#testConnectionResult");
 const testWechatConnectionButton = document.querySelector("#testWechatConnectionButton");
 const testWechatConnectionResult = document.querySelector("#testWechatConnectionResult");
+const testDrissionConnectionButton = document.querySelector("#testDrissionConnectionButton");
+const testDrissionConnectionResult = document.querySelector("#testDrissionConnectionResult");
 const exportHistoryButton = document.querySelector("#exportHistoryButton");
 const clearHistoryButton = document.querySelector("#clearHistoryButton");
 
@@ -49,6 +80,7 @@ document.querySelector("#resetPreferencesButton")?.addEventListener("click", () 
 );
 testConnectionButton.addEventListener("click", testAiConnection);
 testWechatConnectionButton.addEventListener("click", testWechatConnection);
+testDrissionConnectionButton?.addEventListener("click", testDrissionConnection);
 exportHistoryButton.addEventListener("click", exportAllHistory);
 clearHistoryButton.addEventListener("click", clearAllHistory);
 
@@ -89,7 +121,34 @@ document.querySelector("#openTermsPage").addEventListener("click", () =>
   field.addEventListener("input", () => clearTestResult(testWechatConnectionResult));
 });
 
-await hydrateForm();
+[fields.drissionEnabled, fields.drissionHelperUrl, fields.drissionTimeoutMs]
+  .filter(Boolean)
+  .forEach((field) => {
+    const evt = field.type === "checkbox" ? "change" : "input";
+    field.addEventListener(evt, () => clearTestResult(testDrissionConnectionResult));
+  });
+
+// 闸门：DrissionPage 是 Pro 功能，免费用户尝试勾选时拦截并弹升级框
+fields.drissionEnabled?.addEventListener("change", async (event) => {
+  if (!event.target.checked) return;
+  const access = await checkLicense("scrape.drission");
+  if (access.ok) return;
+  event.target.checked = false;
+  showUpgradeModal({
+    featureName: PAID_FEATURES["scrape.drission"].name,
+    hint: access.hint || PAID_FEATURES["scrape.drission"].hint,
+    bullets: [
+      "走真实 Chromium，绕过反爬与懒加载",
+      "对动态加载内容（如电商详情页）友好",
+      "失败时自动回退到内置抓取，不会卡死"
+    ],
+    primaryAction: { label: "查看 Pro 套餐", url: pricingUrl() }
+  });
+});
+
+// 注意：所有 init 入口集中放到文件末尾的 bootstrapOptionsPage()，
+// 否则某些 init 函数访问的 module-level const 此时还在 TDZ，
+// 会抛 ReferenceError 并中断后面的初始化。
 
 async function hydrateForm() {
   const settings = await getSettings();
@@ -135,6 +194,7 @@ async function saveForm() {
   patch.wechatProfiles = currentProfiles;
 
   await saveSettings(patch);
+  await saveAgentSettings();
   setStatus("设置已保存。");
 }
 
@@ -239,19 +299,25 @@ async function testWechatConnection() {
     });
 
     if (response?.ok) {
-      setTestResult(
-        testWechatConnectionResult,
-        "success",
-        "验证成功，token 将在发布时使用"
-      );
+      // 强提示：拿到 token 不等于「能发草稿/能群发」。
+      // 典型反例是 48001：服务号未认证或接口未开通时 token 可拿，但 add_draft 会拒。
+      const note =
+        response.note ||
+        "已拿到 access_token。但本测试只能验证 AppID/AppSecret + IP 白名单，无法验证草稿/发布接口权限（如 48001 需要在真实发布时才能暴露）。";
+      setTestResult(testWechatConnectionResult, "success", note);
       return;
     }
 
-    setTestResult(
-      testWechatConnectionResult,
-      "error",
-      formatRuntimeError(response?.error, "验证失败，请检查公众号配置。")
-    );
+    // 拼装诊断信息：errcode / rid 透传给 UI，方便用户排查
+    const baseError = formatRuntimeError(response?.error, "验证失败，请检查公众号配置。");
+    const diagBits = [];
+    if (response?.errcode) diagBits.push(`errcode=${response.errcode}`);
+    if (response?.rid) diagBits.push(`rid=${response.rid}`);
+    const message = diagBits.length
+      ? `${baseError}（${diagBits.join("，")}）`
+      : baseError;
+
+    setTestResult(testWechatConnectionResult, "error", message);
   } catch (error) {
     setTestResult(
       testWechatConnectionResult,
@@ -260,6 +326,54 @@ async function testWechatConnection() {
     );
   } finally {
     testWechatConnectionButton.disabled = false;
+  }
+}
+
+async function testDrissionConnection() {
+  if (!testDrissionConnectionButton || !testDrissionConnectionResult) return;
+
+  testDrissionConnectionButton.disabled = true;
+  setTestResult(testDrissionConnectionResult, "loading", "正在测试 helper...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "TEST_DRISSION_CONNECTION",
+      payload: {
+        helperUrl: fields.drissionHelperUrl?.value?.trim() || "",
+        timeoutMs: Number(fields.drissionTimeoutMs?.value || 0) || undefined
+      }
+    });
+
+    if (response?.ok) {
+      const detail = [
+        response.helperVersion && `helper v${response.helperVersion}`,
+        response.drissionVersion && `DrissionPage v${response.drissionVersion}`,
+        response.browserMode && `browser=${response.browserMode}`,
+        Number.isFinite(response.latencyMs) && `latency=${response.latencyMs}ms`
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      setTestResult(
+        testDrissionConnectionResult,
+        "success",
+        detail ? `helper 可用：${detail}` : "helper 可用。"
+      );
+      return;
+    }
+
+    setTestResult(
+      testDrissionConnectionResult,
+      "error",
+      formatRuntimeError(response?.error, "helper 不可达，请检查地址和端口。")
+    );
+  } catch (error) {
+    setTestResult(
+      testDrissionConnectionResult,
+      "error",
+      error.message || "测试失败，请稍后再试。"
+    );
+  } finally {
+    testDrissionConnectionButton.disabled = false;
   }
 }
 
@@ -351,8 +465,12 @@ function renderProfiles() {
         <strong>${escapeHtml(profile.name || `账号 ${index + 1}`)}</strong>
         <span>AppID: ${escapeHtml(profile.appId)}</span>
         <span>作者: ${escapeHtml(profile.author || "-")}</span>
+        <span class="profile-test-result" data-test-result="${index}" aria-live="polite"></span>
       </div>
-      <button type="button" class="ghost" data-delete-profile="${index}">删除</button>
+      <div class="profile-actions">
+        <button type="button" class="ghost" data-test-profile="${index}">测试此账号</button>
+        <button type="button" class="ghost" data-delete-profile="${index}">删除</button>
+      </div>
     </div>
   `).join("");
 
@@ -362,6 +480,45 @@ function renderProfiles() {
       currentProfiles.splice(idx, 1);
       renderProfiles();
       setStatus("账号已删除，记得点「保存设置」才会生效。");
+    });
+  });
+
+  // 每个 profile 单独走一遍 testWechatConnection，方便用户在不切换默认账号的前提下
+  // 验证某一套凭证是否还能用。
+  profilesContainer.querySelectorAll("[data-test-profile]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.testProfile);
+      const profile = currentProfiles[idx];
+      const resultEl = profilesContainer.querySelector(`[data-test-result="${idx}"]`);
+      if (!profile || !resultEl) return;
+      btn.disabled = true;
+      const previousLabel = btn.textContent;
+      btn.textContent = "测试中...";
+      resultEl.textContent = "正在测试...";
+      resultEl.dataset.tone = "muted";
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: "TEST_WECHAT_CONNECTION",
+          payload: { appId: profile.appId, appSecret: profile.appSecret }
+        });
+        if (response?.ok) {
+          resultEl.textContent = `✓ 凭证可用（仅验证 token，发布权限以真实发布为准）`;
+          resultEl.dataset.tone = "success";
+        } else {
+          const diag = [];
+          if (response?.errcode) diag.push(`errcode=${response.errcode}`);
+          if (response?.rid) diag.push(`rid=${response.rid}`);
+          const tail = diag.length ? `（${diag.join("，")}）` : "";
+          resultEl.textContent = `× ${response?.error || "测试失败"}${tail}`;
+          resultEl.dataset.tone = "error";
+        }
+      } catch (error) {
+        resultEl.textContent = `× ${error.message || "测试失败"}`;
+        resultEl.dataset.tone = "error";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = previousLabel;
+      }
     });
   });
 }
@@ -377,6 +534,22 @@ async function addProfile() {
     return;
   }
 
+  // 闸门：多账号超过免费版上限时弹升级框
+  const limit = await checkAccountLimit(currentProfiles.length);
+  if (!limit.ok) {
+    showUpgradeModal({
+      featureName: PAID_FEATURES["wechat.multiAccount"].name,
+      hint: limit.hint,
+      bullets: [
+        "Pro 不限账号数，自由切换矩阵号",
+        "支持每个账号独立设置默认作者、发布模式",
+        "测试连接、发布日志按账号区分"
+      ],
+      primaryAction: { label: "查看 Pro 套餐", url: pricingUrl() }
+    });
+    return;
+  }
+
   currentProfiles.push({ name, appId, appSecret, author });
 
   profileFields.name.value = "";
@@ -388,3 +561,788 @@ async function addProfile() {
   await saveSettings({ wechatProfiles: currentProfiles });
   setStatus(`账号「${name}」已添加并保存。`);
 }
+
+const agentPlatformsGrid = document.querySelector("#agentPlatformsGrid");
+const agentPerPlatformLimit = document.querySelector("#agentPerPlatformLimit");
+const agentFinalLimit = document.querySelector("#agentFinalLimit");
+const agentConcurrency = document.querySelector("#agentConcurrency");
+const agentJitterMin = document.querySelector("#agentJitterMin");
+const agentJitterMax = document.querySelector("#agentJitterMax");
+const agentEnableBrief = document.querySelector("#agentEnableBrief");
+const agentShowAnglesAside = document.querySelector("#agentShowAnglesAside");
+
+async function initAgentSettings() {
+  if (!agentPlatformsGrid) return;
+
+  agentPlatformsGrid.innerHTML = `
+    <div class="platform-grid-group">
+      <div class="platform-grid-group-title">Agent 抓取目标</div>
+      <div class="platform-grid-group-items">
+        ${PLATFORM_IDS.map(
+          (id) => `
+          <label class="platform-grid-checkbox">
+            <input type="checkbox" data-agent-platform="${escapeHtml(id)}" />
+            <span>${escapeHtml(PLATFORM_COOKIE_RULES[id]?.name || id)}</span>
+          </label>`
+        ).join("")}
+      </div>
+    </div>
+  `;
+
+  const config = await getAgentConfig();
+  const enabled = new Set(config.defaultPlatforms);
+  agentPlatformsGrid.querySelectorAll("input[data-agent-platform]").forEach((cb) => {
+    cb.checked = enabled.has(cb.dataset.agentPlatform);
+  });
+  if (agentPerPlatformLimit) agentPerPlatformLimit.value = config.perPlatformLimit;
+  if (agentFinalLimit) agentFinalLimit.value = config.finalLimit;
+  if (agentConcurrency) agentConcurrency.value = config.concurrency;
+  if (agentJitterMin) agentJitterMin.value = config.jitterMinMs;
+  if (agentJitterMax) agentJitterMax.value = config.jitterMaxMs;
+  if (agentEnableBrief) agentEnableBrief.checked = Boolean(config.enableBrief);
+  if (agentShowAnglesAside) agentShowAnglesAside.checked = Boolean(config.showAnglesAsideHits);
+}
+
+async function saveAgentSettings() {
+  if (!agentPlatformsGrid) return;
+  const defaultPlatforms = Array.from(
+    agentPlatformsGrid.querySelectorAll("input[data-agent-platform]:checked")
+  ).map((cb) => cb.dataset.agentPlatform);
+
+  await setAgentConfig({
+    defaultPlatforms: defaultPlatforms.length > 0 ? defaultPlatforms : DEFAULT_AGENT_CONFIG.defaultPlatforms,
+    perPlatformLimit: Number(agentPerPlatformLimit?.value) || DEFAULT_AGENT_CONFIG.perPlatformLimit,
+    finalLimit: Number(agentFinalLimit?.value) || DEFAULT_AGENT_CONFIG.finalLimit,
+    concurrency: Number(agentConcurrency?.value) || DEFAULT_AGENT_CONFIG.concurrency,
+    jitterMinMs: Number(agentJitterMin?.value) || DEFAULT_AGENT_CONFIG.jitterMinMs,
+    jitterMaxMs: Number(agentJitterMax?.value) || DEFAULT_AGENT_CONFIG.jitterMaxMs,
+    enableBrief: Boolean(agentEnableBrief?.checked),
+    showAnglesAsideHits: Boolean(agentShowAnglesAside?.checked)
+  });
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * 小白友好：上手清单 + 模式切换
+ * 这两块都是「附加层」：不改任何已有 input 的 ID，也不影响保存逻辑，
+ * 只是读取当前值更新 UI 状态。
+ * ──────────────────────────────────────────────────────────── */
+
+const NOVICE_MODE_KEY = "gzhSettings.noviceMode.v1";
+const SAVED_FLAG_KEY = "gzhSettings.savedOnce.v1";
+
+function initNoviceMode() {
+  const body = document.body;
+  // 默认新手模式；用户切换过就尊重用户选择。
+  let mode = "novice";
+  try {
+    const stored = localStorage.getItem(NOVICE_MODE_KEY);
+    if (stored === "novice" || stored === "expert") mode = stored;
+  } catch {}
+  applyNoviceMode(mode);
+
+  document.querySelectorAll("[data-mode]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const next = btn.getAttribute("data-mode");
+      if (next === "novice" || next === "expert") {
+        applyNoviceMode(next);
+      }
+    });
+  });
+}
+
+function applyNoviceMode(mode) {
+  const body = document.body;
+  body.setAttribute("data-novice-mode", mode === "novice" ? "on" : "off");
+  document.querySelectorAll(".mode-pill").forEach((pill) => {
+    const isActive = pill.getAttribute("data-mode") === mode;
+    pill.classList.toggle("is-active", isActive);
+    pill.setAttribute("aria-selected", String(isActive));
+  });
+  const hint = document.querySelector("#modeHint");
+  if (hint) {
+    hint.textContent =
+      mode === "novice"
+        ? "新手模式只显示最关键的几张配置卡，进阶能力默认收起。"
+        : "高级模式：所有进阶卡片都已展开，包括多账号、热点接口、AI 选题代笔、Prompt 模板等。";
+  }
+  try {
+    localStorage.setItem(NOVICE_MODE_KEY, mode === "novice" ? "novice" : "expert");
+  } catch {}
+}
+
+/**
+ * Phase E：左侧分区导航
+ * - 点击：smooth 滚动到对应 card，并轻微 flash 提示
+ * - 滚动：用 IntersectionObserver 反向高亮"当前可视分区"
+ * 不动任何业务逻辑，仅 UI 行为。
+ */
+function initQuickNav() {
+  const nav = document.querySelector("#settingsQuicknav");
+  if (!nav) return;
+  const items = Array.from(nav.querySelectorAll(".settings-quicknav-item[data-section-target]"));
+  if (!items.length) return;
+
+  const sections = Array.from(document.querySelectorAll("[data-section-key]"));
+  if (!sections.length) return;
+
+  const keyToItem = new Map();
+  items.forEach((item) => {
+    const key = item.getAttribute("data-section-target");
+    if (key) keyToItem.set(key, item);
+
+    item.addEventListener("click", (event) => {
+      event.preventDefault();
+      const target = sections.find((sec) => sec.getAttribute("data-section-key") === key);
+      if (!target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.classList.remove("is-anchor-flash");
+      // 强制 reflow 以重启动画
+      void target.offsetWidth;
+      target.classList.add("is-anchor-flash");
+      setTimeout(() => target.classList.remove("is-anchor-flash"), 1700);
+      setActiveQuickNav(key);
+    });
+  });
+
+  function setActiveQuickNav(key) {
+    items.forEach((item) => {
+      item.classList.toggle(
+        "is-active",
+        item.getAttribute("data-section-target") === key
+      );
+    });
+  }
+
+  // 反向高亮：取交叉比例最高的那个 section 作为当前
+  const visibility = new Map();
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        const key = entry.target.getAttribute("data-section-key");
+        if (!key) return;
+        visibility.set(key, entry.isIntersecting ? entry.intersectionRatio : 0);
+      });
+      let maxKey = null;
+      let maxRatio = 0;
+      visibility.forEach((ratio, key) => {
+        if (ratio > maxRatio) {
+          maxRatio = ratio;
+          maxKey = key;
+        }
+      });
+      if (maxKey) setActiveQuickNav(maxKey);
+    },
+    {
+      // 在视口上半部分判定，与 scrollIntoView block:'start' 体感一致
+      rootMargin: "-15% 0px -55% 0px",
+      threshold: [0, 0.25, 0.5, 0.75, 1]
+    }
+  );
+  sections.forEach((sec) => observer.observe(sec));
+}
+
+function initChecklist() {
+  // 跳转按钮：点击「跳到这一步」滚到对应 input 并 focus。
+  document.querySelectorAll("[data-jump]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-jump");
+      if (!id) return;
+      const target = document.getElementById(id);
+      if (!target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      // 等滚动结束再 focus，避免 smooth-scroll 被 focus 中断
+      setTimeout(() => target.focus({ preventScroll: true }), 350);
+      target.classList.add("field-flash");
+      setTimeout(() => target.classList.remove("field-flash"), 1200);
+    });
+  });
+
+  // 输入变化时实时更新清单状态。
+  const watch = [
+    fields.apiBaseUrl,
+    fields.apiKey,
+    fields.model,
+    fields.wechatAppId,
+    fields.wechatAppSecret
+  ].filter(Boolean);
+  watch.forEach((field) => {
+    field.addEventListener("input", refreshChecklist);
+  });
+
+  // 保存按钮额外打个标记：用来判定「第三步」是否已完成。
+  document.querySelector("#saveButton")?.addEventListener("click", () => {
+    try {
+      localStorage.setItem(SAVED_FLAG_KEY, "1");
+    } catch {}
+    setTimeout(refreshChecklist, 50);
+  });
+
+  refreshChecklist();
+}
+
+function refreshChecklist() {
+  const aiOk =
+    isFilled(fields.apiBaseUrl?.value) &&
+    isFilled(fields.apiKey?.value) &&
+    isFilled(fields.model?.value);
+  const wechatOk =
+    isFilled(fields.wechatAppId?.value) && isFilled(fields.wechatAppSecret?.value);
+  let savedOk = false;
+  try {
+    savedOk = localStorage.getItem(SAVED_FLAG_KEY) === "1" && aiOk;
+  } catch {}
+
+  setChecklistStep("ai", aiOk);
+  setChecklistStep("wechat", wechatOk);
+  setChecklistStep("save", savedOk);
+}
+
+function setChecklistStep(step, done) {
+  const item = document.querySelector(`.checklist-item[data-step="${step}"]`);
+  if (!item) return;
+  item.classList.toggle("is-done", Boolean(done));
+  const status = item.querySelector(".step-status");
+  if (status) {
+    status.setAttribute("data-status", done ? "done" : "missing");
+    status.textContent = done ? "已完成" : step === "save" ? "未保存" : "未完成";
+  }
+}
+
+function isFilled(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/* ============== 会员激活（联网账号 + License 绑定） ============== */
+
+const licenseEls = {
+  section: null,
+  statusBox: null,
+  statusLabel: null,
+  statusHint: null,
+  statusKey: null,
+  refreshBtn: null,
+
+  authTabs: null,
+  emailInput: null,
+  passwordInput: null,
+  authSubmitBtn: null,
+  authFeedback: null,
+  accountStatus: null,
+  accountInfo: null,
+  accountEmail: null,
+  logoutBtn: null,
+
+  input: null,
+  activateBtn: null,
+  clearBtn: null,
+  feedback: null,
+  pricingLink: null,
+
+  listBlock: null,
+  listContainer: null,
+  featuresList: null
+};
+
+let _licenseAuthMode = "login"; // "login" | "register"
+
+async function initLicenseSection() {
+  licenseEls.section = document.querySelector("#licenseSection");
+  if (!licenseEls.section) return;
+
+  licenseEls.statusBox = document.querySelector("#licenseStatusBox");
+  licenseEls.statusLabel = document.querySelector("#licenseStatusLabel");
+  licenseEls.statusHint = document.querySelector("#licenseStatusHint");
+  licenseEls.statusKey = document.querySelector("#licenseStatusKey");
+  licenseEls.refreshBtn = document.querySelector("#licenseRefreshBtn");
+
+  licenseEls.authTabs = document.querySelector("#licenseAuthTabs");
+  licenseEls.emailInput = document.querySelector("#licenseEmailInput");
+  licenseEls.passwordInput = document.querySelector("#licensePasswordInput");
+  licenseEls.authSubmitBtn = document.querySelector("#licenseAuthSubmitBtn");
+  licenseEls.authFeedback = document.querySelector("#licenseAuthFeedback");
+  licenseEls.accountStatus = document.querySelector("#licenseAccountStatus");
+  licenseEls.accountInfo = document.querySelector("#licenseAccountInfo");
+  licenseEls.accountEmail = document.querySelector("#licenseAccountEmail");
+  licenseEls.logoutBtn = document.querySelector("#licenseLogoutBtn");
+
+  licenseEls.input = document.querySelector("#licenseKeyInput");
+  licenseEls.activateBtn = document.querySelector("#licenseActivateBtn");
+  licenseEls.clearBtn = document.querySelector("#licenseClearBtn");
+  licenseEls.feedback = document.querySelector("#licenseFeedback");
+  licenseEls.pricingLink = document.querySelector("#licensePricingLink");
+
+  licenseEls.listBlock = document.querySelector("#licenseListBlock");
+  licenseEls.listContainer = document.querySelector("#licenseListContainer");
+  licenseEls.featuresList = document.querySelector("#licenseFeaturesList");
+
+  // 暴露给 prompt-templates.js 等模块统一拿定价链接
+  if (typeof window !== "undefined") {
+    window.__pricingUrl = pricingUrl();
+  }
+  if (licenseEls.pricingLink) {
+    licenseEls.pricingLink.href = pricingUrl();
+  }
+
+  // 监听 license / 登录态变化：sw 后台复验、popup 上的快捷操作、其它 options 标签页
+  // 任意更新都自动刷新 UI（不需要用户手动 reload）
+  subscribeLicenseChanges(() => {
+    void renderAll();
+  });
+
+  // 事件绑定
+  licenseEls.refreshBtn?.addEventListener("click", handleRefreshLicense);
+
+  licenseEls.authTabs?.addEventListener("click", (e) => {
+    const target = e.target.closest("[data-auth-tab]");
+    if (!target) return;
+    setAuthMode(target.dataset.authTab);
+  });
+
+  licenseEls.authSubmitBtn?.addEventListener("click", handleAuthSubmit);
+  [licenseEls.emailInput, licenseEls.passwordInput].forEach((el) =>
+    el?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void handleAuthSubmit();
+      }
+    })
+  );
+
+  licenseEls.logoutBtn?.addEventListener("click", handleLogout);
+
+  licenseEls.activateBtn?.addEventListener("click", handleActivateLicense);
+  licenseEls.clearBtn?.addEventListener("click", handleClearLicense);
+  licenseEls.input?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void handleActivateLicense();
+    }
+  });
+  licenseEls.input?.addEventListener("input", () => {
+    const raw = licenseEls.input.value.toUpperCase().replace(/[^0-9A-Z]/g, "");
+    const padded = raw.startsWith("GZHT") ? raw : `GZHT${raw}`;
+    const segments = [
+      padded.slice(0, 4),
+      padded.slice(4, 8),
+      padded.slice(8, 12),
+      padded.slice(12, 16)
+    ].filter(Boolean);
+    licenseEls.input.value = segments.join("-");
+  });
+
+  await renderAll();
+}
+
+function setAuthMode(mode) {
+  _licenseAuthMode = mode === "register" ? "register" : "login";
+  if (licenseEls.authTabs) {
+    licenseEls.authTabs.querySelectorAll(".license-tab").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.authTab === _licenseAuthMode);
+    });
+  }
+  if (licenseEls.authSubmitBtn) {
+    licenseEls.authSubmitBtn.textContent = _licenseAuthMode === "register" ? "注册并登录" : "登录";
+  }
+  setLicenseAuthFeedback("");
+}
+
+async function renderAll() {
+  await Promise.all([renderAccountUI(), renderLicenseStatus(), renderFeaturesList()]);
+}
+
+async function renderAccountUI() {
+  const auth = await getAuthRecord();
+  const loggedIn = Boolean(auth?.token && auth?.user?.email);
+
+  if (licenseEls.accountStatus) {
+    licenseEls.accountStatus.textContent = loggedIn
+      ? `已登录：${auth.user.email}`
+      : "未登录";
+  }
+  if (licenseEls.accountInfo) licenseEls.accountInfo.hidden = !loggedIn;
+  if (licenseEls.accountEmail) licenseEls.accountEmail.textContent = auth?.user?.email || "";
+
+  // 表单：未登录显示，登录后隐藏
+  const showForm = !loggedIn;
+  ["emailInput", "passwordInput", "authSubmitBtn"].forEach((k) => {
+    if (licenseEls[k]) licenseEls[k].style.display = showForm ? "" : "none";
+  });
+  if (licenseEls.authTabs) licenseEls.authTabs.style.display = showForm ? "" : "none";
+
+  if (licenseEls.listBlock) licenseEls.listBlock.hidden = !loggedIn;
+
+  if (loggedIn) {
+    void refreshAccountSummary();
+  } else {
+    renderLicenseList(null);
+  }
+}
+
+async function refreshAccountSummary() {
+  try {
+    const data = await fetchAccountSummary();
+    if (data?.ok) {
+      renderLicenseList(data.license);
+    } else if (data?.error) {
+      setLicenseAuthFeedback(data.error, "error");
+    }
+  } catch (error) {
+    if (error.status === 401) {
+      // 已自动 clearAuthRecord，刷新 UI 即可
+      await renderAccountUI();
+      setLicenseAuthFeedback("登录已过期，请重新登录。", "warning");
+    } else {
+      setLicenseAuthFeedback(error?.message || "获取账号信息失败", "error");
+    }
+  }
+}
+
+function renderLicenseList(summary) {
+  const container = licenseEls.listContainer;
+  if (!container) return;
+  const keys = Array.isArray(summary?.keys) ? summary.keys : [];
+  if (!keys.length) {
+    container.innerHTML = `<p class="license-list-empty">暂未在该账号下查到 License Key。点击 <a href="${escapeHtml(pricingUrl())}" target="_blank" rel="noopener">购买 Pro</a> 即可激活。</p>`;
+    return;
+  }
+  container.innerHTML = keys
+    .map((row) => {
+      const expires =
+        row.expires_at && Number(row.expires_at) > 0
+          ? `有效至 ${formatLicenseDate(row.expires_at)}`
+          : "永久有效";
+      const planTag = row.plan === "pro" ? "PRO" : String(row.plan || "free").toUpperCase();
+      const statusTag = row.status === "active" ? "活跃" : row.status === "expired" ? "已过期" : "已禁用";
+      return `
+        <div class="license-list-item" data-key="${escapeAttr(row.key)}">
+          <div class="license-list-item-meta">
+            <code class="license-list-key">${escapeHtml(row.key)}</code>
+            <span class="license-list-plan" data-plan="${escapeAttr(row.plan)}">${planTag}</span>
+            <span class="license-list-status" data-status="${escapeAttr(row.status)}">${statusTag}</span>
+            <span class="license-list-expires">${escapeHtml(expires)}</span>
+          </div>
+          <div class="license-list-item-actions">
+            <button type="button" class="ghost-button" data-action="bind">绑定到本机</button>
+            <button type="button" class="ghost-button" data-action="unbind">从账号解绑</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  container.querySelectorAll("[data-action]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const item = btn.closest("[data-key]");
+      const key = item?.dataset.key;
+      if (!key) return;
+      const action = btn.dataset.action;
+      if (action === "bind") {
+        await handleBindFromList(key);
+      } else if (action === "unbind") {
+        await handleUnbindFromList(key);
+      }
+    });
+  });
+}
+
+async function handleBindFromList(key) {
+  if (!licenseEls.input) return;
+  licenseEls.input.value = key;
+  await handleActivateLicense();
+}
+
+async function handleUnbindFromList(key) {
+  if (!confirm(`确定从账号解绑 License Key ${key}？解绑后该 Key 可被绑定到其它账号。`)) return;
+  try {
+    const res = await unbindLicenseFromAccount(key);
+    if (res?.ok) {
+      setLicenseAuthFeedback("已从账号解绑该 License。", "success");
+      await refreshAccountSummary();
+      // 如果当前本机激活的就是这张 key，也清掉本地缓存
+      const local = await getLicenseRecord();
+      if (local?.key === key) {
+        try { await deactivateDevice(key); } catch { /* ignore */ }
+        await clearLicenseRecord();
+        await renderLicenseStatus();
+        await renderFeaturesList();
+      }
+    } else {
+      setLicenseAuthFeedback(res?.error || "解绑失败", "error");
+    }
+  } catch (error) {
+    setLicenseAuthFeedback(error?.message || "解绑失败", "error");
+  }
+}
+
+async function handleAuthSubmit() {
+  const email = licenseEls.emailInput?.value?.trim() || "";
+  const password = licenseEls.passwordInput?.value || "";
+  if (!email || !password) {
+    setLicenseAuthFeedback("请填写邮箱和密码。", "warning");
+    return;
+  }
+  setAuthBtnBusy(true);
+  try {
+    const res = _licenseAuthMode === "register"
+      ? await register(email, password)
+      : await login(email, password);
+    if (res?.ok) {
+      setLicenseAuthFeedback(_licenseAuthMode === "register" ? "注册成功，已自动登录。" : "登录成功。", "success");
+      if (licenseEls.passwordInput) licenseEls.passwordInput.value = "";
+      await renderAll();
+    } else {
+      setLicenseAuthFeedback(res?.error || "操作失败", "error");
+    }
+  } catch (error) {
+    setLicenseAuthFeedback(error?.message || "网络异常，请稍后再试", "error");
+  } finally {
+    setAuthBtnBusy(false);
+  }
+}
+
+async function handleLogout() {
+  await clearAuthRecord();
+  setLicenseAuthFeedback("已退出登录。", "muted");
+  await renderAll();
+}
+
+async function handleRefreshLicense() {
+  const record = await getLicenseRecord();
+  if (!record?.key) {
+    setLicenseFeedback("当前还没有激活任何 License。", "warning");
+    return;
+  }
+  setLicenseFeedback("正在向服务器复验...", "muted");
+  try {
+    const res = await verifyLicenseRemote(record.key);
+    if (res?.ok) {
+      await renderLicenseStatus();
+      await renderFeaturesList();
+      setLicenseFeedback("已复验完成，状态已更新。", "success");
+    } else {
+      setLicenseFeedback(res?.error || "复验失败", "error");
+    }
+  } catch (error) {
+    setLicenseFeedback(error?.message || "网络异常，请稍后再试", "error");
+  }
+}
+
+async function renderLicenseStatus() {
+  const state = await getLicenseState({ refresh: false });
+  const record = await getLicenseRecord();
+
+  if (licenseEls.statusBox) licenseEls.statusBox.dataset.status = state.status;
+  if (licenseEls.statusLabel) licenseEls.statusLabel.textContent = state.label;
+  if (licenseEls.statusHint) licenseEls.statusHint.textContent = state.hint;
+  if (licenseEls.statusKey) {
+    if (state.displayKey) {
+      licenseEls.statusKey.hidden = false;
+      licenseEls.statusKey.textContent = state.displayKey;
+    } else {
+      licenseEls.statusKey.hidden = true;
+      licenseEls.statusKey.textContent = "";
+    }
+  }
+  if (licenseEls.clearBtn) licenseEls.clearBtn.hidden = !record;
+  if (licenseEls.input && record?.key) licenseEls.input.value = record.key;
+  if (licenseEls.refreshBtn) licenseEls.refreshBtn.disabled = !record;
+}
+
+async function renderFeaturesList() {
+  const list = licenseEls.featuresList;
+  if (!list) return;
+  const state = await getLicenseState({ refresh: false });
+  const isPro = state.effectivePlan === "pro";
+  const items = Object.entries(PAID_FEATURES).map(([key, meta]) => {
+    const enabled = meta.tier === "free" || isPro;
+    return `<li class="license-feature ${enabled ? "is-on" : "is-off"}">
+      <span class="license-feature-icon" aria-hidden="true">${enabled ? "✓" : "○"}</span>
+      <span class="license-feature-meta">
+        <strong>${escapeHtml(meta.name)}</strong>
+        <span>${escapeHtml(meta.hint)}</span>
+      </span>
+      <span class="license-feature-tag">${meta.tier === "free" ? "FREE" : "PRO"}</span>
+    </li>`;
+  });
+  list.innerHTML = items.join("");
+}
+
+async function handleActivateLicense() {
+  if (!licenseEls.input) return;
+  const raw = licenseEls.input.value.trim();
+  if (!raw) {
+    setLicenseFeedback("请先输入 License Key（形如 GZHT-XXXX-XXXX-XXXX）。", "warning");
+    licenseEls.input.focus();
+    return;
+  }
+
+  const offline = validateLicenseKeyOffline(raw);
+  if (!offline.ok) {
+    setLicenseFeedback(licenseFailureMessage(offline.reason), "error");
+    return;
+  }
+
+  setLicenseFeedback("正在向服务器验证 License...", "muted");
+  setActivateBtnBusy(true);
+  try {
+    // 1) 服务端验证 + 写本地缓存
+    const verifyRes = await verifyLicenseRemote(offline.key);
+    if (!verifyRes?.ok) {
+      setLicenseFeedback(verifyRes?.error || "验证失败", "error");
+      return;
+    }
+
+    // 2) 如果当前用户已登录，把这张 key 也绑到账号下（方便跨设备使用）
+    const auth = await getAuthRecord();
+    if (auth?.token) {
+      try {
+        await bindLicenseToAccount(offline.key);
+        await refreshAccountSummary();
+      } catch (error) {
+        // 可能 key 已绑别人 → 用 warning 不算致命
+        setLicenseAuthFeedback(
+          `License 已在本机激活，但绑定到账号失败：${error?.message || "未知错误"}`,
+          "warning"
+        );
+      }
+    }
+
+    await renderLicenseStatus();
+    await renderFeaturesList();
+    setLicenseFeedback(
+      verifyRes.plan === "pro"
+        ? "激活成功！已升级到 Pro，所有付费功能立即可用。"
+        : "激活成功，但该 Key 不属于 Pro 套餐。",
+      verifyRes.plan === "pro" ? "success" : "warning"
+    );
+  } catch (error) {
+    setLicenseFeedback(error?.message || "网络异常，请稍后再试", "error");
+  } finally {
+    setActivateBtnBusy(false);
+  }
+}
+
+async function handleClearLicense() {
+  if (!confirm("确定从本机解绑当前 License？账号上的绑定记录不受影响。")) return;
+  const record = await getLicenseRecord();
+  if (record?.key) {
+    try { await deactivateDevice(record.key); } catch { /* ignore */ }
+  }
+  await clearLicenseRecord();
+  if (licenseEls.input) licenseEls.input.value = "";
+  await renderLicenseStatus();
+  await renderFeaturesList();
+  setLicenseFeedback("已从本机解绑 License，回到免费版。", "muted");
+}
+
+function setActivateBtnBusy(busy) {
+  if (!licenseEls.activateBtn) return;
+  licenseEls.activateBtn.disabled = busy;
+  licenseEls.activateBtn.textContent = busy ? "验证中..." : "激活并绑定";
+}
+
+function setAuthBtnBusy(busy) {
+  if (!licenseEls.authSubmitBtn) return;
+  licenseEls.authSubmitBtn.disabled = busy;
+  licenseEls.authSubmitBtn.textContent = busy
+    ? (_licenseAuthMode === "register" ? "注册中..." : "登录中...")
+    : (_licenseAuthMode === "register" ? "注册并登录" : "登录");
+}
+
+function licenseFailureMessage(reason) {
+  switch (reason) {
+    case "format":
+      return "格式不对：License Key 应该形如 GZHT-XXXX-XXXX-XXXX，每段 4 位字母或数字。";
+    case "empty":
+      return "请先填写 License Key。";
+    default:
+      return "License 不可用，请重新填写。";
+  }
+}
+
+function setLicenseFeedback(text, tone) {
+  if (!licenseEls.feedback) return;
+  licenseEls.feedback.textContent = text;
+  licenseEls.feedback.dataset.tone = tone || "muted";
+}
+
+function setLicenseAuthFeedback(text, tone) {
+  if (!licenseEls.authFeedback) return;
+  if (!text) {
+    licenseEls.authFeedback.hidden = true;
+    licenseEls.authFeedback.textContent = "";
+    return;
+  }
+  licenseEls.authFeedback.hidden = false;
+  licenseEls.authFeedback.textContent = text;
+  licenseEls.authFeedback.dataset.tone = tone || "muted";
+}
+
+function formatLicenseDate(timestamp) {
+  if (!timestamp) return "";
+  const d = new Date(Number(timestamp));
+  if (!Number.isFinite(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function escapeAttr(value) {
+  return escapeHtml(String(value)).replace(/"/g, "&quot;");
+}
+
+/**
+ * 统一的"去定价页"链接。优先读 settings.licensePricingUrl（用户可自定义私有部署地址），
+ * 否则走默认。所有升级弹窗的主按钮都通过这里取链接，避免散落硬编码。
+ */
+function pricingUrl() {
+  try {
+    const v = fields.officialSiteUrl?.value?.trim();
+    if (v) return `${v.replace(/\/+$/, "")}/pricing`;
+  } catch {
+    // ignore
+  }
+  return "https://gzh.example.com/pricing";
+}
+
+/**
+ * 入口：所有 module-level `const` 都已声明后再启动各 init。
+ * （之前 await 初始化散落在文件中段，会触发 TDZ。）
+ */
+async function bootstrapOptionsPage() {
+  try {
+    await hydrateForm();
+  } catch (err) {
+    console.error("[options] hydrateForm failed:", err);
+  }
+  try {
+    await initPromptTemplates(setStatus);
+  } catch (err) {
+    console.error("[options] initPromptTemplates failed:", err);
+  }
+  try {
+    await initAgentSettings();
+  } catch (err) {
+    console.error("[options] initAgentSettings failed:", err);
+  }
+  initNoviceMode();
+  initChecklist();
+  initQuickNav();
+  try {
+    await initLicenseSection();
+  } catch (err) {
+    console.error("[options] initLicenseSection failed:", err);
+  }
+  // 支持从 popup 跳转过来时滚动到 #license 锚点
+  if (typeof window !== "undefined" && window.location?.hash === "#license") {
+    requestAnimationFrame(() => {
+      document.querySelector("#licenseSection")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+      document.querySelector("#licenseKeyInput")?.focus();
+    });
+  }
+}
+
+await bootstrapOptionsPage();
+

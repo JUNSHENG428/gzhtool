@@ -8,6 +8,7 @@ import { deleteSnapshot, listSnapshots, loadSnapshot, saveSnapshot } from "../sh
 import { getSettings } from "../shared/storage.js";
 import { WECHAT_WEB_EDITOR_URL, THEME_PRESETS } from "../shared/defaults.js";
 import { clampIndex, formatRuntimeError } from "../shared/utils.js";
+import { prepareHtmlForWechat } from "../shared/wechat-html.js";
 
 let _ctx;
 
@@ -88,6 +89,9 @@ export async function publishBundle(mode) {
     resetRetryCount
   } = _ctx;
 
+  // 提到 try 外，catch 块才能在错误信息里带上当前账号名
+  let accountLabel = "默认账号";
+
   try {
     syncCurrentArticleFromControls();
     const validationError = validateCurrentArticleForPublish();
@@ -96,23 +100,39 @@ export async function publishBundle(mode) {
       return;
     }
 
-    showLoading(mode === "publish" ? "正在提交多图文发布..." : "正在推送多图文草稿包...");
     state.settings = await getSettings();
 
-    // 多账号切换：如果选中了某个 profile，用 profile 的凭证覆盖默认凭证
-    const profileIndex = Number(_ctx.controls.wechatProfileSelect?.value || -1);
-    const profiles = state.settings.wechatProfiles || [];
+    // 多账号切换：把"用户在编辑台选的发布账号"作为 payload 显式传给 background。
+    // 之前的实现只在 workspace 端 mutate state.settings，但 background 收到 PUBLISH_TO_WECHAT
+    // 后会重新 getSettings()，于是又退回到默认账号——这是多账号发布失效的根因。
+    const profileIndex = Number(_ctx.controls.wechatProfileSelect?.value ?? -1);
+    const profiles = Array.isArray(state.settings.wechatProfiles) ? state.settings.wechatProfiles : [];
+    let accountOverride = null;
     if (profileIndex >= 0 && profiles[profileIndex]) {
       const profile = profiles[profileIndex];
-      state.settings = {
-        ...state.settings,
-        wechatAppId: profile.appId,
-        wechatAppSecret: profile.appSecret,
-        wechatDefaultAuthor: profile.author || state.settings.wechatDefaultAuthor
+      accountLabel = profile.name?.trim() || `账号 ${profileIndex + 1}`;
+      accountOverride = {
+        wechatAppId: String(profile.appId || "").trim(),
+        wechatAppSecret: String(profile.appSecret || "").trim(),
+        wechatDefaultAuthor: String(profile.author || "").trim()
       };
+      if (!accountOverride.wechatAppId || !accountOverride.wechatAppSecret) {
+        setStatus(
+          `选中的发布账号「${accountLabel}」缺少 AppID 或 AppSecret，请先到设置页补全。`,
+          "warning"
+        );
+        return;
+      }
     }
 
+    showLoading(
+      `${mode === "publish" ? "正在提交多图文发布" : "正在推送多图文草稿包"} · 账号「${accountLabel}」...`
+    );
+
     const payload = _buildWechatPublishPayload(mode);
+    payload.accountOverride = accountOverride;
+    payload.accountLabel = accountLabel;
+    payload.profileIndex = profileIndex;
     const response = await chrome.runtime.sendMessage({ type: "PUBLISH_TO_WECHAT", payload });
 
     if (!response?.ok) {
@@ -141,24 +161,31 @@ export async function publishBundle(mode) {
         (f) => `第 ${f.articleIndex} 篇 · ${f.type === "cover" ? "封面" : "正文图片"}：${f.error || "上传失败"}`
       );
       setStatus(
-        (mode === "publish" ? "已提交发布，但部分图片上传失败。" : "草稿已推送，但部分图片上传失败。") +
+        `账号「${accountLabel}」` +
+          (mode === "publish" ? "已提交发布，但部分图片上传失败。" : "草稿已推送，但部分图片上传失败。") +
           " " +
           lines.join("；"),
         "warning"
       );
     } else {
       setStatus(
-        mode === "publish"
-          ? "已提交发布请求，正在自动查询发布状态。"
-          : "已成功推送到公众号草稿箱。",
+        `账号「${accountLabel}」` +
+          (mode === "publish"
+            ? "已提交发布请求，正在自动查询发布状态。"
+            : "已成功推送到公众号草稿箱。"),
         "success"
       );
     }
     resetRetryCount();
   } catch (error) {
+    const accountTag = accountLabel ? `账号「${accountLabel}」：` : "";
     setErrorStatus(
-      error._errorObj || { code: "UNKNOWN", message: error.message || "公众号发布失败。", retryable: false },
-      "公众号发布失败。",
+      error._errorObj || {
+        code: "UNKNOWN",
+        message: `${accountTag}${error.message || "公众号发布失败。"}`,
+        retryable: false
+      },
+      `${accountTag}公众号发布失败。`,
       () => publishBundle(mode)
     );
   } finally {
@@ -173,7 +200,13 @@ function _buildWechatPublishPayload(mode) {
     if (!article.meta.title.trim()) throw new Error(`第 ${index + 1} 篇没有填写标题。`);
     if (!coverImage?.src) throw new Error(`第 ${index + 1} 篇还没有选择封面图。`);
 
-    const preparedHtml = _tokenizeImages(buildExportHtmlForArticle(article));
+    // 公众号 add_draft 对 HTML 极挑剔：先用 prepareHtmlForWechat 把容器
+    // 标签、class、危险节点和零宽字符干净化；再 tokenize 图片以便后台批量
+    // 替换为 wxbiz 的 url。两步顺序不能颠倒，否则占位符可能被 sanitizer
+    // 当成普通文本而附带样式被改写。
+    const themedHtml = buildExportHtmlForArticle(article);
+    const sanitizedHtml = prepareHtmlForWechat(themedHtml);
+    const preparedHtml = _tokenizeImages(sanitizedHtml);
     return {
       meta: {
         title: article.meta.title.trim(),
@@ -437,7 +470,7 @@ async function restoreHistoryRecord(id) {
   } catch {}
   await refreshHistoryRecords();
   closeHistoryDrawer();
-  setStatus("已恢复这篇的草稿记录，刚才的内容也留了一份"恢复前备份"。", "success");
+  setStatus("已恢复这篇的草稿记录，刚才的内容也留了一份「恢复前备份」。", "success");
 }
 
 async function deleteHistoryRecord(id) {

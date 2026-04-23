@@ -10,40 +10,240 @@
   <body>
     <main class="popup-shell">
       <header class="popup-head">
-        <div>
+        <div class="popup-head-text">
           <p class="eyebrow">公众号助手</p>
-          <h1>公众号改写排版台</h1>
+          <h1>改写排版台</h1>
         </div>
-        <span id="runtimeBadge" class="badge">就绪</span>
+        <button id="openOptions" class="icon-button" type="button" aria-label="打开设置" title="设置">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm0 1.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm7.43 3.5c0-.4-.04-.8-.1-1.18l1.84-1.43a.5.5 0 0 0 .12-.64l-1.74-3a.5.5 0 0 0-.6-.22l-2.17.87a7.5 7.5 0 0 0-2.04-1.18l-.33-2.3a.5.5 0 0 0-.5-.42h-3.42a.5.5 0 0 0-.5.42l-.33 2.3a7.5 7.5 0 0 0-2.04 1.18l-2.17-.87a.5.5 0 0 0-.6.22l-1.74 3a.5.5 0 0 0 .12.64L4.67 11.32a7.6 7.6 0 0 0 0 2.36L2.83 15.1a.5.5 0 0 0-.12.64l1.74 3a.5.5 0 0 0 .6.22l2.17-.87a7.5 7.5 0 0 0 2.04 1.18l.33 2.3a.5.5 0 0 0 .5.42h3.42a.5.5 0 0 0 .5-.42l.33-2.3a7.5 7.5 0 0 0 2.04-1.18l2.17.87a.5.5 0 0 0 .6-.22l1.74-3a.5.5 0 0 0-.12-.64l-1.84-1.42c.06-.39.1-.78.1-1.18Z"
+            />
+          </svg>
+        </button>
       </header>
 
-      <section class="current-page" aria-labelledby="currentPageTitle">
-        <p id="currentPageTitle" class="section-label">当前标签页</p>
-        <p id="currentTabTitle" class="page-title">正在读取...</p>
-        <p id="currentTabHost" class="page-host"></p>
-      </section>
-
-      <section class="primary-actions" aria-label="主要操作">
-        <button id="captureAndOpen" class="btn btn-primary" type="button">
-          <span>抓取当前页并打开编辑台</span>
-          <small>Alt+Shift+C</small>
+      <nav class="popup-tabs" role="tablist" aria-label="主导航">
+        <button
+          type="button"
+          class="popup-tab is-active"
+          role="tab"
+          data-tab="write"
+          aria-selected="true"
+          aria-controls="paneWrite"
+          id="popupTabWrite"
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Z"/></svg>
+          写作
         </button>
-        <div class="action-grid">
-          <button id="openWorkspace" class="btn" type="button">打开编辑台</button>
-          <button id="openHotTopics" class="btn" type="button">热点捕捉</button>
-        </div>
-      </section>
-
-      <section class="last-source" aria-labelledby="lastSourceTitle">
-        <p id="lastSourceTitle" class="section-label">最近抓取</p>
-        <p id="lastSourceText" class="muted">暂无记录</p>
-      </section>
-
-      <nav class="quick-links" aria-label="辅助入口">
-        <button id="openWelcome" class="text-button" type="button">快速开始</button>
-        <button id="openOptions" class="text-button" type="button">设置</button>
-        <button id="openHelp" class="text-button" type="button">帮助</button>
+        <button
+          type="button"
+          class="popup-tab"
+          role="tab"
+          data-tab="hot"
+          aria-selected="false"
+          aria-controls="paneHot"
+          id="popupTabHot"
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2c1.5 4 5 5 5 9a5 5 0 0 1-10 0c0-2 1-3 2-4-.5 2 1 3 2 3 0-3 .5-5 1-8Z"/></svg>
+          热点
+        </button>
+        <button
+          type="button"
+          class="popup-tab"
+          role="tab"
+          data-tab="me"
+          aria-selected="false"
+          aria-controls="paneMe"
+          id="popupTabMe"
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-3.3 0-8 1.6-8 5v1h16v-1c0-3.4-4.7-5-8-5Z"/></svg>
+          我的
+        </button>
       </nav>
+
+      <!-- ============ 写作 Tab ============ -->
+      <section
+        id="paneWrite"
+        class="popup-pane"
+        role="tabpanel"
+        aria-labelledby="popupTabWrite"
+        data-pane="write"
+        data-active="true"
+      >
+        <section id="pageCard" class="info-card" data-state="ready" aria-label="当前网页">
+          <div class="info-card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path
+                fill="currentColor"
+                d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm0 2 4 4h-4V4ZM7 18v-2h10v2H7Zm0-4v-2h10v2H7Zm0-4V8h6v2H7Z"
+              />
+            </svg>
+          </div>
+          <div class="info-card-body">
+            <p id="pageCardTitle" class="info-card-title">读取当前网页…</p>
+            <p id="pageCardHost" class="info-card-host"></p>
+          </div>
+          <span id="pageCardBadge" class="status-pill" data-state="loading">检测中</span>
+        </section>
+
+        <button id="captureAndOpen" class="primary-button" type="button">
+          抓取当前页
+        </button>
+
+        <div class="capture-mode-grid">
+          <button id="captureSelection" class="ghost-button" type="button" data-mode="selection">
+            只抓选中文字
+          </button>
+          <button id="captureReadable" class="ghost-button" type="button" data-mode="readable">
+            智能识别正文
+          </button>
+          <button id="captureRaw" class="ghost-button" type="button" data-mode="raw">
+            原样抓取整页
+          </button>
+        </div>
+
+        <button id="openWorkspace" class="ghost-button ghost-button--full" type="button">
+          打开编辑台
+        </button>
+
+        <button id="openAgentButton" class="primary-button primary-button--soft" type="button">
+          AI 选题代笔（多平台）
+        </button>
+
+        <section id="lastSourceCard" class="last-source" aria-labelledby="lastSourceTitle" hidden>
+          <p id="lastSourceTitle" class="eyebrow">上次写到</p>
+          <p id="lastSourceText" class="muted">暂无记录</p>
+        </section>
+      </section>
+
+      <!-- ============ 热点 Tab ============ -->
+      <section
+        id="paneHot"
+        class="popup-pane"
+        role="tabpanel"
+        aria-labelledby="popupTabHot"
+        data-pane="hot"
+        data-active="false"
+      >
+        <section class="hot-topics-card" aria-labelledby="hotTopicsHeading">
+          <header class="hot-topics-head">
+            <div>
+              <p id="hotTopicsHeading" class="eyebrow">今日热点</p>
+              <p class="hot-topics-title">最近在讨论</p>
+            </div>
+            <div class="hot-topics-actions">
+              <button
+                id="refreshHotTopics"
+                class="hot-topics-refresh"
+                type="button"
+                aria-label="刷新热点"
+                title="刷新"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M12 5V2L8 6l4 4V7a5 5 0 0 1 5 5h2a7 7 0 0 0-7-7Zm-5 7H5a7 7 0 0 0 12 4.9l-1.4-1.4A5 5 0 0 1 7 12Z"
+                  />
+                </svg>
+              </button>
+              <button id="openHotTopics" class="hot-topics-more" type="button">全部</button>
+            </div>
+          </header>
+          <p id="hotTopicsSource" class="hot-topics-source">来源：知乎热榜</p>
+          <ol id="hotTopicsList" class="hot-topics-list" aria-live="polite">
+            <li class="hot-topics-skeleton">加载中…</li>
+          </ol>
+        </section>
+
+        <p class="popup-pane-hint">
+          点击任一条目可在新标签页打开。要看完整热榜（含分类切换），点上方「全部」。
+        </p>
+      </section>
+
+      <!-- ============ 我的 Tab ============ -->
+      <section
+        id="paneMe"
+        class="popup-pane"
+        role="tabpanel"
+        aria-labelledby="popupTabMe"
+        data-pane="me"
+        data-active="false"
+      >
+        <button
+          id="licensePill"
+          class="license-pill"
+          type="button"
+          data-status="loading"
+          aria-label="会员状态"
+        >
+          <span class="license-pill-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="14" height="14">
+              <path
+                fill="currentColor"
+                d="M12 2.7l2.6 5.27 5.82.85-4.21 4.1.99 5.78L12 15.96l-5.2 2.74.99-5.78L3.58 8.82l5.82-.85L12 2.7z"
+              />
+            </svg>
+          </span>
+          <span class="license-pill-meta">
+            <span id="licensePillLabel" class="license-pill-label">检测中…</span>
+            <span id="licensePillHint" class="license-pill-hint">读取授权状态</span>
+          </span>
+          <span class="license-pill-cta" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="12" height="12">
+              <path fill="currentColor" d="M9 6l6 6-6 6V6z" />
+            </svg>
+          </span>
+        </button>
+
+        <section id="aiCard" class="info-card info-card--with-dot" data-state="loading" aria-label="AI 接口状态">
+          <span id="aiCardDot" class="ai-dot" data-state="loading" aria-hidden="true"></span>
+          <div class="info-card-body">
+            <p id="aiCardTitle" class="info-card-title">AI 接口检查中…</p>
+            <p id="aiCardModel" class="info-card-host">读取设置…</p>
+          </div>
+        </section>
+
+        <ul class="popup-link-list" role="list">
+          <li>
+            <button id="openOptionsExtra" class="popup-link" type="button">
+              <span class="popup-link-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm0 1.5a2 2 0 1 0 0 4 2 2 0 0 0 0-4Zm7.43 3.5c0-.4-.04-.8-.1-1.18l1.84-1.43a.5.5 0 0 0 .12-.64l-1.74-3a.5.5 0 0 0-.6-.22l-2.17.87a7.5 7.5 0 0 0-2.04-1.18l-.33-2.3a.5.5 0 0 0-.5-.42h-3.42a.5.5 0 0 0-.5.42l-.33 2.3a7.5 7.5 0 0 0-2.04 1.18l-2.17-.87a.5.5 0 0 0-.6.22l-1.74 3a.5.5 0 0 0 .12.64L4.67 11.32a7.6 7.6 0 0 0 0 2.36L2.83 15.1a.5.5 0 0 0-.12.64l1.74 3a.5.5 0 0 0 .6.22l2.17-.87a7.5 7.5 0 0 0 2.04 1.18l.33 2.3a.5.5 0 0 0 .5.42h3.42a.5.5 0 0 0 .5-.42l.33-2.3a7.5 7.5 0 0 0 2.04-1.18l2.17.87a.5.5 0 0 0 .6-.22l1.74-3a.5.5 0 0 0-.12-.64l-1.84-1.42c.06-.39.1-.78.1-1.18Z"/></svg>
+              </span>
+              <span class="popup-link-text">
+                <span class="popup-link-title">设置</span>
+                <span class="popup-link-sub">AI 接口、公众号账号、抓取偏好</span>
+              </span>
+              <span class="popup-link-arrow" aria-hidden="true">›</span>
+            </button>
+          </li>
+          <li>
+            <button id="openWelcome" class="popup-link" type="button">
+              <span class="popup-link-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2 4 5v6c0 5 3.5 9.7 8 11 4.5-1.3 8-6 8-11V5l-8-3Z"/></svg>
+              </span>
+              <span class="popup-link-text">
+                <span class="popup-link-title">欢迎页 / 帮助</span>
+                <span class="popup-link-sub">功能说明、上手指引、常见问题</span>
+              </span>
+              <span class="popup-link-arrow" aria-hidden="true">›</span>
+            </button>
+          </li>
+          <li>
+            <button id="openWorkspaceFromMe" class="popup-link" type="button">
+              <span class="popup-link-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 5h18v14H3V5Zm2 2v10h14V7H5Zm2 2h6v2H7V9Zm0 4h10v2H7v-2Z"/></svg>
+              </span>
+              <span class="popup-link-text">
+                <span class="popup-link-title">打开工作台</span>
+                <span class="popup-link-sub">完整编辑、排版、发布流程</span>
+              </span>
+              <span class="popup-link-arrow" aria-hidden="true">›</span>
+            </button>
+          </li>
+        </ul>
+      </section>
 
       <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
     </main>

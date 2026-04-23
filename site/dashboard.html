@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-Hans" class="no-js">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>控制台 · 公众号写手</title>
+  <meta name="description" content="管理你的 License、设备绑定和账号信息。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+  />
+  <link rel="stylesheet" href="./assets/css/site.css" />
+  <meta name="api-base" content="" />
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="site-nav-inner">
+      <a class="site-brand" href="./index.html">
+        <span class="site-brand-mark">写</span>
+        <span>公众号写手</span>
+      </a>
+      <div class="site-nav-links">
+        <a href="./index.html">首页</a>
+        <a href="./pricing.html">定价</a>
+        <a href="./dashboard.html">控制台</a>
+      </div>
+      <div class="site-nav-cta"></div>
+    </div>
+  </nav>
+
+  <main class="dash-shell">
+    <div class="wrap layer">
+      <div class="section-head text-center" style="margin-bottom:32px;">
+        <span class="section-eyebrow">DASHBOARD</span>
+        <h1 class="section-title" id="dashGreeting">欢迎回来</h1>
+        <p class="section-sub" id="dashSub">管理你的 License、绑定设备和账号设置</p>
+      </div>
+
+      <div class="dash-grid">
+        <!-- 左侧：账号 / 套餐摘要 -->
+        <aside class="dash-card">
+          <h2>账号</h2>
+          <div class="dash-meta">
+            <span class="dash-meta-label">邮箱</span>
+            <span class="dash-meta-val" id="accountEmail">—</span>
+          </div>
+          <div class="dash-meta">
+            <span class="dash-meta-label">注册时间</span>
+            <span class="dash-meta-val" id="accountCreated">—</span>
+          </div>
+          <div class="dash-meta">
+            <span class="dash-meta-label">当前套餐</span>
+            <span class="dash-meta-val">
+              <span id="accountPlan">—</span>
+              <span class="dash-plan-pill" id="accountPlanPill">—</span>
+            </span>
+          </div>
+          <div class="dash-meta">
+            <span class="dash-meta-label">到期时间</span>
+            <span class="dash-meta-val" id="accountExpires">—</span>
+          </div>
+          <div class="dash-account-actions">
+            <button class="btn btn-ghost btn-block" type="button" id="changePwBtn">修改密码</button>
+            <button class="btn btn-ghost btn-block" type="button" id="logoutBtn">退出登录</button>
+          </div>
+        </aside>
+
+        <!-- 右侧：License + 绑定设备 -->
+        <section class="dash-card">
+          <h2>我的 License</h2>
+          <p class="muted" style="font-size:0.88rem;margin-bottom:18px;">
+            购买后会自动出现在下方。点「复制」把 Key 粘到扩展的「会员激活」Tab，即可在浏览器解锁 Pro。
+          </p>
+          <div id="licenseList" class="dash-license-list">
+            <div class="empty-state">加载中…</div>
+          </div>
+
+          <div class="divider"></div>
+          <h2 style="font-size:1rem;">还没买 Pro？</h2>
+          <p class="muted" style="font-size:0.88rem;">
+            <a href="./pricing.html">查看 Pro 套餐 →</a>，月付随时取消。
+          </p>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- 浮层 toast：付款回流 / 解绑成功 / 改密码成功 都用它 -->
+  <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- 修改密码弹窗（默认 hidden） -->
+  <div id="changePwModal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="changePwTitle">
+      <header class="modal-head">
+        <h3 id="changePwTitle">修改密码</h3>
+        <button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button>
+      </header>
+      <form id="changePwForm" class="modal-body" autocomplete="off" novalidate>
+        <div class="field">
+          <label for="oldPassword">当前密码</label>
+          <input id="oldPassword" name="oldPassword" type="password" autocomplete="current-password" required minlength="8" />
+        </div>
+        <div class="field">
+          <label for="newPassword">新密码</label>
+          <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" required minlength="8" />
+          <span class="field-hint">至少 8 位，建议字母 + 数字 + 符号。</span>
+        </div>
+        <div class="field">
+          <label for="newPassword2">再输一次新密码</label>
+          <input id="newPassword2" name="newPassword2" type="password" autocomplete="new-password" required minlength="8" />
+        </div>
+        <p class="feedback" id="changePwFeedback"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-modal-close>取消</button>
+          <button type="submit" class="btn btn-primary" id="changePwSubmit">保存新密码</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <footer class="site-foot">
+    <div class="site-foot-inner">
+      <span>© <span id="year"></span> 公众号写手</span>
+      <nav>
+        <a href="./pricing.html">定价</a>
+        <a href="./index.html">首页</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+  <script type="module" src="./assets/js/site.js"></script>
+  <script type="module" src="./assets/js/dashboard.js"></script>
+</body>
+</html>

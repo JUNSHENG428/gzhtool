@@ -111,7 +111,9 @@ export const HOT_TOPIC_SOURCES = [
     id: "import-ai",
     name: "Import AI",
     endpoint: IMPORT_AI_RSS,
-    parser: parseRssFeed
+    parser: parseRssFeed,
+    // Substack 经常对 datacenter IP 返 403，回退走 RSSHub 中转
+    fallbacks: [{ endpoint: "/substack/newsletter/importai", parser: parseRssFeed }]
   },
   {
     id: "leiphone",
@@ -248,7 +250,10 @@ async function fetchEndpointPayload(url) {
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
-        Accept: "application/json, application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8"
+        // 一些 RSS 站点（如 Substack）会基于缺失 UA / Accept 直接返 403
+        Accept: "application/json, application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
       }
     });
     const bodyText = await response.text();
@@ -272,25 +277,39 @@ async function fetchEndpointPayload(url) {
 
 function parseRssFeed(payload, source) {
   const body = String(payload?.bodyText || "");
-  if (!/<rss[\s>]|<feed[\s>]/i.test(body)) {
+  const isRss = /<rss[\s>]/i.test(body);
+  const isAtom = /<feed[\s>]/i.test(body);
+  if (!isRss && !isAtom) {
     throw new Error(`${source.name} RSS 返回格式异常。`);
   }
 
-  const itemMatches = body.match(/<item\b[\s\S]*?<\/item>/gi) || [];
+  // RSS 2.0 用 <item>，Atom 用 <entry>
+  const itemPattern = isAtom
+    ? /<entry\b[\s\S]*?<\/entry>/gi
+    : /<item\b[\s\S]*?<\/item>/gi;
+  const itemMatches = body.match(itemPattern) || [];
   if (itemMatches.length === 0) {
     throw new Error(`${source.name} RSS 暂无条目。`);
   }
 
   return itemMatches.map((itemXml) => {
     const title = cleanFeedText(readXmlTag(itemXml, "title"));
-    const url = cleanFeedText(readXmlTag(itemXml, "link")) || cleanFeedText(readXmlTag(itemXml, "guid"));
+    // Atom 里 <link href="..."/> 是属性形式；RSS 是 <link>...</link>
+    const url =
+      cleanFeedText(readXmlTag(itemXml, "link")) ||
+      readAtomLinkHref(itemXml) ||
+      cleanFeedText(readXmlTag(itemXml, "guid")) ||
+      cleanFeedText(readXmlTag(itemXml, "id"));
     const summary =
       cleanFeedText(readXmlTag(itemXml, "description")) ||
-      cleanFeedText(readXmlTag(itemXml, "content:encoded"));
+      cleanFeedText(readXmlTag(itemXml, "summary")) ||
+      cleanFeedText(readXmlTag(itemXml, "content:encoded")) ||
+      cleanFeedText(readXmlTag(itemXml, "content"));
     const publishedAt =
       normalizeDateValue(cleanFeedText(readXmlTag(itemXml, "pubDate"))) ||
       normalizeDateValue(cleanFeedText(readXmlTag(itemXml, "published"))) ||
-      normalizeDateValue(cleanFeedText(readXmlTag(itemXml, "updated")));
+      normalizeDateValue(cleanFeedText(readXmlTag(itemXml, "updated"))) ||
+      normalizeDateValue(cleanFeedText(readXmlTag(itemXml, "dc:date")));
 
     return {
       title,
@@ -301,6 +320,12 @@ function parseRssFeed(payload, source) {
       publishedAt
     };
   });
+}
+
+// Atom 的 link 标签是 <link rel="alternate" href="..."/>，没有闭标签
+function readAtomLinkHref(xml) {
+  const match = xml.match(/<link\b[^>]*\bhref=["']([^"']+)["'][^>]*\/?\s*>/i);
+  return match?.[1] || "";
 }
 
 function parseTophubZhihu(payload, source) {

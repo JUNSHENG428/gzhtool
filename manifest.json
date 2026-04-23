@@ -10,8 +10,16 @@
     "48": "src/icons/icon48.png",
     "128": "src/icons/icon128.png"
   },
-  "permissions": ["activeTab", "tabs", "storage", "scripting"],
-  "host_permissions": ["https://*/*", "http://*/*"],
+  "permissions": ["activeTab", "tabs", "storage", "scripting", "cookies", "alarms"],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*",
+    "https://*.xiaohongshu.com/*",
+    "https://*.x.com/*",
+    "https://*.twitter.com/*",
+    "https://*.reddit.com/*",
+    "https://*.zhihu.com/*"
+  ],
   "background": {
     "service_worker": "src/background/service-worker.js",
     "type": "module"
@@ -59,6 +67,9 @@
     },
     "open_options": {
       "description": "打开设置页（需手动在 chrome://extensions/shortcuts 绑定）"
+    },
+    "open_agent": {
+      "description": "打开 AI 选题代笔 Agent（需手动在 chrome://extensions/shortcuts 绑定）"
     }
   },
   "content_security_policy": {

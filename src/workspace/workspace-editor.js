@@ -161,9 +161,14 @@ export function buildPreviewDocument(article) {
 // ── 复制 / 下载 ──
 
 export async function copyHtml() {
-  const { syncCurrentArticleFromControls, getCurrentArticle, activateTab, setStatus } = _ctx;
+  const { view, syncCurrentArticleFromControls, getCurrentArticle, activateTab, setStatus } = _ctx;
   syncCurrentArticleFromControls();
-  const html = buildExportHtmlForArticle(getCurrentArticle());
+  const article = getCurrentArticle();
+  if (_isArticleEmpty(view, article)) {
+    setStatus("当前文章正文还是空的，复制取消了。先抓取内容或粘贴正文再试。", "error");
+    return;
+  }
+  const html = buildExportHtmlForArticle(article);
   await navigator.clipboard.writeText(html);
   activateTab("html");
   setStatus("当前篇正文 HTML 已复制。", "success");
@@ -172,11 +177,24 @@ export async function copyHtml() {
 export async function copyMarkdown() {
   const { view, syncCurrentArticleFromControls, getCurrentArticle, activateTab, setStatus } = _ctx;
   syncCurrentArticleFromControls();
-  const markdown = buildMarkdownDocumentForArticle(getCurrentArticle());
+  const article = getCurrentArticle();
+  if (_isArticleEmpty(view, article)) {
+    setStatus("当前文章正文还是空的，复制取消了。先抓取内容或粘贴正文再试。", "error");
+    return;
+  }
+  const markdown = buildMarkdownDocumentForArticle(article);
   view.markdownOutput.value = markdown;
   await navigator.clipboard.writeText(markdown);
   activateTab("markdown");
   setStatus("当前篇 Markdown 已复制。", "success");
+}
+
+function _isArticleEmpty(view, article) {
+  const editorText = (view?.editor?.textContent || "").trim();
+  if (editorText.length > 0) return false;
+  const meta = article?.meta || {};
+  const fields = [meta.title, meta.subtitle, meta.lead, meta.digest];
+  return fields.every((v) => !v || !String(v).trim());
 }
 
 export function downloadHtml() {

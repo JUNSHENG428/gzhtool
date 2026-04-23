@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>公众号改写排版台</title>
     <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
+    <link rel="stylesheet" href="../pages/design-tokens.css" />
+    <link rel="stylesheet" href="../pages/shared-ui.css" />
     <link rel="stylesheet" href="./workspace.css" />
   </head>
-  <body class="ambient-page">
+  <body class="ambient-page workspace-body">
     <div
       id="loadingOverlay"
       class="loading-overlay"
@@ -73,63 +75,307 @@
       <div class="reading-progress-bar" id="readingProgressBar"></div>
     </div>
 
-    <div class="workspace-shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">编辑台</p>
-          <h1>公众号改写排版台</h1>
-          <p class="subtitle">
-            抓取网页内容，用 AI 改写后整理标题、摘要和封面，支持单篇和多图文，最终推送到公众号草稿箱或直接发布。
-          </p>
+    <div class="ui-shell">
+      <!-- ===================== 左侧竖导航 ===================== -->
+      <aside class="ui-shell-side" role="navigation" aria-label="工作台导航">
+        <div class="ui-shell-side-brand">
+          <div class="ui-shell-side-brand-mark" aria-hidden="true">文</div>
+          <div class="ui-shell-side-brand-text">
+            <span class="ui-shell-side-brand-name">公众号改写排版台</span>
+            <span class="ui-shell-side-brand-slogan">抓 · 改 · 排 · 发</span>
+          </div>
         </div>
-        <div class="topbar-actions">
-          <button id="themeToggle" class="theme-toggle" aria-label="切换深色/浅色模式" title="切换主题">
-            <svg viewBox="0 0 24 24" aria-hidden="true" id="themeToggleIcon">
-              <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
-            </svg>
+
+        <div class="ui-nav-section">
+          <p class="ui-nav-section-title">流水线</p>
+          <button class="ui-nav-item" type="button" data-route="dashboard" aria-current="page">
+            <span class="ui-nav-item-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z"/></svg>
+            </span>
+            <span class="ui-nav-item-label">工作台</span>
           </button>
-          <button id="openOptionsButton" aria-label="打开设置页面">设置</button>
-          <button id="openHotTopicsButton" class="ghost" aria-label="打开热点捕捉器页面">热点捕捉</button>
-          <button id="openHelpButton" class="ghost" aria-label="打开帮助中心">帮助</button>
-          <button id="historyButton" class="ghost" aria-label="查看历史草稿记录">历史记录</button>
-          <button id="captureButton" aria-label="抓取当前浏览器标签页的内容">抓取最近浏览页</button>
-          <button id="rewriteButton" class="primary" aria-label="使用 AI 改写当前文章">AI 改写当前篇</button>
+          <button class="ui-nav-item" type="button" data-route="layout">
+            <span class="ui-nav-item-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M4 4h16v4H4V4Zm0 6h10v10H4V10Zm12 0h4v10h-4V10Z"/></svg>
+            </span>
+            <span class="ui-nav-item-label">编辑排版</span>
+          </button>
+          <button class="ui-nav-item" type="button" data-route="capture">
+            <span class="ui-nav-item-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M11 4a7 7 0 1 0 4.95 11.95l4.55 4.54 1.41-1.41-4.55-4.54A7 7 0 0 0 11 4Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z"/></svg>
+            </span>
+            <span class="ui-nav-item-label">抓取</span>
+          </button>
+          <button class="ui-nav-item" type="button" data-route="publish">
+            <span class="ui-nav-item-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2 .01 7Z"/></svg>
+            </span>
+            <span class="ui-nav-item-label">发布</span>
+          </button>
         </div>
-      </header>
 
-      <main class="workspace-layout">
-        <aside class="left-rail" role="region" aria-label="采集信息区">
-          <section class="panel">
-            <div class="section-header">
-              <div>
-                <p class="section-kicker">来源</p>
-                <h2>采集信息</h2>
+        <div class="ui-nav-section">
+          <p class="ui-nav-section-title">灵感</p>
+          <button class="ui-nav-item" type="button" data-route="hot">
+            <span class="ui-nav-item-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2c1.5 4 5 5 5 9a5 5 0 0 1-10 0c0-2 1-3 2-4-.5 2 1 3 2 3 0-3 .5-5 1-8Z"/></svg>
+            </span>
+            <span class="ui-nav-item-label">热点</span>
+          </button>
+          <button class="ui-nav-item" type="button" data-route="agent">
+            <span class="ui-nav-item-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2 4 6v6c0 5 3.5 9.7 8 10 4.5-.3 8-5 8-10V6l-8-4Z"/></svg>
+            </span>
+            <span class="ui-nav-item-label">AI 选题代笔</span>
+            <span class="ui-nav-badge" data-tone="new">NEW</span>
+          </button>
+        </div>
+
+        <div class="ui-nav-section ui-nav-footer">
+          <p class="ui-nav-section-title">账户</p>
+          <button class="ui-nav-item" type="button" data-route="member">
+            <span class="ui-nav-item-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M5 16 3 5l5.5 4L12 4l3.5 5L21 5l-2 11H5Zm0 2h14v2H5v-2Z"/></svg>
+            </span>
+            <span class="ui-nav-item-label">会员中心</span>
+            <span class="ui-nav-badge" id="navMemberBadge" hidden>PRO</span>
+          </button>
+          <button class="ui-nav-item" type="button" data-route="settings">
+            <span class="ui-nav-item-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19.4 13c.04-.33.06-.66.06-1s-.02-.67-.06-1l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.06 7.06 0 0 0-1.73-1L14.5 2.5a.5.5 0 0 0-.5-.42h-4a.5.5 0 0 0-.5.42l-.3 2.53a7.06 7.06 0 0 0-1.73 1l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64L4.6 11c-.04.33-.06.66-.06 1s.02.67.06 1l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.53.4 1.11.74 1.73 1l.3 2.53a.5.5 0 0 0 .5.42h4a.5.5 0 0 0 .5-.42l.3-2.53c.62-.26 1.2-.6 1.73-1l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64L19.4 13ZM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z"/></svg>
+            </span>
+            <span class="ui-nav-item-label">设置</span>
+          </button>
+          <button class="ui-nav-item" type="button" data-route="help">
+            <span class="ui-nav-item-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 17h-2v-2h2v2Zm2.07-7.75-.9.92A3.41 3.41 0 0 0 13 15h-2v-.5c0-.83.34-1.59.9-2.13l1.24-1.27c.36-.36.58-.86.58-1.4 0-1.1-.9-2-2-2s-2 .9-2 2H8a4 4 0 0 1 8 0c0 .88-.36 1.68-.93 2.25Z"/></svg>
+            </span>
+            <span class="ui-nav-item-label">帮助</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- ===================== 主内容区 ===================== -->
+      <div class="ui-shell-main workspace-shell">
+        <!-- 顶部状态栏：账号 / AI 状态 / 会员 / 高频动作 -->
+        <header class="ui-shell-top" role="banner">
+          <div class="ui-top-meta">
+            <span id="topViewTitle" class="ui-top-meta-title">工作台</span>
+            <span id="topViewSub" class="ui-top-meta-sub">今天在写什么？</span>
+          </div>
+          <div class="ui-top-actions">
+            <span id="topAiStatus" class="ui-top-pill" data-tone="info" title="AI 接口状态">AI · 检测中</span>
+            <button
+              id="topMemberPill"
+              type="button"
+              class="ui-member-pill"
+              data-status="loading"
+              aria-label="会员状态"
+              title="会员状态"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.7l2.6 5.27 5.82.85-4.21 4.1.99 5.78L12 15.96l-5.2 2.74.99-5.78L3.58 8.82l5.82-.85L12 2.7z"/></svg>
+              <span id="topMemberLabel">检测中</span>
+            </button>
+          </div>
+        </header>
+
+        <!-- 多视图主区：每个 section[data-view] 表示一个 hash 路由对应的页面 -->
+        <main class="ui-shell-content workspace-views">
+          <!-- ============ 工作台首页（默认） ============ -->
+          <section class="workspace-view" data-view="dashboard" data-active="true" aria-label="工作台首页">
+            <div class="ui-stat-grid" id="dashboardStats">
+              <div class="ui-stat" data-stat="capture">
+                <span class="ui-stat-label">本周抓取</span>
+                <span class="ui-stat-num" id="statCapture">—<span class="ui-stat-num-unit">篇</span></span>
+                <span class="ui-stat-trend">最近 7 天</span>
               </div>
-              <button id="copyPromptButton" class="ghost">复制手动提示词</button>
+              <div class="ui-stat" data-stat="rewrite">
+                <span class="ui-stat-label">AI 改写</span>
+                <span class="ui-stat-num" id="statRewrite">—<span class="ui-stat-num-unit">次</span></span>
+                <span class="ui-stat-trend" id="statRewriteQuota">免费版 · 5/天</span>
+              </div>
+              <div class="ui-stat" data-stat="draft">
+                <span class="ui-stat-label">本地草稿</span>
+                <span class="ui-stat-num" id="statDraft">—<span class="ui-stat-num-unit">篇</span></span>
+                <span class="ui-stat-trend">含历史版本</span>
+              </div>
+              <div class="ui-stat" data-stat="account">
+                <span class="ui-stat-label">公众号账号</span>
+                <span class="ui-stat-num" id="statAccount">—<span class="ui-stat-num-unit">个</span></span>
+                <span class="ui-stat-trend" id="statAccountActive">未配置</span>
+              </div>
             </div>
-            <div id="sourceMeta" class="meta-grid"></div>
-            <div id="imageRail" class="image-rail"></div>
-            <div id="sourcePreview" class="source-preview"></div>
-          </section>
-        </aside>
 
+            <section class="ui-section ui-section--usage">
+              <header class="ui-section-head">
+                <div class="ui-section-head-text">
+                  <h2 class="ui-section-title">今日产能</h2>
+                  <p class="ui-section-sub" id="usageSubText">本地埋点，不上报任何数据 · 自动按天归档</p>
+                </div>
+                <span class="ui-section-meta" id="usageUpdatedAt"></span>
+              </header>
+              <div class="usage-grid" id="usageGrid">
+                <div class="usage-cell" data-kind="capture">
+                  <span class="usage-cell-label">抓取</span>
+                  <span class="usage-cell-num" id="usageTodayCapture">0</span>
+                  <span class="usage-cell-trend" id="usageWeekCapture">7 天 0</span>
+                </div>
+                <div class="usage-cell" data-kind="rewrite">
+                  <span class="usage-cell-label">AI 改写</span>
+                  <span class="usage-cell-num" id="usageTodayRewrite">0</span>
+                  <span class="usage-cell-trend" id="usageWeekRewrite">7 天 0</span>
+                </div>
+                <div class="usage-cell" data-kind="publish">
+                  <span class="usage-cell-label">推草稿/发布</span>
+                  <span class="usage-cell-num" id="usageTodayPublish">0</span>
+                  <span class="usage-cell-trend" id="usageWeekPublish">7 天 0</span>
+                </div>
+                <div class="usage-cell" data-kind="agentImport">
+                  <span class="usage-cell-label">AI 入库</span>
+                  <span class="usage-cell-num" id="usageTodayAgent">0</span>
+                  <span class="usage-cell-trend" id="usageWeekAgent">7 天 0</span>
+                </div>
+              </div>
+              <p class="usage-peak-line" id="usagePeakLine"></p>
+            </section>
+
+            <section class="ui-section">
+              <header class="ui-section-head">
+                <div class="ui-section-head-text">
+                  <h2 class="ui-section-title">快捷动作</h2>
+                  <p class="ui-section-sub">最常用的入口，一键直达</p>
+                </div>
+              </header>
+              <div class="ui-quick-grid">
+                <button class="ui-quick-tile" type="button" data-route="layout">
+                  <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Z"/></svg></span>
+                  <span class="ui-quick-tile-title">继续编辑</span>
+                  <span class="ui-quick-tile-desc">回到上次的草稿</span>
+                </button>
+                <button class="ui-quick-tile" type="button" id="quickCaptureCurrent">
+                  <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M11 4a7 7 0 1 0 4.95 11.95l4.55 4.54 1.41-1.41-4.55-4.54A7 7 0 0 0 11 4Z"/></svg></span>
+                  <span class="ui-quick-tile-title">抓取当前页</span>
+                  <span class="ui-quick-tile-desc">把刚才看的网页拽进来</span>
+                </button>
+                <button class="ui-quick-tile" type="button" data-route="hot">
+                  <span class="ui-quick-tile-icon" aria-hidden="true" data-tone="accent"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2c1.5 4 5 5 5 9a5 5 0 0 1-10 0c0-2 1-3 2-4-.5 2 1 3 2 3 0-3 .5-5 1-8Z"/></svg></span>
+                  <span class="ui-quick-tile-title">看今日热点</span>
+                  <span class="ui-quick-tile-desc">挑一个选题开写</span>
+                </button>
+                <button class="ui-quick-tile" type="button" data-route="agent">
+                  <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2 4 6v6c0 5 3.5 9.7 8 10 4.5-.3 8-5 8-10V6l-8-4Z"/></svg></span>
+                  <span class="ui-quick-tile-title">AI 选题代笔</span>
+                  <span class="ui-quick-tile-desc">让 AI 帮你拉新选题</span>
+                  <span class="ui-quick-tile-badge">NEW</span>
+                </button>
+                <button class="ui-quick-tile" type="button" data-route="publish">
+                  <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2 .01 7Z"/></svg></span>
+                  <span class="ui-quick-tile-title">推草稿/发布</span>
+                  <span class="ui-quick-tile-desc">送到公众号后台</span>
+                </button>
+                <button class="ui-quick-tile" type="button" data-route="member">
+                  <span class="ui-quick-tile-icon" aria-hidden="true" data-tone="gold"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M5 16 3 5l5.5 4L12 4l3.5 5L21 5l-2 11H5Zm0 2h14v2H5v-2Z"/></svg></span>
+                  <span class="ui-quick-tile-title">会员中心</span>
+                  <span class="ui-quick-tile-desc">套餐 / 到期 / 续费</span>
+                </button>
+              </div>
+            </section>
+
+            <section class="ui-section">
+              <header class="ui-section-head">
+                <div class="ui-section-head-text">
+                  <h2 class="ui-section-title">最近草稿</h2>
+                  <p class="ui-section-sub">点击任意一条恢复到编辑器</p>
+                </div>
+                <button class="ui-icon-btn" type="button" id="dashboardOpenHistory" aria-label="打开完整历史">
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M13 3a9 9 0 1 0 8.94 10H20a7 7 0 1 1-1.69-6.31L15 10h7V3l-2.35 2.35A8.96 8.96 0 0 0 13 3Z"/></svg>
+                </button>
+              </header>
+              <ul class="ui-mini-list" id="dashboardRecentList">
+                <li class="ui-empty">
+                  <div class="ui-empty-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="32" height="32"><path fill="currentColor" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm0 2 4 4h-4V4Z"/></svg>
+                  </div>
+                  <p class="ui-empty-title">还没有草稿</p>
+                  <p class="ui-empty-desc">从顶部「抓取最近浏览页」或「热点」开始你的第一篇</p>
+                </li>
+              </ul>
+            </section>
+          </section>
+
+          <!-- ============ 编辑排版（包住所有原有 .workspace-layout） ============ -->
+          <section class="workspace-view" data-view="layout" aria-label="编辑排版">
+            <div class="layout-toolbar" role="toolbar" aria-label="编辑排版工具条">
+              <div class="layout-toolbar-group layout-toolbar-group--main">
+                <button id="captureButton" class="layout-toolbar-btn" type="button" aria-label="抓取当前浏览器标签页的内容">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M11 4a7 7 0 1 0 4.95 11.95l4.55 4.54 1.41-1.41-4.55-4.54A7 7 0 0 0 11 4Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z"/></svg>
+                  抓取最近浏览页
+                </button>
+                <div class="rewrite-cluster">
+                  <div class="lt-select" title="选择改写风格模板">
+                    <select id="rewriteTemplateSelect" aria-label="选择改写风格模板"></select>
+                    <svg class="lt-select-chevron" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M6 8 1.5 3.5h9z"/></svg>
+                  </div>
+                  <button id="rewriteButton" class="layout-toolbar-btn layout-toolbar-btn--primary" type="button" aria-label="使用 AI 改写当前文章">
+                    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Z"/></svg>
+                    AI 改写当前篇
+                  </button>
+                </div>
+              </div>
+              <div class="layout-toolbar-group layout-toolbar-group--side">
+                <button id="historyButton" class="layout-toolbar-btn" type="button" aria-label="历史草稿记录" title="历史草稿记录">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M13 3a9 9 0 1 0 8.94 10H20a7 7 0 1 1-1.69-6.31L15 10h7V3l-2.35 2.35A8.96 8.96 0 0 0 13 3Zm-1 5v5l4 2 .75-1.23L13.5 12V8H12Z"/></svg>
+                  历史草稿
+                </button>
+              </div>
+            </div>
+            <main class="workspace-layout layout-single">
         <section class="center-stage" role="region" aria-label="稿件信息区">
           <section class="panel">
-            <div class="section-header">
-              <div>
+            <header class="section-header section-header--stacked">
+              <div class="section-header-text">
                 <p class="section-kicker">多图文</p>
                 <h2>草稿包管理</h2>
+                <p class="section-sub">主篇 + 最多 7 篇副篇打包成一份草稿包，可一次发到公众号。</p>
               </div>
-              <div class="stack-actions">
-                <button id="addSubArticleButton">新增副篇</button>
-                <button id="moveArticleUpButton" class="ghost">前移当前篇</button>
-                <button id="moveArticleDownButton" class="ghost">后移当前篇</button>
-                <button id="duplicateArticleButton" class="ghost">复制当前篇</button>
-                <button id="removeArticleButton" class="ghost">删除当前篇</button>
-                <button id="importBundleButton" class="ghost">导入草稿包</button>
-                <button id="exportBundleButton" class="ghost">导出草稿包</button>
+              <button id="addSubArticleButton" class="stack-primary-btn" type="button">
+                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z"/></svg>
+                新增副篇
+              </button>
+            </header>
+
+            <div class="stack-toolbar" role="toolbar" aria-label="草稿包操作">
+              <div class="stack-toolbar-group" aria-label="排序与编辑">
+                <button id="moveArticleUpButton" class="stack-chip" type="button" aria-label="前移当前篇" title="前移当前篇">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 5l7 7h-4v7h-6v-7H5l7-7Z"/></svg>
+                  <span>前移</span>
+                </button>
+                <button id="moveArticleDownButton" class="stack-chip" type="button" aria-label="后移当前篇" title="后移当前篇">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 19l-7-7h4V5h6v7h4l-7 7Z"/></svg>
+                  <span>后移</span>
+                </button>
+                <button id="duplicateArticleButton" class="stack-chip" type="button" aria-label="复制当前篇" title="复制当前篇">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1Zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H8V7h11v14Z"/></svg>
+                  <span>复制</span>
+                </button>
+                <button id="removeArticleButton" class="stack-chip stack-chip--danger" type="button" aria-label="删除当前篇" title="删除当前篇">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-3 6h12l-1 12H7L6 9Zm3 2v8h2v-8H9Zm4 0v8h2v-8h-2Z"/></svg>
+                  <span>删除</span>
+                </button>
+              </div>
+              <span class="stack-toolbar-divider" aria-hidden="true"></span>
+              <div class="stack-toolbar-group" aria-label="草稿包导入导出">
+                <button id="importBundleButton" class="stack-chip" type="button" title="从导出的 JSON 文件还原一个草稿包">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M5 20h14v-2H5v2Zm7-18l-7 7h4v6h6v-6h4l-7-7Z"/></svg>
+                  <span>导入草稿包</span>
+                </button>
+                <button id="exportBundleButton" class="stack-chip" type="button" title="把当前草稿包导出为 JSON 文件">
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M5 20h14v-2H5v2Zm7-2l7-7h-4V5h-6v6H5l7 7Z"/></svg>
+                  <span>导出草稿包</span>
+                </button>
               </div>
             </div>
+
             <div id="articleStack" class="article-stack"></div>
             <p id="bundleSummary" class="stack-hint">一次最多可编排 1 篇主篇 + 7 篇副篇。你在右侧编辑的是上方当前选中的这一篇。</p>
             <input id="bundleImportInput" type="file" accept="application/json,.json" hidden />
@@ -254,135 +500,224 @@
             <div id="editorWordCount" class="editor-word-count">正文 0 字</div>
           </section>
         </section>
-
-        <aside class="right-rail" role="region" aria-label="发布与预览区">
-          <section class="panel">
-            <div class="section-header">
-              <div>
-                <p class="section-kicker">发布</p>
-                <h2>封面、发布状态与同步</h2>
-              </div>
-            </div>
-
-            <div class="publish-grid">
-              <label>
-                <span>封面图</span>
-                <select id="coverImageSelect"></select>
-              </label>
-              <label>
-                <span>发布模式</span>
-                <select id="publishModeSelect">
-                  <option value="draft">推草稿箱</option>
-                  <option value="publish">直接发布</option>
-                </select>
-              </label>
-              <label>
-                <span>发布账号</span>
-                <select id="wechatProfileSelect">
-                  <option value="-1">默认账号</option>
-                </select>
-              </label>
-            </div>
-
-            <div class="checkbox-stack">
-              <label class="checkbox-row">
-                <input id="openCommentCheckbox" type="checkbox" />
-                <span>开启评论</span>
-              </label>
-              <label class="checkbox-row">
-                <input id="fansOnlyCheckbox" type="checkbox" />
-                <span>仅粉丝可评论</span>
-              </label>
-            </div>
-
-            <div id="coverPreview" class="cover-preview"></div>
-
-            <div class="publish-actions">
-              <button id="publishCurrentButton">按上方模式执行</button>
-              <button id="publishNowButton" class="primary">立即发布</button>
-              <button id="pollStatusButton" class="ghost">查询发布状态</button>
-              <button id="syncWebEditorButton" class="ghost">同步到网页编辑器</button>
-            </div>
-
-            <div id="publishResult" class="publish-result"></div>
-            <div id="webEditorSyncResult" class="publish-result secondary-result"></div>
+            </main>
           </section>
 
-          <section class="panel preview-panel">
-            <div class="section-header">
-              <div>
-                <p class="section-kicker">预览</p>
-                <h2>公众号阅读效果</h2>
+          <!-- ============ 抓取（采集来源信息 + 抓取入口） ============ -->
+          <section class="workspace-view" data-view="capture" aria-label="抓取">
+            <section class="ui-section">
+              <header class="ui-section-head">
+                <div class="ui-section-head-text">
+                  <h2 class="ui-section-title">从网页抓取</h2>
+                  <p class="ui-section-sub">在任意网页打开扩展弹窗，使用下面其中一种方式</p>
+                </div>
+              </header>
+              <div class="ui-quick-grid">
+                <button class="ui-quick-tile" type="button" id="captureSelection2">
+                  <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 3h6v2H5v4H3V3Zm12 0h6v6h-2V5h-4V3ZM3 15h2v4h4v2H3v-6Zm16 0h2v6h-6v-2h4v-4ZM7 7h10v10H7V7Z"/></svg></span>
+                  <span class="ui-quick-tile-title">抓选中文字</span>
+                  <span class="ui-quick-tile-desc">先选中再点击，最精准</span>
+                </button>
+                <button class="ui-quick-tile" type="button" id="captureReadable2">
+                  <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h10v2H4v-2Z"/></svg></span>
+                  <span class="ui-quick-tile-title">智能识别正文</span>
+                  <span class="ui-quick-tile-desc">自动剔除导航/广告/侧栏</span>
+                </button>
+                <button class="ui-quick-tile" type="button" id="captureRaw2">
+                  <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16v16H4V4Zm2 2v12h12V6H6Z"/></svg></span>
+                  <span class="ui-quick-tile-title">原样抓取整页</span>
+                  <span class="ui-quick-tile-desc">保留全部 DOM</span>
+                </button>
+                <button class="ui-quick-tile" type="button" data-route="layout">
+                  <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4h2v4h14v-4h2ZM12 3l-5 5h3v8h4V8h3l-5-5Z"/></svg></span>
+                  <span class="ui-quick-tile-title">导入草稿包</span>
+                  <span class="ui-quick-tile-desc">从导出的 JSON 还原</span>
+                </button>
               </div>
-              <div class="preview-tabs" role="tablist" aria-label="预览模式切换">
-                <button
-                  id="previewPhoneTab"
-                  class="preview-tab active"
-                  data-preview="phone"
-                  role="tab"
-                  aria-selected="true"
-                  aria-controls="previewContainer"
-                  tabindex="0"
-                >手机</button>
-                <button
-                  id="previewDarkTab"
-                  class="preview-tab"
-                  data-preview="dark"
-                  role="tab"
-                  aria-selected="false"
-                  aria-controls="previewContainer"
-                  tabindex="-1"
-                >深色</button>
-                <button
-                  id="previewCardTab"
-                  class="preview-tab"
-                  data-preview="card"
-                  role="tab"
-                  aria-selected="false"
-                  aria-controls="previewContainer"
-                  tabindex="-1"
-                >分享卡片</button>
+              <p class="ui-section-sub" style="margin-top:14px;">
+                💡 想用更强大的抓取（处理反爬/JS 渲染）？请先在「设置 → 抓取」中开启 DrissionPage 助手。
+              </p>
+            </section>
+
+            <section class="panel">
+              <div class="section-header">
+                <div>
+                  <p class="section-kicker">来源</p>
+                  <h2>采集信息</h2>
+                </div>
+                <button id="copyPromptButton" class="ghost">复制手动提示词</button>
               </div>
+              <div id="sourceMeta" class="meta-grid"></div>
+              <div id="imageRail" class="image-rail"></div>
+              <div id="sourcePreview" class="source-preview"></div>
+            </section>
+          </section>
+
+          <!-- ============ 发布（封面 / 模式 / 账号 / 预览 / 输出） ============ -->
+          <section class="workspace-view" data-view="publish" aria-label="发布">
+            <div class="publish-grid-layout">
+              <section class="panel">
+                <div class="section-header">
+                  <div>
+                    <p class="section-kicker">发布</p>
+                    <h2>封面、发布状态与同步</h2>
+                  </div>
+                </div>
+
+                <div class="publish-grid">
+                  <label>
+                    <span>封面图</span>
+                    <select id="coverImageSelect"></select>
+                  </label>
+                  <label>
+                    <span>发布模式</span>
+                    <select id="publishModeSelect">
+                      <option value="draft">推草稿箱</option>
+                      <option value="publish">直接发布</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>发布账号</span>
+                    <select id="wechatProfileSelect">
+                      <option value="-1">默认账号</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="checkbox-stack">
+                  <label class="checkbox-row">
+                    <input id="openCommentCheckbox" type="checkbox" />
+                    <span>开启评论</span>
+                  </label>
+                  <label class="checkbox-row">
+                    <input id="fansOnlyCheckbox" type="checkbox" />
+                    <span>仅粉丝可评论</span>
+                  </label>
+                </div>
+
+                <div id="coverPreview" class="cover-preview"></div>
+
+                <div class="publish-actions">
+                  <button id="publishCurrentButton">按上方模式执行</button>
+                  <button id="publishNowButton" class="primary">立即发布</button>
+                  <button id="pollStatusButton" class="ghost">查询发布状态</button>
+                  <button id="syncWebEditorButton" class="ghost">同步到网页编辑器</button>
+                </div>
+
+                <div id="publishResult" class="publish-result"></div>
+                <div id="webEditorSyncResult" class="publish-result secondary-result"></div>
+              </section>
+
+              <section class="panel preview-panel">
+                <div class="section-header">
+                  <div>
+                    <p class="section-kicker">预览</p>
+                    <h2>公众号阅读效果</h2>
+                  </div>
+                  <div class="preview-tabs" role="tablist" aria-label="预览模式切换">
+                    <button id="previewPhoneTab" class="preview-tab active" data-preview="phone" role="tab" aria-selected="true" aria-controls="previewContainer" tabindex="0">手机</button>
+                    <button id="previewDarkTab" class="preview-tab" data-preview="dark" role="tab" aria-selected="false" aria-controls="previewContainer" tabindex="-1">深色</button>
+                    <button id="previewCardTab" class="preview-tab" data-preview="card" role="tab" aria-selected="false" aria-controls="previewContainer" tabindex="-1">分享卡片</button>
+                  </div>
+                </div>
+                <p id="previewDescription" class="preview-desc">模拟在手机上阅读公众号文章的实际效果</p>
+                <div id="previewContainer" class="phone-shell preview-mode-phone" role="tabpanel" tabindex="0" aria-labelledby="previewPhoneTab">
+                  <div id="wechatPreview" class="wechat-preview"></div>
+                </div>
+              </section>
             </div>
-            <p id="previewDescription" class="preview-desc">模拟在手机上阅读公众号文章的实际效果</p>
-            <div id="previewContainer" class="phone-shell preview-mode-phone" role="tabpanel" tabindex="0" aria-labelledby="previewPhoneTab">
-              <div id="wechatPreview" class="wechat-preview"></div>
+
+            <section class="panel output-panel">
+              <div class="editor-tabs" role="tablist" aria-label="导出格式切换">
+                <button id="htmlTab" class="tab active" data-tab="html" role="tab" aria-selected="true" aria-controls="htmlPanel" tabindex="0">HTML</button>
+                <button id="markdownTab" class="tab" data-tab="markdown" role="tab" aria-selected="false" aria-controls="markdownPanel" tabindex="-1">Markdown</button>
+              </div>
+              <div id="htmlPanel" class="tab-panel active" role="tabpanel" aria-labelledby="htmlTab">
+                <textarea id="htmlOutput" readonly></textarea>
+              </div>
+              <div id="markdownPanel" class="tab-panel" role="tabpanel" aria-labelledby="markdownTab" hidden>
+                <textarea id="markdownOutput" readonly></textarea>
+              </div>
+            </section>
+          </section>
+
+          <!-- ============ 热点（Phase C 把 hot-topics 内容搬进来） ============ -->
+          <section class="workspace-view" data-view="hot" aria-label="热点">
+            <header class="embed-view-head">
+              <div class="embed-view-head-text">
+                <h2 class="embed-view-title">今日热点</h2>
+                <p class="embed-view-sub">微博 / 知乎 / 百度 / 掘金 / V2EX / Reddit / X 等多源聚合</p>
+              </div>
+              <button id="openHotTopicsButton" class="embed-view-open" type="button" title="在新标签页中打开完整热点捕捉器">
+                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M14 3v2h3.59L9 13.59 10.41 15 19 6.41V10h2V3h-7Zm-7 4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5h-2v5H7V9h5V7H7Z"/></svg>
+                在新页打开
+              </button>
+            </header>
+            <div class="embed-frame-wrap" data-embed-frame="hot">
+              <iframe
+                id="hotEmbedFrame"
+                class="embed-frame"
+                title="热点捕捉器"
+                data-src="src/pages/hot-topics.html?embed=1"
+                referrerpolicy="no-referrer"
+                loading="lazy"
+              ></iframe>
+              <div class="embed-frame-loading" data-embed-loading="hot">正在载入热点面板…</div>
             </div>
           </section>
 
-          <section class="panel output-panel">
-            <div class="editor-tabs" role="tablist" aria-label="导出格式切换">
-              <button
-                id="htmlTab"
-                class="tab active"
-                data-tab="html"
-                role="tab"
-                aria-selected="true"
-                aria-controls="htmlPanel"
-                tabindex="0"
-              >HTML</button>
-              <button
-                id="markdownTab"
-                class="tab"
-                data-tab="markdown"
-                role="tab"
-                aria-selected="false"
-                aria-controls="markdownPanel"
-                tabindex="-1"
-              >Markdown</button>
-            </div>
-            <div id="htmlPanel" class="tab-panel active" role="tabpanel" aria-labelledby="htmlTab">
-              <textarea id="htmlOutput" readonly></textarea>
-            </div>
-            <div id="markdownPanel" class="tab-panel" role="tabpanel" aria-labelledby="markdownTab" hidden>
-              <textarea id="markdownOutput" readonly></textarea>
+          <!-- ============ AI 选题代笔（Phase C 把 agent 内容搬进来） ============ -->
+          <section class="workspace-view" data-view="agent" aria-label="AI 选题代笔">
+            <header class="embed-view-head">
+              <div class="embed-view-head-text">
+                <h2 class="embed-view-title">AI 选题代笔</h2>
+                <p class="embed-view-sub">从知乎 / 掘金 / V2EX / Reddit / X 自动找题，并起草初稿</p>
+              </div>
+              <button id="openAgentButton" class="embed-view-open" type="button" title="在新标签页中打开完整代笔工作台">
+                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M14 3v2h3.59L9 13.59 10.41 15 19 6.41V10h2V3h-7Zm-7 4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5h-2v5H7V9h5V7H7Z"/></svg>
+                在新页打开
+              </button>
+            </header>
+            <div class="embed-frame-wrap" data-embed-frame="agent">
+              <iframe
+                id="agentEmbedFrame"
+                class="embed-frame"
+                title="AI 选题代笔"
+                data-src="src/pages/agent.html?embed=1"
+                referrerpolicy="no-referrer"
+                loading="lazy"
+              ></iframe>
+              <div class="embed-frame-loading" data-embed-loading="agent">正在载入选题代笔面板…</div>
             </div>
           </section>
-        </aside>
-      </main>
 
-      <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+          <!-- ============ 会员中心（Phase 3 真正实现） ============ -->
+          <section class="workspace-view" data-view="member" aria-label="会员中心">
+            <section class="ui-section">
+              <header class="ui-section-head">
+                <div class="ui-section-head-text">
+                  <h2 class="ui-section-title">会员中心</h2>
+                  <p class="ui-section-sub">付费授权系统正在开发中，请稍后</p>
+                </div>
+              </header>
+              <div class="ui-empty">
+                <div class="ui-empty-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="36" height="36"><path fill="currentColor" d="M5 16 3 5l5.5 4L12 4l3.5 5L21 5l-2 11H5Zm0 2h14v2H5v-2Z"/></svg>
+                </div>
+                <p class="ui-empty-title">会员体系正在搭建</p>
+                <p class="ui-empty-desc">扩展即将支持登录账号 / 绑定 License Key / 在线续费等功能。</p>
+              </div>
+            </section>
+          </section>
+        </main>
+
+        <p id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></p>
+      </div>
     </div>
+
+    <!-- 全局工具按钮（被路由器隐藏使用，绑了原有事件） -->
+    <button id="openOptionsButton" type="button" hidden aria-hidden="true"></button>
+    <button id="openHelpButton" type="button" hidden aria-hidden="true"></button>
 
     <div id="historyDrawerBackdrop" class="drawer-backdrop" hidden></div>
     <aside id="historyDrawer" class="history-drawer" aria-hidden="true">
