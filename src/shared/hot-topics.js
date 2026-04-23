@@ -2,15 +2,18 @@
  * 热点资讯抓取（在扩展后台调用，不受页面 CORS 限制）
  *
  * 数据源策略（按顺序尝试，**任一返回空都自动 fallback**）：
- *  1. DailyHotApi（默认 https://api-hot.imsyy.top/，开源、可自托）
+ *  1. NewsNow 聚合 API（默认 https://hot.inkgold.info/，自部署到 Cloudflare Pages）
+ *     仓库：https://github.com/ourongxing/newsnow
+ *     选它的理由：作者每周更新；自带 SQLite 缓存；多平台覆盖；CF Pages 边缘节点
+ *  2. 官方直连（如 Bilibili 排行榜公共接口）
+ *  3. DailyHotApi（兜底，默认 https://api-hot.imsyy.top/，仅当 NewsNow 都挂时启用）
  *     仓库：https://github.com/imsyy/DailyHotApi
- *  2. NewsNow 聚合 API（备用）
- *  3. 直连 API（如 Bilibili 排行榜公共接口）
  *  4. Reddit 直连（独立通道）
- *  5. 门户引导（X / 小红书）
+ *  5. RSS / RSSHub 直连（AI / 技术博客类）
+ *  6. 门户引导（X / 小红书）
  *
- * 用户可在「设置 → 热点接口」里把默认 DailyHotApi 改成自托地址，
- * 或填写 NewsNow 自托地址，避免公共服务被限流。
+ * 用户可在「设置 → 热点接口」里把 NewsNow 改成自托地址，
+ * 或填写 DailyHotApi 自托地址，避免公共服务被限流。
  */
 
 import { fetchHotTopicSourceItems } from "./hot-topics-sources.js";
@@ -28,8 +31,11 @@ import {
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
+// 默认走我们自部署的 NewsNow（Cloudflare Pages，国内国外都稳）
+// 想自部一份的用户可在「设置 → 热点接口」覆盖此地址
+export const DEFAULT_NEWSNOW_BASE = "https://hot.inkgold.info/";
+// DailyHotApi 仅作兜底，公共 demo 经常 530，不再作为首选
 export const DEFAULT_DAILYHOT_BASE = "https://api-hot.imsyy.top/";
-export const DEFAULT_NEWSNOW_BASE = "https://newsnow.busiyi.world/";
 
 const FETCH_TIMEOUT_MS = 8000;
 // 仅当 items 少于这个数量才认为「实际为空」并触发 fallback
@@ -195,25 +201,25 @@ export async function fetchHotTopics(sourceId, opts = {}) {
     }
   }
 
-  // 5) 主链路：DailyHot → 官方直连 → NewsNow，带后端健康度
+  // 5) 主链路：NewsNow（首选）→ 官方直连 → DailyHotApi（兜底），带后端健康度
   let payload = null;
 
-  if (meta.dailyhot) {
-    const base = normalizeBase(dailyhotBase, DEFAULT_DAILYHOT_BASE);
+  if (meta.newsNow) {
+    const base = normalizeBase(newsnowBase, DEFAULT_NEWSNOW_BASE);
     if (await isBaseCoolingDown(base)) {
-      errors.push(`DailyHotApi: 上次失败后冷却中（${COOLDOWN_MS / 60000} 分钟）`);
+      errors.push(`NewsNow: 上次失败后冷却中（${COOLDOWN_MS / 60000} 分钟）`);
     } else {
       try {
-        const candidate = await fetchDailyHotApi(fetchedAt, meta, base);
+        const candidate = await fetchNewsNowHot(fetchedAt, meta, base);
         if (candidate.items.length >= MIN_VALID_ITEMS) {
           payload = candidate;
           await recordBaseSuccess(base);
         } else {
-          errors.push("DailyHotApi: 返回空列表");
+          errors.push("NewsNow: 返回空列表");
           await recordBaseFailure(base, "空列表");
         }
       } catch (e) {
-        errors.push(`DailyHotApi: ${shortMessage(e)}`);
+        errors.push(`NewsNow: ${shortMessage(e)}`);
         await recordBaseFailure(base, shortMessage(e));
       }
     }
@@ -240,22 +246,22 @@ export async function fetchHotTopics(sourceId, opts = {}) {
     }
   }
 
-  if (!payload && meta.newsNow) {
-    const base = normalizeBase(newsnowBase, DEFAULT_NEWSNOW_BASE);
+  if (!payload && meta.dailyhot) {
+    const base = normalizeBase(dailyhotBase, DEFAULT_DAILYHOT_BASE);
     if (await isBaseCoolingDown(base)) {
-      errors.push(`NewsNow: 冷却中（${COOLDOWN_MS / 60000} 分钟）`);
+      errors.push(`DailyHotApi: 兜底链路也在冷却（${COOLDOWN_MS / 60000} 分钟）`);
     } else {
       try {
-        const candidate = await fetchNewsNowHot(fetchedAt, meta, base);
+        const candidate = await fetchDailyHotApi(fetchedAt, meta, base);
         if (candidate.items.length >= MIN_VALID_ITEMS) {
           payload = candidate;
           await recordBaseSuccess(base);
         } else {
-          errors.push("NewsNow: 返回空列表");
+          errors.push("DailyHotApi: 返回空列表");
           await recordBaseFailure(base, "空列表");
         }
       } catch (e) {
-        errors.push(`NewsNow: ${shortMessage(e)}`);
+        errors.push(`DailyHotApi: ${shortMessage(e)}`);
         await recordBaseFailure(base, shortMessage(e));
       }
     }
@@ -269,7 +275,7 @@ export async function fetchHotTopics(sourceId, opts = {}) {
   if (errors.length === 0) {
     return {
       ok: false,
-      message: `「${meta.label}」暂未配置可用的数据接口，建议改用其他源（推荐：知乎热榜 / 微博热搜 / GitHub Trending），或在「设置 → 热点接口」填写自托 DailyHotApi 地址。`
+      message: `「${meta.label}」暂未配置可用的数据接口，建议改用其他源（推荐：知乎热榜 / 微博热搜 / GitHub Trending），或在「设置 → 热点接口」填写自托 NewsNow / DailyHotApi 地址。`
     };
   }
 
@@ -281,7 +287,7 @@ export async function fetchHotTopics(sourceId, opts = {}) {
   } else if (allEmpty) {
     advice = `当前时段「${meta.label}」榜单可能没有新数据，可以稍后再试或换个源（推荐：知乎热榜 / GitHub Trending / 36氪）。`;
   } else {
-    advice = `公共聚合服务可能限流或暂时不可达。强烈建议在「设置 → 热点接口」里改成自托 DailyHotApi（部署指南见 docs/SELFHOST_HOTTOPICS.md）。`;
+    advice = `首选 NewsNow 与兜底 DailyHotApi 均不可达。建议在「设置 → 热点接口」点测试连接定位问题，或自部署一份 NewsNow（部署指南见 docs/SELFHOST_HOTTOPICS.md）。`;
   }
 
   return {
@@ -344,6 +350,11 @@ async function fetchDailyHotApi(fetchedAt, meta, base) {
 }
 
 // ── NewsNow ──
+// NewsNow 实际返回结构（与 DailyHotApi 完全不同）：
+//   { status: "success", id: "weibo", updatedTime: 1776..., items: [
+//     { id, title, url, mobileUrl?, extra: { info?: "434 万热度", hover?: "描述", date? } }
+//   ]}
+// 失败时返回 { error: true, statusCode, statusMessage, message } 或 status:"error"
 
 async function fetchNewsNowHot(fetchedAt, meta, base) {
   const url = `${base}api/s?id=${meta.newsNow}&latest`;
@@ -356,25 +367,38 @@ async function fetchNewsNowHot(fetchedAt, meta, base) {
   const json = await res.json().catch(() => null);
   if (!json) throw new Error("响应不是合法 JSON");
 
-  const rawItems = json?.data || [];
+  // NewsNow 上游失败：上游网站反爬 / 限流时返回的标准错误
+  if (json.error === true || (json.statusCode && json.statusCode >= 400)) {
+    const upstreamMsg = String(json.message || json.statusMessage || `HTTP ${json.statusCode}`);
+    throw new Error(`NewsNow 上游失败：${upstreamMsg.slice(0, 80)}`);
+  }
+  if (json.status && json.status !== "success") {
+    throw new Error(`NewsNow 状态异常：${json.status}`);
+  }
+
+  const rawItems = Array.isArray(json.items) ? json.items : [];
   const items = [];
 
   for (let i = 0; i < rawItems.length && items.length < 35; i++) {
-    const d = rawItems[i];
+    const d = rawItems[i] || {};
     const title = String(d.title || "").trim();
-    if (!title || d.stickied) continue;
+    if (!title) continue;
 
     let link = d.url || d.mobileUrl || "";
     if (link && link.startsWith("bilibili://")) {
       link = `https://search.bilibili.com/all?keyword=${encodeURIComponent(title)}`;
     }
 
+    // extra.info 是已格式化字符串："434 万热度" / "351 points" / "✰ 8,001"
+    // extra.hover 是描述（如知乎的「问题简介」）
     const subtitleComponents = [];
-    if (d.hot) subtitleComponents.push(`热度 ${formatHotValue(d.hot)}`);
-    if (d.desc) subtitleComponents.push(String(d.desc).slice(0, 40));
+    const info = d?.extra?.info;
+    const hover = d?.extra?.hover;
+    if (info) subtitleComponents.push(String(info).slice(0, 32));
+    if (hover) subtitleComponents.push(String(hover).replace(/\s+/g, " ").slice(0, 50));
 
     items.push({
-      id: `${meta.id}-${d.id || i}`,
+      id: `${meta.id}-${String(d.id || i).slice(0, 64)}`,
       title,
       url: link,
       subtitle: subtitleComponents.length ? subtitleComponents.join(" · ") : `${meta.label}热榜`
@@ -607,7 +631,18 @@ export async function testHotTopicsBackend(kind, baseUrl) {
     if (!json) {
       return { ok: false, latencyMs, base: targetBase, message: "响应不是合法 JSON" };
     }
-    const items = json?.data;
+    // NewsNow 失败结构：{ error: true, statusCode, message }
+    if (json.error === true || (json.statusCode && json.statusCode >= 400)) {
+      const upstreamMsg = String(json.message || json.statusMessage || `HTTP ${json.statusCode}`);
+      return {
+        ok: false,
+        latencyMs,
+        base: targetBase,
+        message: `上游失败：${upstreamMsg.slice(0, 80)}`
+      };
+    }
+    // NewsNow 返回 items[]，DailyHotApi 返回 data[]，都覆盖
+    const items = kind === "newsnow" ? json?.items : json?.data;
     const count = Array.isArray(items) ? items.length : 0;
     if (count === 0) {
       return {

@@ -25,17 +25,30 @@
 
 ## 5 分钟部署
 
-```bash
-# 1. 安装 wrangler
-npm install -g wrangler
-wrangler login
+> **重要**：所有命令必须在**项目根目录**进入 `cloudflare/hot-topics-proxy/`
+> 之后再执行。如果你停留在别的子目录（比如 `server/`，那是 license worker），
+> `wrangler deploy` 会去部署那个目录里的 worker，跟本目录无关。
 
-# 2. 创建 KV namespace（用于缓存 + 限速）
+```bash
+# 0. 必须从项目根目录开始 —— 千万别在 server/ 里跑
+cd /path/to/gzh   # 你的项目根（含 manifest.json 的那一层）
 cd cloudflare/hot-topics-proxy
-wrangler kv:namespace create HOT_CACHE
-# 命令会输出形如：
-#   { binding = "HOT_CACHE", id = "abc123def456..." }
-# 把这个 id 填到 wrangler.toml 的 kv_namespaces.id 和 preview_id
+
+# 1. 安装 wrangler（如果之前装过可跳过）
+npm install -g wrangler
+wrangler login    # 已登录可跳过
+
+# 2. 创建 KV namespace（wrangler v4 语法是 `kv namespace`，空格不是冒号）
+wrangler kv namespace create HOT_CACHE
+# 输出形如：
+#   ✨ Success!
+#   Add the following to your configuration file in your kv_namespaces array:
+#   {
+#     "binding": "HOT_CACHE",
+#     "id": "abc123def456..."
+#   }
+# 把这个 id 填到 wrangler.toml 里 [[kv_namespaces]] 的 id 和 preview_id 字段，
+# 替换掉 REPLACE_WITH_YOUR_KV_ID 占位
 
 # 3. 设置 Pro license 共享密钥（可选，生产环境推荐）
 wrangler secret put PRO_LICENSE_SECRET
@@ -43,7 +56,17 @@ wrangler secret put PRO_LICENSE_SECRET
 
 # 4. 部署
 wrangler deploy
-# 拿到 https://hot-topics-proxy.<your-name>.workers.dev
+# 拿到 https://hot-topics-proxy.<your-cf-username>.workers.dev
+```
+
+部署完后**立即验证**（替换成你拿到的 URL）：
+
+```bash
+curl https://hot-topics-proxy.<your-cf-username>.workers.dev/health
+# 应该返回 { ok: true, service: "runbi-hot-topics-proxy", ... }
+
+curl https://hot-topics-proxy.<your-cf-username>.workers.dev/zhihu | head -c 300
+# 应该返回知乎热榜 JSON 的前 300 字节
 ```
 
 ## 部署后接到扩展

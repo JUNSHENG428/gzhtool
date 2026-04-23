@@ -20,9 +20,17 @@
  *      把这个 URL 填到扩展「设置 → 热点接口 → DailyHotApi 地址」
  */
 
-const DEFAULT_UPSTREAM = "https://api-hot.imsyy.top";
+// 上游列表：按顺序尝试，第一个返回 2xx 就用。逗号分隔，可在 wrangler.toml
+// 的 [vars].UPSTREAM_BASES 里覆盖。强烈建议把你自部署的实例放第一位（Vercel
+// 一键部署 DailyHotApi 见 docs/SELFHOST_HOTTOPICS.md），公共 demo 当兜底。
+const DEFAULT_UPSTREAMS = [
+  "https://api-hot.imsyy.top", // imsyy 官方 demo，经常 530
+  "https://hot.cyrilstudio.top" // 备用社区镜像（如果挂了请自部署）
+];
 const CACHE_TTL_SECONDS = 300; // 5 分钟，与扩展内的 12 分钟客户端缓存配合
+const NEGATIVE_CACHE_TTL = 60; // 上游全挂时短缓存错误，避免风暴
 const FREE_RATE_LIMIT_PER_MIN = 10;
+const UPSTREAM_TIMEOUT_MS = 8000;
 
 // 允许的源列表：白名单防止有人拿你的 worker 当全互联网 proxy
 // 改成 imsyy 上游支持的全部 source id（与扩展 HOT_SOURCE_META 对齐）
@@ -63,9 +71,10 @@ export default {
       return jsonOk({
         ok: true,
         service: "runbi-hot-topics-proxy",
-        upstream: env.UPSTREAM_BASE || DEFAULT_UPSTREAM,
+        upstreams: resolveUpstreams(env),
         cacheTtl: CACHE_TTL_SECONDS,
-        sources: ALLOWED_SOURCES.size
+        sources: ALLOWED_SOURCES.size,
+        version: "1.1.0"
       });
     }
 
@@ -113,29 +122,46 @@ export default {
       });
     }
 
-    // 回源
-    const upstreamBase = (env.UPSTREAM_BASE || DEFAULT_UPSTREAM).replace(/\/+$/, "");
-    const upstreamUrl = `${upstreamBase}/${sourceId}?cache=true`;
-    let upstreamData;
-    try {
-      const res = await fetch(upstreamUrl, {
-        cf: { cacheTtl: CACHE_TTL_SECONDS, cacheEverything: true },
-        headers: {
-          "User-Agent":
-            "RunbiHotProxy/1.0 (+https://github.com/your-repo/cloudflare/hot-topics-proxy)",
-          Accept: "application/json"
+    // 回源：按顺序尝试 upstream 列表，谁先成功用谁
+    const upstreams = resolveUpstreams(env);
+    const attempts = [];
+    let upstreamData = null;
+    let usedUpstream = null;
+
+    for (const base of upstreams) {
+      const upstreamUrl = `${base.replace(/\/+$/, "")}/${sourceId}?cache=true`;
+      try {
+        const res = await fetchWithTimeout(upstreamUrl, UPSTREAM_TIMEOUT_MS);
+        if (!res.ok) {
+          attempts.push({ url: upstreamUrl, status: res.status });
+          continue;
         }
-      });
-      if (!res.ok) {
-        return jsonError(
-          502,
-          "upstream_http",
-          `上游 ${upstreamUrl} 返回 ${res.status}`
-        );
+        const data = await res.json();
+        if (!data || (Array.isArray(data?.data) && data.data.length === 0 && data?.code && data.code !== 200)) {
+          attempts.push({ url: upstreamUrl, status: res.status, body: "empty" });
+          continue;
+        }
+        upstreamData = data;
+        usedUpstream = base;
+        break;
+      } catch (e) {
+        attempts.push({ url: upstreamUrl, error: String(e?.message || e) });
       }
-      upstreamData = await res.json();
-    } catch (e) {
-      return jsonError(502, "upstream_fetch_failed", String(e?.message || e));
+    }
+
+    if (!upstreamData) {
+      const err = jsonError(
+        502,
+        "upstream_all_failed",
+        `全部上游均失败（共 ${attempts.length} 个）。建议自部署 DailyHotApi 后在 wrangler.toml 把 UPSTREAM_BASES 改成你自己的实例。`,
+        {},
+        { attempts }
+      );
+      // 负缓存 1 分钟，防止上游挂时把流量打爆
+      ctx.waitUntil(
+        env.HOT_CACHE.put(`neg:${sourceId}`, "1", { expirationTtl: NEGATIVE_CACHE_TTL })
+      );
+      return err;
     }
 
     // 写入缓存（异步，不阻塞响应）
@@ -147,6 +173,7 @@ export default {
 
     return jsonOk(upstreamData, {
       "X-Cache": "MISS",
+      "X-Upstream": usedUpstream,
       "Cache-Control": `public, max-age=${CACHE_TTL_SECONDS}`
     });
   }
@@ -165,11 +192,11 @@ function jsonOk(body, extraHeaders = {}) {
   });
 }
 
-function jsonError(status, code, message, extraHeaders = {}) {
+function jsonError(status, code, message, extraHeaders = {}, extra = {}) {
   // 注意：上游 DailyHotApi 用 code 字段做业务码，我们沿用 200 + code 让客户端
   // 现有的解析逻辑能识别错误。但为了便于调试，仍设置 HTTP status。
   return new Response(
-    JSON.stringify({ code: status, name: code, message, data: [] }),
+    JSON.stringify({ code: status, name: code, message, data: [], ...extra }),
     {
       status,
       headers: {
@@ -179,6 +206,34 @@ function jsonError(status, code, message, extraHeaders = {}) {
       }
     }
   );
+}
+
+function resolveUpstreams(env) {
+  // 1. 显式 UPSTREAM_BASES（逗号分隔，优先）
+  const list = (env.UPSTREAM_BASES || env.UPSTREAM_BASE || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (list.length) return list;
+  return DEFAULT_UPSTREAMS;
+}
+
+async function fetchWithTimeout(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      cf: { cacheTtl: CACHE_TTL_SECONDS, cacheEverything: true },
+      headers: {
+        "User-Agent":
+          "RunbiHotProxy/1.1 (+https://github.com/junshengma/gzh)",
+        Accept: "application/json"
+      },
+      signal: ctrl.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function isValidProToken(token, env) {

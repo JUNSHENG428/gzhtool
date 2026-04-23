@@ -7,7 +7,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
-    "kv:create": "wrangler kv:namespace create HOT_CACHE"
+    "kv:create": "wrangler kv namespace create HOT_CACHE"
   },
   "devDependencies": {
     "wrangler": "^3.78.0"

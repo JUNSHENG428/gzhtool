@@ -2,10 +2,12 @@ name = "hot-topics-proxy"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 
-# 上游聚合服务地址。默认走 imsyy 公共 demo；生产环境强烈建议自托：
-#   把这个改成你自己跑的 DailyHotApi 实例（Vercel/CF/VPS Docker 都行）
+# 上游聚合服务列表（逗号分隔，按顺序尝试，第一个 2xx 就用）
+# imsyy 官方 demo 经常 530，强烈建议先在 Vercel 一键部署一份自己的 DailyHotApi
+# （30 秒搞定，见 docs/SELFHOST_HOTTOPICS.md），把你自己的实例放第一位：
+#   UPSTREAM_BASES = "https://你的-vercel-app.vercel.app,https://api-hot.imsyy.top"
 [vars]
-UPSTREAM_BASE = "https://api-hot.imsyy.top"
+UPSTREAM_BASES = "https://api-hot.imsyy.top,https://hot.cyrilstudio.top"
 
 # Pro license 共享密钥。Pro 用户请求时通过 X-License-Token 携带这个值，
 # 命中即跳过免费用户的速率限制。生产环境用 wrangler secret put 设置：
@@ -14,14 +16,16 @@ UPSTREAM_BASE = "https://api-hot.imsyy.top"
 
 # KV：用于 5 分钟缓存 + IP 限速
 # 部署前先创建：
-#   wrangler kv:namespace create HOT_CACHE
+#   wrangler kv namespace create HOT_CACHE
 # 把生成的 id 填到下面（preview_id 是开发期 wrangler dev 用的，可填一样的）
 [[kv_namespaces]]
 binding = "HOT_CACHE"
-id = "REPLACE_WITH_YOUR_KV_ID"
-preview_id = "REPLACE_WITH_YOUR_KV_ID"
+id = "f6cff88657eb46eaa175542e036da302"
+preview_id = "f6cff88657eb46eaa175542e036da302"
 
-# 自定义域名（可选）：绑定 hot.your-domain.com 后填 Cloudflare 的 zone
-# [[routes]]
-# pattern = "hot.your-domain.com/*"
-# zone_id = "your_zone_id"
+# 自定义域名：绑定到 hot.inkgold.info（域名已在 Cloudflare 托管）
+# 用 custom_domain = true 让 wrangler 自动管理 DNS（A/AAAA 记录）和 SSL 证书。
+# 部署后 https://hot.inkgold.info 直接可用，比 *.workers.dev 在国内稳定得多。
+[[routes]]
+pattern = "hot.inkgold.info"
+custom_domain = true
