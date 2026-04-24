@@ -126,6 +126,16 @@ export const auth = {
       method: "POST",
       body: { oldPassword, newPassword }
     }),
+  /**
+   * 给 OAuth-only 账号设置首个密码（无需旧密码）。
+   * 仅当 /api/me 返回 user.needsPluginPassword === true 时显示入口。
+   * 主要场景：用 Google 注册的用户要在 Chrome 插件里登录（插件不支持 Google）。
+   */
+  setPassword: (newPassword) =>
+    api("/api/account/set-password", {
+      method: "POST",
+      body: { newPassword }
+    }),
   requestReset: (email) =>
     api("/api/auth/request-reset", { method: "POST", body: { email }, auth: false }),
   reset: (token, newPassword) =>

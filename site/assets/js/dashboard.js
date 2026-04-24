@@ -37,7 +37,13 @@ const els = {
   changePwModal: document.getElementById("changePwModal"),
   changePwForm: document.getElementById("changePwForm"),
   changePwSubmit: document.getElementById("changePwSubmit"),
-  changePwFeedback: document.getElementById("changePwFeedback")
+  changePwFeedback: document.getElementById("changePwFeedback"),
+  pluginPwCard: document.getElementById("pluginPwCard"),
+  setPwBtn: document.getElementById("setPwBtn"),
+  setPwModal: document.getElementById("setPwModal"),
+  setPwForm: document.getElementById("setPwForm"),
+  setPwSubmit: document.getElementById("setPwSubmit"),
+  setPwFeedback: document.getElementById("setPwFeedback")
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -48,6 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
   void hydrate();
   bindGlobalActions();
   bindChangePassword();
+  bindSetPassword();
   handleCheckoutReturn();
 });
 
@@ -57,6 +64,11 @@ function bindGlobalActions() {
     location.href = "./login";
   });
   els.changePwBtn?.addEventListener("click", () => openModal(els.changePwModal));
+  els.setPwBtn?.addEventListener("click", () => {
+    setSetPwFeedback("");
+    if (els.setPwForm) els.setPwForm.reset();
+    openModal(els.setPwModal);
+  });
 
   // 所有 [data-modal-close] 关闭最近的 modal-backdrop
   document.querySelectorAll("[data-modal-close]").forEach((el) => {
@@ -142,6 +154,13 @@ function renderAccount(data) {
     els.sub.textContent = plan === "pro"
       ? "Pro 会员已激活，所有功能立即可用。"
       : "管理你的会员权益、绑定设备和账号设置。";
+  }
+
+  // OAuth-only 用户（用 Google 注册、还没设置过密码）→ 显示「设置插件登录密码」卡片。
+  // 一旦用户成功设置了密码，下次 /api/me 返回 needsPluginPassword=false，卡片自动隐藏。
+  if (els.pluginPwCard) {
+    const needsPw = !!user.needsPluginPassword;
+    els.pluginPwCard.hidden = !needsPw;
   }
 }
 
@@ -337,6 +356,63 @@ function setChangePwFeedback(text, tone) {
   els.changePwFeedback.dataset.tone = tone || "muted";
   els.changePwFeedback.textContent = text;
   els.changePwFeedback.classList.add("show");
+}
+
+/* ====== 为 OAuth-only 账号设置插件登录密码 ====== */
+
+function bindSetPassword() {
+  if (!els.setPwForm) return;
+  els.setPwForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const newPw = els.setPwForm.newPassword.value;
+    const newPw2 = els.setPwForm.newPassword2.value;
+    setSetPwFeedback("");
+
+    if (!newPw || !newPw2) {
+      setSetPwFeedback("请填写新密码并再次确认。", "warning");
+      return;
+    }
+    if (newPw.length < 8) {
+      setSetPwFeedback("新密码至少 8 位。", "warning");
+      return;
+    }
+    if (newPw !== newPw2) {
+      setSetPwFeedback("两次输入的密码不一致。", "error");
+      return;
+    }
+
+    els.setPwSubmit.disabled = true;
+    els.setPwSubmit.textContent = "保存中…";
+    try {
+      await auth.setPassword(newPw);
+      els.setPwForm.reset();
+      closeModal(els.setPwModal);
+      showToast(
+        "密码已设置 ✓ 现在可以在 Chrome 插件里用「邮箱 + 密码」登录本账号。",
+        "success",
+        5000
+      );
+      // 重新拉一次 /api/me，让 needsPluginPassword 翻成 false → 卡片自动隐藏
+      await hydrate();
+    } catch (error) {
+      setSetPwFeedback(error?.message || "保存失败", "error");
+    } finally {
+      els.setPwSubmit.disabled = false;
+      els.setPwSubmit.textContent = "保存密码";
+    }
+  });
+}
+
+function setSetPwFeedback(text, tone) {
+  if (!els.setPwFeedback) return;
+  if (!text) {
+    els.setPwFeedback.classList.remove("show");
+    els.setPwFeedback.textContent = "";
+    return;
+  }
+  els.setPwFeedback.dataset.tone = tone || "muted";
+  els.setPwFeedback.textContent = text;
+  els.setPwFeedback.classList.add("show");
 }
 
 /* ====== Modal / Toast helpers ====== */

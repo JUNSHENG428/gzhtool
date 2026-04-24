@@ -1082,6 +1082,29 @@ code {
   margin-top: 24px;
 }
 
+/* OAuth-only 用户「设置插件登录密码」提示卡片 */
+.dash-plugin-pw {
+  margin-top: 18px;
+  padding: 14px 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(252, 211, 77, 0.08);
+}
+
+.dash-plugin-pw-title {
+  margin: 0 0 6px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.dash-plugin-pw-desc {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
 /* 单张 license 下挂的设备列表 */
 .dash-license-devices {
   flex-basis: 100%;

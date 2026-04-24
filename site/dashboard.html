@@ -68,6 +68,18 @@
             <button class="btn btn-ghost btn-block" type="button" id="changePwBtn">修改密码</button>
             <button class="btn btn-ghost btn-block" type="button" id="logoutBtn">退出登录</button>
           </div>
+
+          <!-- OAuth-only 用户专用：用 Google 登录时没有密码，无法在 Chrome 插件里登录。
+               需要在这里先设一个密码，扩展端就能用「邮箱+密码」登录同步会员权益。
+               默认 hidden，由 dashboard.js 在 /api/me 返回 needsPluginPassword=true 时显示。 -->
+          <div class="dash-plugin-pw" id="pluginPwCard" hidden>
+            <h3 class="dash-plugin-pw-title">为 Chrome 插件设置密码</h3>
+            <p class="dash-plugin-pw-desc">
+              你目前用 Google 登录。Chrome 插件不支持 Google 登录，需要先为本账号设一个密码，
+              然后用「邮箱 + 密码」在插件里登录，会员权益会自动同步。
+            </p>
+            <button class="btn btn-primary btn-block" type="button" id="setPwBtn">设置插件登录密码</button>
+          </div>
         </aside>
 
         <!-- 右侧：会员权益 + 绑定设备 -->
@@ -92,6 +104,35 @@
 
   <!-- 浮层 toast：付款回流 / 解绑成功 / 改密码成功 都用它 -->
   <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- 设置插件密码弹窗（OAuth-only 用户专用，默认 hidden） -->
+  <div id="setPwModal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="setPwTitle">
+      <header class="modal-head">
+        <h3 id="setPwTitle">设置插件登录密码</h3>
+        <button type="button" class="modal-close" data-modal-close aria-label="关闭">×</button>
+      </header>
+      <form id="setPwForm" class="modal-body" autocomplete="off" novalidate>
+        <p class="muted" style="font-size:0.88rem;margin-bottom:14px;">
+          这个密码用于在 Chrome 插件里登录本账号。设置后官网仍可继续用 Google 登录，两种方式并行有效。
+        </p>
+        <div class="field">
+          <label for="setPwInput">新密码</label>
+          <input id="setPwInput" name="newPassword" type="password" autocomplete="new-password" required minlength="8" />
+          <span class="field-hint">至少 8 位，建议字母 + 数字 + 符号。</span>
+        </div>
+        <div class="field">
+          <label for="setPwInput2">再输一次新密码</label>
+          <input id="setPwInput2" name="newPassword2" type="password" autocomplete="new-password" required minlength="8" />
+        </div>
+        <p class="feedback" id="setPwFeedback"></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-modal-close>取消</button>
+          <button type="submit" class="btn btn-primary" id="setPwSubmit">保存密码</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- 修改密码弹窗（默认 hidden） -->
   <div id="changePwModal" class="modal-backdrop" hidden>
@@ -139,6 +180,6 @@
     document.getElementById("year").textContent = new Date().getFullYear();
   </script>
   <script type="module" src="./assets/js/site.js"></script>
-  <script type="module" src="./assets/js/dashboard.js"></script>
+  <script type="module" src="./assets/js/dashboard.js?v=20260424a"></script>
 </body>
 </html>

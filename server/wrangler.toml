@@ -63,6 +63,18 @@ HUPIJIAO_API_URL = "https://api.xunhupay.com/payment/do.html"
 # 注意：HUPIJIAO_APP_SECRET 是私密值，必须用 wrangler secret put 注入
 # 千万不要明文写在这里。本地 .dev.vars 同理。
 
+# ---------------- 密码重置邮件（Resend） ----------------
+# RESEND_API_KEY 留空 → /api/auth/request-reset 不真发邮件，只 console.log 出 reset URL
+# （开发期方便联调；生产强烈建议接 Resend，否则 OAuth-only 用户走"忘记密码"
+#  流程会卡死——他们既没有密码，又收不到重置邮件）。
+#
+# 接入步骤详见 docs/RESEND_EMAIL_SETUP.md，关键命令：
+#   wrangler secret put RESEND_API_KEY
+#
+# 发件人地址：默认 "no-reply@docuearn.com"。如需改：取消注释下一行。
+# Resend 要求发件域名必须在 Resend 控制台「Domains」里完成 DNS 验证。
+# RESET_EMAIL_FROM = "no-reply@docuearn.com"
+
 # Google OAuth 2.0 Web Client ID
 #   - 在 https://console.cloud.google.com/apis/credentials 新建 "OAuth 2.0 Client ID"
 #     → 类型 "Web application"
@@ -78,4 +90,5 @@ GOOGLE_CLIENT_ID = "458035180234-4s4h5m2kjjrg7e2cgmuc1out8p14th17.apps.googleuse
 # LS_WEBHOOK_SECRET      —— Lemon Squeezy webhook 的 signing secret（不用 LS 时可留空）
 # LICENSE_SIGNING_SECRET —— 用于 license key 校验位运算（与插件端无关，仅服务端用）
 # HUPIJIAO_APP_SECRET    —— 虎皮椒 AppSecret（千万不能泄露！泄露后立刻去后台重置）
+# RESEND_API_KEY         —— Resend 邮件服务 API Key（接入 docs/RESEND_EMAIL_SETUP.md）
 # GOOGLE_CLIENT_ID 是公开值（前端也会用），不需要 secret，可直接放上面 [vars]

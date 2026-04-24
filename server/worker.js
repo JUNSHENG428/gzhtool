@@ -88,6 +88,7 @@ const ROUTES = {
   "POST /api/login": handleLogin,
   "GET  /api/me": handleMe,
   "POST /api/account/change-password": handleChangePassword,
+  "POST /api/account/set-password": handleSetPassword,
   "POST /api/auth/request-reset": handleRequestReset,
   "POST /api/auth/reset": handleReset,
   "POST /api/auth/google": handleGoogleAuth,
@@ -238,20 +239,29 @@ async function handleMe(request, env) {
   const auth = await requireAuth(request, env);
   if (!auth.ok) return auth.response;
 
-  // 取一次 user 行（拿 created_at / last_login_at），减少前端多次往返
+  // 取一次 user 行（拿 created_at / last_login_at + OAuth 标记），减少前端多次往返
   const userRow = await env.DB.prepare(
-    "SELECT id, email, created_at, last_login_at FROM users WHERE id = ?"
+    "SELECT id, email, created_at, last_login_at, oauth_provider, password_salt FROM users WHERE id = ?"
   )
     .bind(auth.userId)
     .first();
   const summary = await loadUserLicenseSummary(env, auth.userId);
+
+  // OAuth-only 用户没有可用密码 → 在插件端无法登录（插件不支持 Google 一键）。
+  // 把 needsPluginPassword 露给前端，dashboard 可以提示用户去设置一个。
+  const oauthProvider = userRow?.oauth_provider || "";
+  const needsPluginPassword =
+    !!oauthProvider && !isUsablePasswordHash(userRow?.password_salt);
+
   return jsonResponse({
     ok: true,
     user: {
       id: auth.userId,
       email: auth.email,
       created_at: userRow?.created_at || 0,
-      last_login_at: userRow?.last_login_at || 0
+      last_login_at: userRow?.last_login_at || 0,
+      oauth_provider: oauthProvider,
+      needsPluginPassword
     },
     license: summary
   });
@@ -407,6 +417,52 @@ async function handleChangePassword(request, env) {
   const expected = await pbkdf2Hash(oldPassword, base64Decode(user.password_salt));
   if (!constantTimeEqual(base64Encode(expected), user.password_hash)) {
     return jsonResponse({ ok: false, error: "旧密码不正确" }, 401);
+  }
+
+  const newSalt = crypto.getRandomValues(new Uint8Array(16));
+  const newHash = await pbkdf2Hash(newPassword, newSalt);
+  await env.DB.prepare(
+    "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?"
+  )
+    .bind(base64Encode(newHash), base64Encode(newSalt), auth.userId)
+    .run();
+
+  return jsonResponse({ ok: true });
+}
+
+// ============================================================
+// /api/account/set-password
+// body: { newPassword }
+// 必须 JWT 校验。仅当 password_salt 是 dummy（即 OAuth-only 用户）才允许。
+// 已经有真实密码的用户必须走 /api/account/change-password（要旧密码），
+// 防止当前会话被劫持后攻击者直接覆盖密码。
+//
+// 主要使用场景：用户用 Google 一键登录注册后，要在 Chrome 插件里登录
+// （插件不支持 Google 登录，只能邮箱密码），需要先在 dashboard 设一个密码。
+// ============================================================
+async function handleSetPassword(request, env) {
+  const auth = await requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+
+  const body = await readJson(request);
+  const newPassword = String(body.newPassword || "");
+  if (newPassword.length < 8) {
+    return jsonResponse({ ok: false, error: "密码至少 8 位" }, 400);
+  }
+
+  const user = await env.DB.prepare(
+    "SELECT id, password_salt, oauth_provider FROM users WHERE id = ?"
+  )
+    .bind(auth.userId)
+    .first();
+  if (!user) return jsonResponse({ ok: false, error: "账号不存在" }, 404);
+
+  // 已经有真实密码 → 强制走 change-password 流程（要旧密码），不允许越过验证。
+  if (isUsablePasswordHash(user.password_salt)) {
+    return jsonResponse(
+      { ok: false, error: "账号已有密码，请使用「修改密码」入口" },
+      400
+    );
   }
 
   const newSalt = crypto.getRandomValues(new Uint8Array(16));
@@ -1513,6 +1569,11 @@ function buildResetUrl(env, token) {
  *
  * 当 env.RESEND_API_KEY 已配，就走 Resend；否则只在 console 打印（开发环境）。
  * 这样部署方可以"先上线、后接邮件"，不阻塞发布。
+ *
+ * ⚠️ 调用合约：本函数永远不抛异常（接口对外 ok=true 防枚举），但会把
+ * 「请求 + 响应 status + body 前 500 字符」详细 log 出来，按项目 SOP
+ * 排查必须用 `wrangler tail --status error` 看 log，不是看 HTTP 返回码。
+ * 详见 docs/RESEND_EMAIL_SETUP.md。
  */
 async function sendResetEmail(env, toEmail, resetUrl) {
   const subject = "润笔 · 重置你的密码";
@@ -1528,29 +1589,59 @@ ${resetUrl}
 — 润笔 DocuEarn
 让你多一份安稳`;
 
-  if (env.RESEND_API_KEY) {
-    try {
-      await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${env.RESEND_API_KEY}`
-        },
-        body: JSON.stringify({
-          from: env.RESET_EMAIL_FROM || "no-reply@docuearn.com",
-          to: [toEmail],
-          subject,
-          text
-        })
-      });
-    } catch (error) {
-      console.warn("[reset] send email failed", error);
-    }
+  if (!env.RESEND_API_KEY) {
+    // 没配邮件服务：写日志，方便开发期手动复制 link
+    console.log(
+      `[reset] (no email provider) to=${toEmail} url=${resetUrl} ` +
+        `(配 RESEND_API_KEY 后会真发邮件，详见 docs/RESEND_EMAIL_SETUP.md)`
+    );
     return;
   }
 
-  // 没配邮件服务：写日志，方便开发期手动复制 link
-  console.log(`[reset] (no email provider) to=${toEmail} url=${resetUrl}`);
+  const fromEmail = env.RESET_EMAIL_FROM || "no-reply@docuearn.com";
+
+  // 出参 log（按项目 SOP：调外部 API 必须打请求摘要）
+  console.log(`[reset] sending via Resend from=${fromEmail} to=${toEmail}`);
+
+  try {
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${env.RESEND_API_KEY}`
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: [toEmail],
+        subject,
+        text
+      })
+    });
+
+    let bodyText = "";
+    try {
+      bodyText = await resp.text();
+    } catch {
+      bodyText = "(failed to read body)";
+    }
+    const bodyPreview = bodyText.slice(0, 500);
+
+    if (!resp.ok) {
+      // 入参 log：status + body 前 500 字符（按 SOP）
+      // 用 console.error 让 `wrangler tail --status error` 能筛出来
+      console.error(
+        `[reset] Resend FAILED status=${resp.status} body=${bodyPreview}`
+      );
+    } else {
+      console.log(`[reset] Resend ok status=${resp.status} body=${bodyPreview}`);
+    }
+  } catch (error) {
+    // 网络层失败（DNS / 超时 / TLS）。永远不抛回上层。
+    console.error(
+      `[reset] Resend network error to=${toEmail}:`,
+      error?.message || error
+    );
+  }
 }
 
 // ============================================================
