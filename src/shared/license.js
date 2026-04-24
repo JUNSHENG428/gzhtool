@@ -518,7 +518,7 @@ export function evaluateLicense(record) {
   const expireText =
     record.expiresAt && Number(record.expiresAt) > 0
       ? `Pro 会员有效至 ${formatDate(record.expiresAt)}`
-      : "Pro 会员永久有效";
+      : "Pro 会员（按订阅周期续费）";
   return {
     status: "pro",
     label: "Pro 会员",

@@ -62,7 +62,7 @@ async function renderNavCta() {
   if (!token) {
     cta.innerHTML = `
       <a class="btn btn-ghost" href="./login">登录</a>
-      <a class="btn btn-primary" href="./pricing">购买 Pro</a>
+      <a class="btn btn-primary" href="./pricing">开通 Pro 会员</a>
     `;
     return;
   }

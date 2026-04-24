@@ -15,7 +15,7 @@
 | 类目（Category） | Productivity / Workflow & Planning |
 | 语言（Language） | Chinese (Simplified) — `zh-CN` |
 | 官网 URL | https://docuearn.com |
-| 支持邮箱 | hello@docuearn.com |
+| 支持邮箱 | support@docuearn.com |
 | 隐私政策 URL | https://docuearn.com/privacy |
 | 服务条款 URL | https://docuearn.com/terms |
 
@@ -43,13 +43,13 @@
 >
 > 我们没有任何服务器在你与 AI / 公众号之间的请求路径上。你的文章正文、AI prompt、改写结果、公众号 token 全部只存在你本机的 chrome.storage.local 中。详见隐私政策：https://docuearn.com/privacy
 >
-> 免费 vs Pro
+> 免费 vs Pro 会员
 >
-> · 免费版：1 个公众号、每天 5 次 AI 改写、5 套基础模板，永久免费。
-> · Pro 月付 ¥29：无限改写、最多 5 个公众号、6 套杂志级母版、AI 模板生成器、DrissionPage 反爬抓取、3 台设备同时激活。
-> · Pro 年付 ¥288：等同月付能力，每月折合 ¥24。
+> · 免费版：可绑定 1 个公众号、每天 5 次 AI 改写、基础排版模板，免费可用。
+> · Pro 会员（月度订阅 / 年度订阅）：解锁无限 AI 改写、最多绑定 5 个公众号、全部杂志级排版模板、AI 模板生成器、DrissionPage 深度抓取、3 台设备同时激活。
+> · 详细定价与开通方式请访问 https://docuearn.com/pricing
 >
-> 反馈 / 客服：hello@docuearn.com
+> 反馈 / 客服：support@docuearn.com
 
 ---
 

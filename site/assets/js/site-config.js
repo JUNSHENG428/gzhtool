@@ -39,21 +39,26 @@ export const SITE_CONFIG = {
   /** Cloudflare Worker 的对外完整 URL；同时被 api.js 读取（meta 优先级更高） */
   WORKER_BASE: "https://api.docuearn.com",
 
-  /** 支付链接占位（Paddle 接入后替换；变量名仍叫 LEMON_LINKS 避免大改 site.js） */
+  /**
+   * 支付平台 checkout 链接占位
+   * 接入虎皮椒（HuPiJiao）/ 其它支付平台后替换为真实的下单 URL；
+   * 变量名仍保留 LEMON_LINKS 是为了不改 site.js 调用处，仅作为通用 CHECKOUT_LINKS 使用。
+   * 上线前必须替换；保留 yourstore.* 占位会让用户付款失败。
+   */
   LEMON_LINKS: {
-    monthly: "https://yourstore.lemonsqueezy.com/buy/REPLACE-ME-MONTHLY",
-    yearly: "https://yourstore.lemonsqueezy.com/buy/REPLACE-ME-YEARLY"
+    monthly: "https://yourstore.example.com/checkout/REPLACE-ME-MONTHLY",
+    yearly: "https://yourstore.example.com/checkout/REPLACE-ME-YEARLY"
   },
 
-  /** Lemon Squeezy 自带的 overlay checkout（弹窗内付款），开了无需跳出页面 */
-  LEMON_USE_OVERLAY: true,
+  /** 是否使用 overlay checkout（弹窗内支付）。虎皮椒走标准跳转支付时设为 false */
+  LEMON_USE_OVERLAY: false,
 
   /** 支付完成 / 取消后回到的页面（dashboard 会读 ?from=checkout 弹 toast） */
   CHECKOUT_SUCCESS_URL: "/dashboard.html?from=checkout&result=success",
   CHECKOUT_CANCEL_URL: "/pricing.html?from=checkout&result=cancel",
 
   /** 客服 / 反馈邮箱 */
-  SUPPORT_EMAIL: "hello@docuearn.com",
+  SUPPORT_EMAIL: "support@docuearn.com",
 
   /**
    * Google OAuth 2.0 Web Client ID

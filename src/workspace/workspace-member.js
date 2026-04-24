@@ -141,13 +141,13 @@ function renderHero(state, auth, device) {
     state?.expiresAt && Number(state.expiresAt) > 0
       ? `${state.plan === "pro" ? "Pro 有效至" : "到期"} · ${formatDate(state.expiresAt)}`
       : state?.plan === "pro"
-        ? "Pro 永久有效"
+        ? "Pro 会员（按订阅周期续费）"
         : ""
   );
 
   toggleTag(
     "memberHeroKey",
-    state?.displayKey ? `License · ${state.displayKey}` : ""
+    state?.displayKey ? `会员编号 · ${state.displayKey}` : ""
   );
 
   toggleTag(
@@ -189,21 +189,20 @@ function pickHeroStatus(state, auth) {
     return {
       tone: "expired",
       label: "授权异常",
-      hint: state.hint || "License 已被服务端禁用，请联系客服或重新购买"
+      hint: state.hint || "会员权益已被服务端冻结，请联系客服处理"
     };
   }
-  // free（无 key 或 key 不属 Pro）
   if (auth?.user?.email) {
     return {
       tone: "free",
       label: "免费版（已登录）",
-      hint: "你账号下尚未绑定 Pro License；升级后可解锁全部能力"
+      hint: "此账号尚未开通 Pro 会员；开通后可立即解锁全部能力"
     };
   }
   return {
     tone: "guest",
     label: "免费版",
-    hint: "未登录账号，所有基础功能依然可用；登录后可跨设备同步 License"
+    hint: "未登录账号，所有基础功能依然可用；登录后可跨设备同步会员权益"
   };
 }
 
@@ -285,8 +284,8 @@ function renderQuotaAccount(state, accountInfo) {
     pct = Math.min(100, used * 8);
     hint =
       used === 0
-        ? "Pro 套餐支持无限公众号，去「设置」绑定第一个公众号"
-        : `已绑定 ${used} 个，Pro 无上限`;
+        ? "Pro 会员支持无限公众号绑定，去「设置」绑定第一个公众号"
+        : `已绑定 ${used} 个，Pro 会员无上限`;
   } else {
     cap = FREE_MULTI_ACCOUNT_LIMIT;
     capLabel = ` / ${cap}`;
@@ -294,7 +293,7 @@ function renderQuotaAccount(state, accountInfo) {
     if (used === 0) {
       hint = `免费版可绑定 ${cap} 个公众号；当前 0 个，去「设置」开始`;
     } else if (used >= cap) {
-      hint = `免费版上限 ${cap} 个已满；升级 Pro 解锁多账号矩阵`;
+      hint = `免费版上限 ${cap} 个已满；开通 Pro 会员解锁多公众号矩阵`;
     } else {
       hint = `免费版还可再绑 ${cap - used} 个；升级 Pro 后无限`;
     }
@@ -390,16 +389,16 @@ function renderActionButtons(state) {
 
   if (isPro) {
     primary = { label: "管理会员 / 续费", action: "settings" };
-    secondary = { label: "查看 Pro 套餐", action: "pricing" };
+    secondary = { label: "查看 Pro 会员", action: "pricing" };
   } else if (expired) {
     primary = { label: "立即续费 Pro", action: "pricing" };
-    secondary = { label: "去设置查看 License", action: "settings" };
+    secondary = { label: "去设置查看会员状态", action: "settings" };
   } else if (stale) {
     primary = { label: "向服务器复验", action: "refresh" };
-    secondary = { label: "去设置查看 License", action: "settings" };
+    secondary = { label: "去设置查看会员状态", action: "settings" };
   } else {
-    primary = { label: "升级 Pro", action: "pricing" };
-    secondary = { label: "登录 / 绑定 License", action: "settings" };
+    primary = { label: "开通 Pro 会员", action: "pricing" };
+    secondary = { label: "登录账号 / 同步会员", action: "settings" };
   }
 
   const primaryBtn = document.getElementById("memberPrimaryBtn");
@@ -483,13 +482,13 @@ function openExternal(url) {
 async function triggerRefresh() {
   if (_refreshing) return;
   _refreshing = true;
-  showFeedback("正在向服务器复验当前 License…", "muted");
+  showFeedback("正在向服务器复验当前会员权益…", "muted");
 
   try {
     const state = await getLicenseState({ refresh: false });
     if (!state?.key) {
       // 没绑定 key 的话，复验也没意义；引导到设置
-      showFeedback("当前未绑定 License Key，请到「设置」激活后再复验。", "warning");
+      showFeedback("当前账号尚未开通 Pro 会员；请先开通后再复验。", "warning");
       return;
     }
     const result = await verifyLicenseRemote(state.key, { silent: true });

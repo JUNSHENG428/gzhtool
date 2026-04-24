@@ -87,7 +87,7 @@
       </div>
       <div class="site-nav-cta">
         <a class="btn btn-ghost" href="./login">登录</a>
-        <a class="btn btn-primary" href="./pricing">购买 Pro</a>
+        <a class="btn btn-primary" href="./pricing">开通 Pro 会员</a>
       </div>
     </div>
   </nav>
@@ -118,7 +118,7 @@
 
       <h3>2.1 账号数据（仅在你注册时）</h3>
       <ul>
-        <li>邮箱地址（用于登录、密码重置、license key 发送）</li>
+        <li>邮箱地址（用于登录、密码重置、订阅开通通知）</li>
         <li>密码哈希（PBKDF2-SHA256，从不存储明文）</li>
         <li>设备指纹（用于多设备并发限制，由 user-agent + 时区等公开信息哈希得出）</li>
       </ul>
@@ -142,13 +142,13 @@
         <li><strong>AI 调用：</strong>由扩展直接连到你配置的 AI 服务商（OpenAI / Anthropic / 兼容 API），我们的服务器 <em>不</em> 在请求链路上，看不到 prompt 内容。</li>
         <li><strong>素材抓取：</strong>由扩展在你浏览器里执行，请求来自你自己的 IP，使用你已有的登录态，我们的服务器只下发"该抓什么"的指令模板。</li>
         <li><strong>账号 / 付费数据：</strong>存储在 Cloudflare D1（部署在新加坡边缘节点），仅用于身份验证与配额管理。</li>
-        <li><strong>支付数据：</strong>由 Paddle.com 处理，我们仅接收 webhook 通知（支付状态、客户邮箱），不存储信用卡 / 银行账户信息。</li>
+        <li><strong>支付数据：</strong>由第三方支付平台处理，我们仅接收支付平台的回调通知（支付状态、订单号、客户邮箱），不存储任何银行卡信息。</li>
       </ul>
 
       <h2>4. 数据共享</h2>
       <p>我们 <strong>不会</strong> 出售、出租、或与第三方共享你的个人数据。例外：</p>
       <ul>
-        <li>支付处理（Paddle）—— 仅在你购买 Pro 时</li>
+        <li>第三方支付平台 —— 仅在你开通 Pro 会员订阅时</li>
         <li>邮件服务（Resend）—— 仅在发送密码重置 / license 邮件时</li>
         <li>法律强制要求（如法院传票），我们会在合规前提下尽量通知你</li>
       </ul>
@@ -157,7 +157,7 @@
       <ul>
         <li><strong>查看：</strong>登录 <a href="./dashboard">控制台</a> 即可查看账号与设备列表</li>
         <li><strong>导出：</strong>所有正文 / 模板都在你本机存储中，可在扩展设置 → 数据 中导出</li>
-        <li><strong>删除：</strong>邮件 <a href="mailto:hello@docuearn.com">hello@docuearn.com</a>，我们会在 7 个工作日内删除你的账号与所有服务端数据</li>
+        <li><strong>删除：</strong>邮件 <a href="mailto:support@docuearn.com">support@docuearn.com</a>，我们会在 7 个工作日内删除你的账号与所有服务端数据</li>
         <li><strong>解绑设备：</strong>在控制台 → 我的设备 中可即时解绑</li>
       </ul>
 
@@ -184,7 +184,7 @@
       <p>如有重大变更（如新增数据收集），我们会通过登录注册时填写的邮箱通知你；非重大变更只更新本页面上方的"最近更新"日期。</p>
 
       <h2>9. 联系</h2>
-      <p>有任何隐私 / 数据相关问题，请邮件至 <a href="mailto:hello@docuearn.com">hello@docuearn.com</a>。我们承诺 3 个工作日内回复。</p>
+      <p>有任何隐私 / 数据相关问题，请邮件至 <a href="mailto:support@docuearn.com">support@docuearn.com</a>。我们承诺 3 个工作日内回复。</p>
     </article>
   </main>
 
@@ -195,7 +195,7 @@
         <a href="./pricing">定价</a>
         <a href="./privacy">隐私政策</a>
         <a href="./terms">服务条款</a>
-        <a href="mailto:hello@docuearn.com">联系</a>
+        <a href="mailto:support@docuearn.com">联系</a>
       </nav>
     </div>
   </footer>

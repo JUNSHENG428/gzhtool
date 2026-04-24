@@ -294,7 +294,7 @@
         </div>
 
         <div class="actions">
-          <button id="addProfileButton" type="button">添加账号</button>
+          <button id="addProfileButton" type="button">添加公众号</button>
         </div>
       </section>
 
@@ -780,12 +780,12 @@
           </div>
         </div>
 
-        <!-- 子区块 2：License Key 绑定 -->
-        <div class="license-block" id="licenseKeyBlock">
-          <div class="license-block-head">
-            <h3>License Key</h3>
-            <span class="license-block-hint">购买后会以邮件形式发到你的邮箱</span>
-          </div>
+        <!-- 子区块 2：备用激活码（正常使用账号自动同步即可，这里为登录异常提供兜底） -->
+        <details class="license-block" id="licenseKeyBlock">
+          <summary class="license-block-head" style="cursor:pointer;">
+            <h3>备用激活码（高级 · 正常情况无需使用）</h3>
+            <span class="license-block-hint">已登录账号会自动同步会员权益；遇到登录异常时再用激活码兜底</span>
+          </summary>
           <div class="license-input-row">
             <label for="licenseKeyInput" class="license-input-label">激活码</label>
             <input
@@ -801,19 +801,19 @@
             <button id="licenseClearBtn" class="ghost-button" type="button" hidden>解绑本机</button>
           </div>
           <p id="licenseFeedback" class="license-feedback" data-tone="muted">
-            未购买？查看
-            <a id="licensePricingLink" href="#" target="_blank" rel="noopener">Pro 套餐与定价</a>。
+            还没开通会员？查看
+            <a id="licensePricingLink" href="#" target="_blank" rel="noopener">Pro 会员套餐与定价</a>。
           </p>
-        </div>
+        </details>
 
         <!-- 子区块 3：当前账号下的 License 列表 -->
         <div class="license-block" id="licenseListBlock" hidden>
           <div class="license-block-head">
-            <h3>账号下的所有 License</h3>
-            <span class="license-block-hint">点击「绑定」可把任一 Key 激活到本机</span>
+            <h3>本账号的会员权益记录</h3>
+            <span class="license-block-hint">通常无需手动操作；登录账号即自动激活当前会员权益</span>
           </div>
           <div id="licenseListContainer" class="license-list">
-            <p class="license-list-empty">暂未在该账号下查到 License Key。</p>
+            <p class="license-list-empty">暂未在此账号下查到会员权益。</p>
           </div>
         </div>
 

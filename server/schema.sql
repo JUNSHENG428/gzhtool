@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS license_keys (
   user_id              TEXT,                     -- NULL = 已生成但还没绑定到任何用户（兑换码模式）
   plan                 TEXT NOT NULL DEFAULT 'pro',
   status               TEXT NOT NULL DEFAULT 'active', -- active / revoked / expired
-  expires_at           INTEGER,                  -- NULL = 永久有效
+  expires_at           INTEGER,                  -- 单位 ms。webhook 会把上限封到 now + 365d（虎皮椒协议 3.12）
   ls_order_id          TEXT,                     -- Lemon Squeezy order id
   ls_subscription_id   TEXT,                     -- LS subscription id（订阅制时）
   ls_license_id        TEXT,                     -- LS 自带 license id（如果直接用 LS license）

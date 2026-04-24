@@ -178,7 +178,7 @@ fields.drissionEnabled?.addEventListener("change", async (event) => {
       "对动态加载内容（如电商详情页）友好",
       "失败时自动回退到内置抓取，不会卡死"
     ],
-    primaryAction: { label: "查看 Pro 套餐", url: pricingUrl() }
+    primaryAction: { label: "查看 Pro 会员", url: pricingUrl() }
   });
 });
 
@@ -615,7 +615,7 @@ async function clearAllHistory() {
 function renderProfiles() {
   if (!profilesContainer) return;
   if (currentProfiles.length === 0) {
-    profilesContainer.innerHTML = '<p class="profiles-empty">还没有添加任何公众号账号。上方填写后点「添加账号」即可保存多套凭证。</p>';
+    profilesContainer.innerHTML = '<p class="profiles-empty">还没有绑定任何公众号。上方填写后点「添加公众号」即可保存多套凭证。</p>';
     return;
   }
 
@@ -701,11 +701,11 @@ async function addProfile() {
       featureName: PAID_FEATURES["wechat.multiAccount"].name,
       hint: limit.hint,
       bullets: [
-        "Pro 不限账号数，自由切换矩阵号",
-        "支持每个账号独立设置默认作者、发布模式",
-        "测试连接、发布日志按账号区分"
+        "Pro 会员不限公众号绑定数量，自由切换矩阵",
+        "支持每个绑定的公众号独立设置默认作者、发布模式",
+        "测试连接、发布日志按公众号区分"
       ],
-      primaryAction: { label: "查看 Pro 套餐", url: pricingUrl() }
+      primaryAction: { label: "查看 Pro 会员", url: pricingUrl() }
     });
     return;
   }
@@ -1163,7 +1163,7 @@ function renderLicenseList(summary) {
   if (!container) return;
   const keys = Array.isArray(summary?.keys) ? summary.keys : [];
   if (!keys.length) {
-    container.innerHTML = `<p class="license-list-empty">暂未在该账号下查到 License Key。点击 <a href="${escapeHtml(pricingUrl())}" target="_blank" rel="noopener">购买 Pro</a> 即可激活。</p>`;
+    container.innerHTML = `<p class="license-list-empty">此账号暂未开通 Pro 会员。前往 <a href="${escapeHtml(pricingUrl())}" target="_blank" rel="noopener">开通 Pro 会员</a>，开通后会自动绑定到本账号。</p>`;
     return;
   }
   container.innerHTML = keys
@@ -1171,20 +1171,19 @@ function renderLicenseList(summary) {
       const expires =
         row.expires_at && Number(row.expires_at) > 0
           ? `有效至 ${formatLicenseDate(row.expires_at)}`
-          : "永久有效";
-      const planTag = row.plan === "pro" ? "PRO" : String(row.plan || "free").toUpperCase();
-      const statusTag = row.status === "active" ? "活跃" : row.status === "expired" ? "已过期" : "已禁用";
+          : "按订阅周期续费";
+      const planTitle = row.plan === "pro" ? "Pro 会员" : String(row.plan || "Free");
+      const statusTag = row.status === "active" ? "已激活" : row.status === "expired" ? "已过期" : "已禁用";
       return `
         <div class="license-list-item" data-key="${escapeAttr(row.key)}">
           <div class="license-list-item-meta">
-            <code class="license-list-key">${escapeHtml(row.key)}</code>
-            <span class="license-list-plan" data-plan="${escapeAttr(row.plan)}">${planTag}</span>
+            <strong class="license-list-key">${escapeHtml(planTitle)}</strong>
             <span class="license-list-status" data-status="${escapeAttr(row.status)}">${statusTag}</span>
             <span class="license-list-expires">${escapeHtml(expires)}</span>
           </div>
           <div class="license-list-item-actions">
-            <button type="button" class="ghost-button" data-action="bind">绑定到本机</button>
-            <button type="button" class="ghost-button" data-action="unbind">从账号解绑</button>
+            <button type="button" class="ghost-button" data-action="bind">激活到本机</button>
+            <button type="button" class="ghost-button" data-action="unbind">解绑此账号</button>
           </div>
         </div>
       `;
@@ -1213,11 +1212,11 @@ async function handleBindFromList(key) {
 }
 
 async function handleUnbindFromList(key) {
-  if (!confirm(`确定从账号解绑 License Key ${key}？解绑后该 Key 可被绑定到其它账号。`)) return;
+  if (!confirm(`确定从此账号解绑当前 Pro 会员权益？解绑后可在其他账号下重新绑定。`)) return;
   try {
     const res = await unbindLicenseFromAccount(key);
     if (res?.ok) {
-      setLicenseAuthFeedback("已从账号解绑该 License。", "success");
+      setLicenseAuthFeedback("已从此账号解绑会员权益。", "success");
       await refreshAccountSummary();
       // 如果当前本机激活的就是这张 key，也清掉本地缓存
       const local = await getLicenseRecord();
@@ -1332,7 +1331,7 @@ async function handleActivateLicense() {
   if (!licenseEls.input) return;
   const raw = licenseEls.input.value.trim();
   if (!raw) {
-    setLicenseFeedback("请先输入 License Key（形如 GZHT-XXXX-XXXX-XXXX）。", "warning");
+    setLicenseFeedback("请先输入备用激活码（形如 GZHT-XXXX-XXXX-XXXX）。", "warning");
     licenseEls.input.focus();
     return;
   }
@@ -1343,26 +1342,23 @@ async function handleActivateLicense() {
     return;
   }
 
-  setLicenseFeedback("正在向服务器验证 License...", "muted");
+  setLicenseFeedback("正在向服务器校验会员权益...", "muted");
   setActivateBtnBusy(true);
   try {
-    // 1) 服务端验证 + 写本地缓存
     const verifyRes = await verifyLicenseRemote(offline.key);
     if (!verifyRes?.ok) {
-      setLicenseFeedback(verifyRes?.error || "验证失败", "error");
+      setLicenseFeedback(verifyRes?.error || "校验失败", "error");
       return;
     }
 
-    // 2) 如果当前用户已登录，把这张 key 也绑到账号下（方便跨设备使用）
     const auth = await getAuthRecord();
     if (auth?.token) {
       try {
         await bindLicenseToAccount(offline.key);
         await refreshAccountSummary();
       } catch (error) {
-        // 可能 key 已绑别人 → 用 warning 不算致命
         setLicenseAuthFeedback(
-          `License 已在本机激活，但绑定到账号失败：${error?.message || "未知错误"}`,
+          `已在本机激活，但绑定到账号失败：${error?.message || "未知错误"}`,
           "warning"
         );
       }
@@ -1372,8 +1368,8 @@ async function handleActivateLicense() {
     await renderFeaturesList();
     setLicenseFeedback(
       verifyRes.plan === "pro"
-        ? "激活成功！已升级到 Pro，所有付费功能立即可用。"
-        : "激活成功，但该 Key 不属于 Pro 套餐。",
+        ? "激活成功！Pro 会员所有功能立即可用。"
+        : "激活成功，但当前不在 Pro 会员套餐内。",
       verifyRes.plan === "pro" ? "success" : "warning"
     );
   } catch (error) {
@@ -1384,7 +1380,7 @@ async function handleActivateLicense() {
 }
 
 async function handleClearLicense() {
-  if (!confirm("确定从本机解绑当前 License？账号上的绑定记录不受影响。")) return;
+  if (!confirm("确定从本机解绑当前 Pro 会员权益？账号上的绑定记录不受影响。")) return;
   const record = await getLicenseRecord();
   if (record?.key) {
     try { await deactivateDevice(record.key); } catch { /* ignore */ }
@@ -1393,7 +1389,7 @@ async function handleClearLicense() {
   if (licenseEls.input) licenseEls.input.value = "";
   await renderLicenseStatus();
   await renderFeaturesList();
-  setLicenseFeedback("已从本机解绑 License，回到免费版。", "muted");
+  setLicenseFeedback("已从本机解绑 Pro 会员权益，回到免费版。", "muted");
 }
 
 function setActivateBtnBusy(busy) {
@@ -1413,11 +1409,11 @@ function setAuthBtnBusy(busy) {
 function licenseFailureMessage(reason) {
   switch (reason) {
     case "format":
-      return "格式不对：License Key 应该形如 GZHT-XXXX-XXXX-XXXX，每段 4 位字母或数字。";
+      return "格式不对：备用激活码应形如 GZHT-XXXX-XXXX-XXXX，每段 4 位字母或数字。";
     case "empty":
-      return "请先填写 License Key。";
+      return "请先填写备用激活码。";
     default:
-      return "License 不可用，请重新填写。";
+      return "激活码不可用，请重新填写。";
   }
 }
 

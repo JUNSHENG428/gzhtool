@@ -1421,13 +1421,20 @@ async function writeVerifyLog(env, key, ip, ua, result, detail) {
 }
 
 // ---------- Lemon Squeezy 字段解析 ----------
+// 注意：根据虎皮椒《商户服务协议》3.12，单次签发的虚拟会员权益最长 ≤ 365 天，
+// 因此这里强制把 expires_at 上限封到 now + 365 天；缺失字段时也回退到 365 天，
+// 不再签发"永久"。续费由各支付平台 webhook 触发新一次签发。
 function parseLemonRenewsAt(attrs) {
-  // 一次性订单：没有 renews_at；订阅：renews_at 有效
+  const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const cap = now + ONE_YEAR_MS;
+
   const candidate =
     attrs?.renews_at || attrs?.ends_at || attrs?.expires_at || "";
-  if (!candidate) return null; // null = 永久
+  if (!candidate) return cap;
   const ms = Date.parse(candidate);
-  return Number.isFinite(ms) ? ms : null;
+  if (!Number.isFinite(ms)) return cap;
+  return Math.min(ms, cap);
 }
 
 // ---------- base64 / base64url ----------

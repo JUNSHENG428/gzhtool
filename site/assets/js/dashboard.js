@@ -81,9 +81,9 @@ function bindGlobalActions() {
 }
 
 /**
- * 付款回流：用户从 Lemon Squeezy 付完款回到 dashboard
+ * 付款回流：用户从第三方支付平台付完款回到 dashboard
  * URL 形如 /dashboard.html?from=checkout&result=success
- * 我们弹一个 toast 告诉他「License Key 已发邮件，几分钟内到账」。
+ * 我们弹一个 toast 告诉他「Pro 权益开通中，几十秒后会自动同步到账号」。
  */
 function handleCheckoutReturn() {
   const params = new URLSearchParams(location.search);
@@ -91,11 +91,10 @@ function handleCheckoutReturn() {
   const result = params.get("result");
   if (result === "success") {
     showToast(
-      "支付完成 ✓ License Key 几分钟内会出现在下方，并通过邮件发到你的邮箱。",
+      "支付完成 ✓ Pro 权益正在开通，30 秒内会自动同步到你的账号。",
       "success",
       5000
     );
-    // 5s 后自动重新拉一次 me（webhook 走完）
     setTimeout(() => void hydrate(), 5000);
   } else if (result === "cancel") {
     showToast("已取消支付，可以随时回来继续。", "warning");
@@ -131,18 +130,18 @@ function renderAccount(data) {
     els.planPill.className = `dash-plan-pill ${plan === "pro" ? "pro" : "free"}`;
   }
   if (els.expires) {
-    const expiresAt = lic.expiresAt || lic.expires_at; // 兼容两种命名
+    const expiresAt = lic.expiresAt || lic.expires_at;
     els.expires.textContent = expiresAt
       ? formatDate(expiresAt)
-      : (plan === "pro" ? "永久有效" : "—");
+      : (plan === "pro" ? "按订阅周期续费" : "—");
   }
   if (els.greeting) {
     els.greeting.textContent = user.email ? `你好，${user.email.split("@")[0]}` : "欢迎回来";
   }
   if (els.sub) {
     els.sub.textContent = plan === "pro"
-      ? "Pro 套餐已激活，所有功能立即可用。"
-      : "管理你的 License、绑定设备和账号设置。";
+      ? "Pro 会员已激活，所有功能立即可用。"
+      : "管理你的会员权益、绑定设备和账号设置。";
   }
 }
 
@@ -152,7 +151,7 @@ function renderLicenseList(lic) {
   if (!keys.length) {
     els.list.innerHTML = `
       <div class="empty-state">
-        还没有 License。<a href="./pricing">购买 Pro</a> 后会立即出现在这里。
+        还没有 Pro 会员。<a href="./pricing">开通 Pro 会员</a> 后会立即在这里显示开通状态。
       </div>
     `;
     return;
@@ -166,26 +165,38 @@ function renderLicenseList(lic) {
 function renderLicenseRow(row) {
   const expires = row.expires_at && Number(row.expires_at) > 0
     ? `有效至 ${formatDate(row.expires_at)}`
-    : "永久有效";
-  const planTag = row.plan === "pro" ? "PRO" : String(row.plan || "free").toUpperCase();
-  const statusTag = row.status === "active" ? "活跃"
+    : "按订阅周期续费";
+  const planTitle = row.plan === "pro" ? "Pro 会员" : String(row.plan || "Free");
+  const statusTag = row.status === "active" ? "已激活"
     : row.status === "expired" ? "已过期"
     : row.status === "revoked" ? "已禁用"
     : row.status || "—";
   const devices = Array.isArray(row.devices) ? row.devices : [];
 
+  // 注：row.key 是后端会员激活码（备用激活方案，普通用户用账号自动同步即可）。
+  // 默认折叠到 details 里，避免页面看起来像卡密店。
   return `
     <div class="dash-license" data-key="${escapeAttr(row.key)}">
       <div class="dash-license-meta">
-        <span class="dash-license-key">${escapeHtml(row.key)}</span>
+        <span class="dash-license-key">${escapeHtml(planTitle)}</span>
         <span class="dash-license-info">
-          ${planTag} · ${statusTag} · ${escapeHtml(expires)} · 已激活 ${devices.length} 台设备
+          ${escapeHtml(statusTag)} · ${escapeHtml(expires)} · 已激活 ${devices.length} 台设备
         </span>
       </div>
       <div class="dash-license-actions">
-        <button class="btn btn-ghost" type="button" data-action="copy">复制</button>
-        <button class="btn btn-ghost" type="button" data-action="unbind">解绑账号</button>
+        <button class="btn btn-ghost" type="button" data-action="unbind">解绑此账号</button>
       </div>
+      <details class="dash-license-advanced">
+        <summary>高级（备用激活码，正常情况无需使用）</summary>
+        <div class="dash-license-advanced-body">
+          <p class="muted" style="font-size:0.82rem;margin:4px 0 8px;">
+            正常使用请直接在扩展中登录此账号即可自动同步会员权益。<br>
+            以下激活码仅在账号登录异常时作为备用手段使用。
+          </p>
+          <code style="font-size:0.78rem;color:#475569;word-break:break-all;">${escapeHtml(row.key)}</code>
+          <button class="btn btn-ghost" style="margin-left:8px;" type="button" data-action="copy">复制</button>
+        </div>
+      </details>
       ${renderDevicesBlock(row.key, devices)}
     </div>
   `;
@@ -255,17 +266,17 @@ async function handleLicenseAction(btn) {
       alert(`请手动复制：${key}`);
     }
   } else if (action === "unbind") {
-    if (!confirm(`确定要从你的账号解绑 ${key}？解绑后该 Key 可用于其它账号。`)) return;
+    if (!confirm(`确定要从此账号解绑当前 Pro 会员权益？解绑后可在其它账号下重新绑定。`)) return;
     btn.disabled = true;
     btn.textContent = "处理中…";
     try {
       await license.unbind(key);
-      showToast("已解绑该 License。", "success");
+      showToast("已解绑会员权益。", "success");
       await hydrate();
     } catch (error) {
       showToast(`解绑失败：${error?.message || "未知错误"}`, "error");
       btn.disabled = false;
-      btn.textContent = "解绑账号";
+      btn.textContent = "解绑此账号";
     }
   }
 }
