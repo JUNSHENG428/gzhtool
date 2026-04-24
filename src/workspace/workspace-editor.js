@@ -394,6 +394,10 @@ const FIELD_HINT_NOTES = {
   digestInput: "草稿箱 API 上限 128 字；不填则自动取正文前 54 字"
 };
 
+// 收集所有字段的更新闭包，便于在程序化赋值（applyCurrentArticleToControls / 标题 chip 等）
+// 后由外部调用 refreshFieldHints() 主动刷新；input 事件只覆盖手动键入这一条路径。
+const _hintUpdaters = [];
+
 function bindLengthHint(inputEl, hintEl, limit, { hard = true } = {}) {
   if (!inputEl || !hintEl) return;
   const note = FIELD_HINT_NOTES[inputEl.id] || "";
@@ -419,7 +423,14 @@ function bindLengthHint(inputEl, hintEl, limit, { hard = true } = {}) {
   }
 
   inputEl.addEventListener("input", update);
+  _hintUpdaters.push(update);
   update();
+}
+
+// 程序化回填字段（AI 改写完成 / 切换文章 / 恢复会话 / 标题 chip 等）后调用，
+// 否则字符计数会停在初始的 `0 / 限制` 状态。
+export function refreshFieldHints() {
+  _hintUpdaters.forEach((fn) => fn());
 }
 
 // ── 工具栏禁用态 ──

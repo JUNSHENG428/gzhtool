@@ -118,6 +118,7 @@ function _bindStateEvents() {
     const chip = event.target.closest("[data-title-option]");
     if (!chip) return;
     controls.title.value = chip.dataset.titleOption || "";
+    _ctx.refreshFieldHints?.();
     onWorkspaceInput();
   });
 
@@ -255,6 +256,9 @@ export function applyCurrentArticleToControls() {
   if (!state.selectedImageIndex && article.meta.coverImageIndex) {
     state.selectedImageIndex = article.meta.coverImageIndex;
   }
+
+  // 程序化赋值不会触发 input 事件，需要手动刷新字数计数（标题/副标题/作者/摘要四个字段提示）。
+  _ctx.refreshFieldHints?.();
 }
 
 export function syncCurrentArticleFromControls() {

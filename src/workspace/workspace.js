@@ -71,7 +71,8 @@ import {
   toggleOutputPreviewTab,
   cycleEditorTheme,
   insertSourceImage,
-  updateEditorWordCount
+  updateEditorWordCount,
+  refreshFieldHints
 } from "./workspace-editor.js";
 
 import {
@@ -270,6 +271,7 @@ async function bootstrap() {
     buildExportHtmlForArticle, buildMarkdownDocumentForArticle, buildPreviewDocument,
     copyHtml, copyMarkdown, downloadHtml, downloadMarkdown,
     toggleOutputPreviewTab, cycleEditorTheme, insertSourceImage, updateEditorWordCount,
+    refreshFieldHints,
     // workspace-capture.js
     captureSource, importCurrentSourceToArticle,
     // workspace-rewrite.js
