@@ -13,7 +13,9 @@
 import { api, getApiBase, getToken } from "./api.js";
 import { SITE_CONFIG } from "./site-config.js";
 
-const QRCODE_LIB = "https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js";
+// 本地 vendor 路径（自托管，不依赖外网 CDN，国内访问稳定）
+// davidshimjs/qrcodejs：纯浏览器 19KB，API：new QRCode(element, { text, width, height, ... })
+const QRCODE_LIB = "./assets/vendor/qrcode.min.js";
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -31,10 +33,17 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.textContent = "套餐未配置";
       return;
     }
+    if (btn.tagName === "A") {
+      btn.removeAttribute("target");
+      btn.setAttribute("href", "javascript:void(0)");
+      btn.setAttribute("role", "button");
+    }
     btn.addEventListener("click", (e) => {
       e.preventDefault();
+      e.stopPropagation();
       void onCheckoutClick(planCode);
     });
+    btn.addEventListener("auxclick", (e) => e.preventDefault());
   });
 });
 
@@ -73,7 +82,7 @@ async function openCheckoutModal(order) {
       <h2 class="hpj-modal-title">${escapeHtml(order.title)}</h2>
       <p class="hpj-modal-amount">¥<strong>${Number(order.total_fee).toFixed(2)}</strong></p>
       <div class="hpj-modal-qrwrap">
-        <canvas class="hpj-modal-qr" width="220" height="220"></canvas>
+        <div class="hpj-modal-qr"></div>
         <div class="hpj-modal-status" data-state="waiting">
           <span class="hpj-spinner"></span>
           <span class="hpj-status-text">等待扫码支付…</span>
@@ -84,6 +93,9 @@ async function openCheckoutModal(order) {
         <li>确认支付金额，点击「立即支付」</li>
         <li>支付成功后，本页会自动开通会员，无需手动刷新</li>
       </ol>
+      <div class="hpj-modal-actions">
+        <button class="hpj-action-btn" type="button" data-action="check-paid">我已完成支付，立即查询</button>
+      </div>
       <p class="hpj-modal-note">
         二维码有效期 5 分钟。订单号：<code>${escapeHtml(order.trade_order_id)}</code>
       </p>
@@ -101,39 +113,45 @@ async function openCheckoutModal(order) {
     if (e.target === overlay) close();
   });
 
-  // 渲染二维码（虎皮椒返回的 url_qrcode 已经是支付链接，需要本地转 QR；
-  // 也可能直接是图片 URL — 兼容两种）
-  const canvas = overlay.querySelector(".hpj-modal-qr");
-  if (/^https?:\/\/.+\.(png|jpg|jpeg|gif)/i.test(order.qrcode)) {
-    // 后端直接返回的是图片 URL
+  const qrSlot = overlay.querySelector(".hpj-modal-qr");
+  const looksLikeImage = /\.(png|jpe?g|gif|webp)(?:$|\?)/i.test(order.qrcode || "")
+    || /api\.xunhupay\.com.*qrcode/i.test(order.qrcode || "");
+
+  if (looksLikeImage) {
     const img = document.createElement("img");
     img.src = order.qrcode;
-    img.alt = "支付二维码";
+    img.alt = "微信支付二维码";
     img.width = 220;
     img.height = 220;
-    canvas.replaceWith(img);
+    img.style.cssText = "border-radius:6px;background:#fff;display:block;";
+    img.onerror = () => {
+      img.replaceWith(buildPayLinkFallback(order.h5_url || order.qrcode));
+    };
+    qrSlot.replaceWith(img);
   } else {
     try {
       await ensureQrcodeLib();
+      qrSlot.style.cssText = "width:220px;height:220px;background:#fff;border-radius:6px;padding:6px;flex-shrink:0;";
       // eslint-disable-next-line no-undef
-      await QRCode.toCanvas(canvas, order.qrcode, { width: 220, margin: 1 });
+      new QRCode(qrSlot, {
+        text: order.qrcode,
+        width: 208,
+        height: 208,
+        // eslint-disable-next-line no-undef
+        correctLevel: QRCode.CorrectLevel.M
+      });
     } catch (err) {
       console.error("[checkout] qr render failed", err);
-      const fallback = document.createElement("a");
-      fallback.href = order.qrcode;
-      fallback.target = "_blank";
-      fallback.rel = "noopener";
-      fallback.textContent = "点此打开支付链接";
-      canvas.replaceWith(fallback);
+      qrSlot.replaceWith(buildPayLinkFallback(order.h5_url || order.qrcode));
     }
   }
 
   const statusBox = overlay.querySelector(".hpj-modal-status");
   const statusText = overlay.querySelector(".hpj-status-text");
+  const checkBtn = overlay.querySelector('[data-action="check-paid"]');
 
-  // 启动轮询
-  const t0 = Date.now();
   let stopped = false;
+  let checking = false;
   overlay.addEventListener("hpj-stop-poll", () => (stopped = true));
   const observer = new MutationObserver(() => {
     if (!document.body.contains(overlay)) {
@@ -143,9 +161,10 @@ async function openCheckoutModal(order) {
   });
   observer.observe(document.body, { childList: true });
 
-  while (!stopped && Date.now() - t0 < POLL_TIMEOUT_MS) {
-    await sleep(POLL_INTERVAL_MS);
-    if (stopped) break;
+  // 单次查询：返回 true 表示终态（paid/expired/refunded/failed），调用方应停止轮询
+  async function pollOnce({ manual = false } = {}) {
+    if (checking) return false;
+    checking = true;
     try {
       const q = await api(
         `/api/payment/hupijiao/query?trade_order_id=${encodeURIComponent(order.trade_order_id)}`
@@ -153,28 +172,59 @@ async function openCheckoutModal(order) {
       if (q.status === "paid") {
         statusBox.dataset.state = "paid";
         statusText.textContent = "支付成功！正在跳转控制台…";
+        stopped = true;
         await sleep(1200);
         observer.disconnect();
         close();
         location.href = "/dashboard.html?from=checkout&result=success";
-        return;
+        return true;
       }
       if (q.status === "expired") {
         statusBox.dataset.state = "expired";
         statusText.textContent = "二维码已过期，请关闭重试";
+        stopped = true;
         observer.disconnect();
-        return;
+        return true;
       }
       if (q.status === "refunded" || q.status === "failed") {
         statusBox.dataset.state = "failed";
         statusText.textContent = "订单已" + (q.status === "refunded" ? "退款" : "失败");
+        stopped = true;
         observer.disconnect();
-        return;
+        return true;
       }
+      if (manual) {
+        statusText.textContent = "尚未收到支付回执，请稍候 5 秒再试…";
+        setTimeout(() => {
+          if (!stopped) statusText.textContent = "等待扫码支付…";
+        }, 5000);
+      }
+      return false;
     } catch (err) {
-      // 网络抖动忽略，下一轮继续
       console.warn("[checkout] poll error", err);
+      if (manual) statusText.textContent = "查询失败，请检查网络后重试";
+      return false;
+    } finally {
+      checking = false;
     }
+  }
+
+  if (checkBtn) {
+    checkBtn.addEventListener("click", async () => {
+      checkBtn.disabled = true;
+      checkBtn.textContent = "查询中…";
+      await pollOnce({ manual: true });
+      checkBtn.disabled = false;
+      checkBtn.textContent = "我已完成支付，立即查询";
+    });
+  }
+
+  const t0 = Date.now();
+  while (!stopped && Date.now() - t0 < POLL_TIMEOUT_MS) {
+    await sleep(POLL_INTERVAL_MS);
+    if (stopped) break;
+    const finished = await pollOnce();
+    if (finished) return;
   }
 
   if (!stopped) {
@@ -229,8 +279,14 @@ function ensureModalStyles() {
     .hpj-modal-status[data-state=expired] .hpj-spinner,
     .hpj-modal-status[data-state=failed] .hpj-spinner{display:none;}
     @keyframes hpjSpin{to{transform:rotate(360deg);}}
-    .hpj-modal-steps{margin:0 0 16px;padding-left:20px;font-size:.88rem;color:#475569;line-height:1.7;}
+    .hpj-modal-steps{margin:0 0 12px;padding-left:20px;font-size:.88rem;color:#475569;line-height:1.7;}
     .hpj-modal-steps strong{color:#0f172a;}
+    .hpj-modal-actions{display:flex;gap:8px;margin:0 0 14px;}
+    .hpj-action-btn{flex:1;padding:10px 14px;border:1px solid #cbd5e1;background:#fff;
+      border-radius:8px;cursor:pointer;font-size:.88rem;color:#0f172a;
+      transition:background .15s,border-color .15s;}
+    .hpj-action-btn:hover{background:#f1f5f9;border-color:#94a3b8;}
+    .hpj-action-btn:disabled{opacity:.6;cursor:not-allowed;}
     .hpj-modal-note{margin:0;font-size:.78rem;color:#94a3b8;}
     .hpj-modal-note code{background:#f1f5f9;padding:2px 5px;border-radius:4px;
       font-family:ui-monospace,monospace;color:#475569;font-size:.78rem;}
@@ -239,6 +295,13 @@ function ensureModalStyles() {
   style.id = "hpj-modal-style";
   style.textContent = css;
   document.head.appendChild(style);
+}
+
+function buildPayLinkFallback(url) {
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "width:220px;height:220px;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:6px;padding:8px;text-align:center;font-size:.85rem;color:#475569;";
+  wrap.innerHTML = `<div>二维码加载失败<br><a href="${escapeHtml(url || "#")}" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;color:#2563eb;text-decoration:underline;">点此打开支付页</a></div>`;
+  return wrap;
 }
 
 function escapeHtml(s) {
