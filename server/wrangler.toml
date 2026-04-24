@@ -58,7 +58,7 @@ LICENSE_KEY_PREFIX = "GZHT"
 #   - 留空 → /api/auth/google 会返回 503，前端 Google 按钮不显示
 #   - 这里和 site/assets/js/site-config.js 里的 GOOGLE_CLIENT_ID 必须保持一致
 #     （前端用它去发起授权，后端用它校验返回的 ID Token aud 字段是否匹配）
-GOOGLE_CLIENT_ID = ""
+GOOGLE_CLIENT_ID = "458035180234-4s4h5m2kjjrg7e2cgmuc1out8p14th17.apps.googleusercontent.com"
 
 # ---------------- 私密变量（必须用 wrangler secret put） ----------------
 # JWT_SECRET             —— 长度 ≥ 32 的随机字符串，用于 HS256

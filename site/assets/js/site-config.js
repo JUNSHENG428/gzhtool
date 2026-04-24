@@ -68,5 +68,6 @@ export const SITE_CONFIG = {
    *
    * 详细 step-by-step：见 docs/GOOGLE_OAUTH_SETUP.md
    */
-  GOOGLE_CLIENT_ID: ""
+  GOOGLE_CLIENT_ID:
+    "458035180234-4s4h5m2kjjrg7e2cgmuc1out8p14th17.apps.googleusercontent.com"
 };
