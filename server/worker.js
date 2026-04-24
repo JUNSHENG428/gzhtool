@@ -1648,6 +1648,7 @@ async function handleHupijiaoCreate(request, env) {
       returnUrl
     });
   } catch (error) {
+    console.error("[hpj] createHupijiaoOrder threw:", error?.stack || error);
     await env.DB.prepare(
       `UPDATE orders SET status = 'failed', notify_payload = ? WHERE trade_order_id = ?`
     )
@@ -1660,6 +1661,7 @@ async function handleHupijiaoCreate(request, env) {
   }
 
   if (!res || res.errcode !== 0 || !(res.url || res.url_qrcode)) {
+    console.warn("[hpj] hupijiao returned non-success:", JSON.stringify(res));
     await env.DB.prepare(
       `UPDATE orders SET status = 'failed', notify_payload = ? WHERE trade_order_id = ?`
     )
@@ -1897,12 +1899,14 @@ async function createHupijiaoOrder(env, { tradeOrderId, totalFee, title, notifyU
   params.hash = await signHupijiao(params, env.HUPIJIAO_APP_SECRET);
 
   const apiUrl = env.HUPIJIAO_API_URL || "https://api.xunhupay.com/payment/do.html";
+  console.log("[hpj] POST", apiUrl, "params:", JSON.stringify({ ...params, hash: params.hash.slice(0, 6) + "..." }));
   const resp = await fetch(apiUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(params)
   });
   const text = await resp.text();
+  console.log("[hpj] response", resp.status, "body:", text.slice(0, 500));
   let json;
   try {
     json = JSON.parse(text);

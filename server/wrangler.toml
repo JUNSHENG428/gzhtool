@@ -55,7 +55,7 @@ LICENSE_KEY_PREFIX = "GZHT"
 WORKER_PUBLIC_URL = "https://api.docuearn.com"
 
 # 虎皮椒 APPID（公开值，去 admin.xunhupay.com → 我的支付渠道 复制）
-HUPIJIAO_APP_ID = "2019061793116"
+HUPIJIAO_APP_ID = "201906179316"
 
 # 虎皮椒下单接口 URL（出问题可切备用平台 https://api.dpweixin.com/payment/do.html）
 HUPIJIAO_API_URL = "https://api.xunhupay.com/payment/do.html"
