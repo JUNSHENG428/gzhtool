@@ -96,7 +96,10 @@ const ROUTES = {
   "POST /api/license/device/unbind": handleDeviceUnbind,
   "POST /api/license/verify": handleLicenseVerify,
   "POST /api/license/deactivate": handleLicenseDeactivate,
-  "POST /api/webhook/lemon": handleLemonWebhook
+  "POST /api/webhook/lemon": handleLemonWebhook,
+  "POST /api/payment/hupijiao/create": handleHupijiaoCreate,
+  "POST /api/payment/hupijiao/notify": handleHupijiaoNotify,
+  "GET /api/payment/hupijiao/query": handleHupijiaoQuery
 };
 
 // 兼容 method 与 path 之间双空格的问题：路由 key 写时统一两个字符位，避免对齐问题。
@@ -1548,3 +1551,497 @@ ${resetUrl}
   // 没配邮件服务：写日志，方便开发期手动复制 link
   console.log(`[reset] (no email provider) to=${toEmail} url=${resetUrl}`);
 }
+
+// ============================================================
+// 虎皮椒（HuPiJiao）支付通路
+// ------------------------------------------------------------
+// 接入文档：https://www.xunhupay.com/doc/api/pay.html
+// 流程：
+//   ① 前端 POST /api/payment/hupijiao/create { plan } —— 已登录
+//   ② Worker 写 orders.status=pending → POST 虎皮椒 do.html
+//      → 拿 url_qrcode 返回前端
+//   ③ 前端弹二维码 modal + 每 2s 轮询 /query
+//   ④ 用户扫码付款 → 虎皮椒回调 /notify（form-urlencoded）
+//      Worker 验签 + 校金额 + 幂等 + 签发 license + 返回字符串 "success"
+//   ⑤ 前端轮询拿到 paid → toast → 跳 dashboard
+// ============================================================
+
+/**
+ * 套餐白名单。前端 site-config.js PLANS 必须与本表完全一致；
+ * 价格/天数以 Worker 为准（前端只能传 plan code，价格不可信）。
+ */
+const HUPIJIAO_PLANS = {
+  monthly: { code: "monthly", title: "Pro 月付", fee: 29.0, days: 31 },
+  yearly: { code: "yearly", title: "Pro 年付", fee: 288.0, days: 365 }
+};
+
+// 单笔订单的有效期（超过没付就算 expired）
+const ORDER_TTL_MS = 30 * 60 * 1000; // 30 分钟
+// 防重放：同一 nonce_str 在 KV 里 30 分钟内不能重复
+const NONCE_TTL_S = 30 * 60;
+
+/* ----------------------------- handler: create ----------------------------- */
+async function handleHupijiaoCreate(request, env) {
+  const auth = await requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+  if (!env.HUPIJIAO_APP_ID || !env.HUPIJIAO_APP_SECRET) {
+    return jsonResponse({ ok: false, error: "支付通道未配置" }, 503);
+  }
+
+  const body = await readJson(request);
+  const planCode = String(body?.plan || "").toLowerCase();
+  const plan = HUPIJIAO_PLANS[planCode];
+  if (!plan) return jsonResponse({ ok: false, error: "套餐不存在" }, 400);
+
+  // 防止用户左下角连点 → 同一用户 1 分钟内已有 pending 单时，复用之
+  const recent = await env.DB.prepare(
+    `SELECT trade_order_id, pay_qrcode, pay_url, total_fee, status, created_at
+       FROM orders
+      WHERE user_id = ? AND plan_code = ? AND status = 'pending'
+        AND created_at > ?
+      ORDER BY id DESC LIMIT 1`
+  )
+    .bind(auth.userId, planCode, Date.now() - 60_000)
+    .first();
+  if (recent && recent.pay_qrcode) {
+    return jsonResponse({
+      ok: true,
+      trade_order_id: recent.trade_order_id,
+      qrcode: recent.pay_qrcode,
+      h5_url: recent.pay_url,
+      total_fee: recent.total_fee,
+      title: plan.title,
+      reused: true
+    });
+  }
+
+  const tradeOrderId = generateTradeOrderId(auth.userId);
+  const notifyUrl = `${env.WORKER_PUBLIC_URL || ""}/api/payment/hupijiao/notify`;
+  const returnUrl = `${env.SITE_URL || ""}/dashboard.html?from=checkout&result=success&order=${tradeOrderId}`;
+
+  // 先入库 pending（即使虎皮椒下单失败也保留一条记录，便于排查）
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO orders
+        (trade_order_id, user_id, user_email, plan_code, total_fee, days,
+         status, source, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', 'hupijiao', ?)`
+  )
+    .bind(
+      tradeOrderId,
+      auth.userId,
+      auth.email || "",
+      planCode,
+      plan.fee,
+      plan.days,
+      now
+    )
+    .run();
+
+  let res;
+  try {
+    res = await createHupijiaoOrder(env, {
+      tradeOrderId,
+      totalFee: plan.fee,
+      title: plan.title,
+      notifyUrl,
+      returnUrl
+    });
+  } catch (error) {
+    await env.DB.prepare(
+      `UPDATE orders SET status = 'failed', notify_payload = ? WHERE trade_order_id = ?`
+    )
+      .bind(JSON.stringify({ error: String(error?.message || error) }), tradeOrderId)
+      .run();
+    return jsonResponse(
+      { ok: false, error: "下单失败：" + (error?.message || "未知错误") },
+      502
+    );
+  }
+
+  if (!res || res.errcode !== 0 || !(res.url || res.url_qrcode)) {
+    await env.DB.prepare(
+      `UPDATE orders SET status = 'failed', notify_payload = ? WHERE trade_order_id = ?`
+    )
+      .bind(JSON.stringify(res || {}), tradeOrderId)
+      .run();
+    return jsonResponse(
+      { ok: false, error: res?.errmsg || "支付平台返回异常" },
+      502
+    );
+  }
+
+  await env.DB.prepare(
+    `UPDATE orders SET pay_qrcode = ?, pay_url = ? WHERE trade_order_id = ?`
+  )
+    .bind(res.url_qrcode || "", res.url || "", tradeOrderId)
+    .run();
+
+  return jsonResponse({
+    ok: true,
+    trade_order_id: tradeOrderId,
+    qrcode: res.url_qrcode || "",
+    h5_url: res.url || "",
+    total_fee: plan.fee,
+    title: plan.title
+  });
+}
+
+/* ----------------------------- handler: notify ----------------------------- */
+async function handleHupijiaoNotify(request, env) {
+  // 虎皮椒回调是 form-urlencoded，不是 JSON
+  const formText = await request.text();
+  const params = parseFormUrlEncoded(formText);
+
+  // 防御：必填字段
+  const tradeOrderId = String(params.trade_order_id || "");
+  const status = String(params.status || "");
+  const totalFee = parseFloat(params.total_fee || "0");
+  const hash = String(params.hash || "");
+  const nonceStr = String(params.nonce_str || "");
+
+  if (!tradeOrderId || !hash || !nonceStr) {
+    return new Response("missing required fields", { status: 400 });
+  }
+
+  // 防重放：同一 nonce_str 30 分钟内不能再处理
+  if (env.RATE_LIMIT_KV) {
+    const nonceKey = `hpj:nonce:${nonceStr}`;
+    const seen = await env.RATE_LIMIT_KV.get(nonceKey);
+    if (seen) return new Response("replayed", { status: 400 });
+    await env.RATE_LIMIT_KV.put(nonceKey, "1", { expirationTtl: NONCE_TTL_S });
+  }
+
+  // 验签：除 hash 之外所有非空字段，按 key 字典序拼接 + AppSecret，MD5
+  const expected = await signHupijiao(params, env.HUPIJIAO_APP_SECRET || "");
+  if (!constantTimeEqualString(expected, hash)) {
+    console.warn("[hpj] hash mismatch", { tradeOrderId, expected, got: hash });
+    return new Response("invalid sign", { status: 401 });
+  }
+
+  // 查订单
+  const order = await env.DB.prepare(
+    `SELECT * FROM orders WHERE trade_order_id = ?`
+  )
+    .bind(tradeOrderId)
+    .first();
+  if (!order) return new Response("order not found", { status: 404 });
+
+  // 幂等：已经处理过的，直接回 success（虎皮椒会重试 6 次，必须返回 success 结束）
+  if (order.status === "paid") {
+    return new Response("success", { status: 200 });
+  }
+
+  // 退款 / 退款中 / 退款失败：只更状态，不签发权益
+  if (status === "CD" || status === "RD" || status === "UD") {
+    await env.DB.prepare(
+      `UPDATE orders SET status = 'refunded', notify_payload = ? WHERE trade_order_id = ?`
+    )
+      .bind(formText, tradeOrderId)
+      .run();
+    // 这里有需要的话还可以反过来 revoke 对应 license_keys
+    return new Response("success", { status: 200 });
+  }
+
+  // 只接 OD（已支付）；其他状态拒绝继续
+  if (status !== "OD") {
+    return new Response("unsupported status", { status: 400 });
+  }
+
+  // 金额一致性校验（防止小额订单骗大额开通）
+  if (Math.abs(totalFee - Number(order.total_fee)) > 0.01) {
+    console.warn("[hpj] amount mismatch", {
+      tradeOrderId,
+      expected: order.total_fee,
+      got: totalFee
+    });
+    return new Response("amount mismatch", { status: 400 });
+  }
+
+  // 签发 license（issueProLicense 内部强制 365d 上限）
+  const issued = await issueProLicense(env, {
+    userId: order.user_id,
+    userEmail: order.user_email || "",
+    source: "hupijiao",
+    sourceOrderId: tradeOrderId,
+    days: order.days
+  });
+
+  // 标记 paid + 写入 license key + 存档原始回调
+  await env.DB.prepare(
+    `UPDATE orders
+        SET status = 'paid',
+            paid_at = ?,
+            granted_license_key = ?,
+            hupijiao_open_order_id = ?,
+            hupijiao_transaction_id = ?,
+            notify_payload = ?
+      WHERE trade_order_id = ?`
+  )
+    .bind(
+      Date.now(),
+      issued.key,
+      String(params.open_order_id || ""),
+      String(params.transaction_id || ""),
+      formText,
+      tradeOrderId
+    )
+    .run();
+
+  // 必须返回纯字符串 "success"，否则虎皮椒会重试 6 次
+  return new Response("success", { status: 200 });
+}
+
+/* ----------------------------- handler: query ------------------------------ */
+async function handleHupijiaoQuery(request, env, ctx, url) {
+  const auth = await requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+
+  const tradeOrderId = url.searchParams.get("trade_order_id") || "";
+  if (!tradeOrderId) {
+    return jsonResponse({ ok: false, error: "缺少 trade_order_id" }, 400);
+  }
+
+  const row = await env.DB.prepare(
+    `SELECT trade_order_id, status, plan_code, total_fee, paid_at, created_at,
+            granted_license_key, user_id
+       FROM orders WHERE trade_order_id = ?`
+  )
+    .bind(tradeOrderId)
+    .first();
+  if (!row) return jsonResponse({ ok: false, error: "订单不存在" }, 404);
+  if (row.user_id !== auth.userId) {
+    return jsonResponse({ ok: false, error: "无权查询" }, 403);
+  }
+
+  // 自然过期（pending 超过 30 分钟没付）
+  let status = row.status;
+  if (status === "pending" && Date.now() - row.created_at > ORDER_TTL_MS) {
+    status = "expired";
+  }
+
+  return jsonResponse({
+    ok: true,
+    status,
+    trade_order_id: row.trade_order_id,
+    plan_code: row.plan_code,
+    total_fee: row.total_fee,
+    paid_at: row.paid_at,
+    granted_license_key: row.granted_license_key || ""
+  });
+}
+
+/* ---------------------- 共用签发函数（hupijiao + 未来其他通道） ---------------------- */
+/**
+ * 给指定用户签发 / 续期一张 Pro license。
+ * - 强制 365d 上限（虎皮椒协议 3.12）
+ * - 如果该用户已有 active 的 hupijiao license 且未到期，直接在原 key 上叠加 days
+ * - 否则新生成一张
+ */
+async function issueProLicense(env, { userId, userEmail, source, sourceOrderId, days }) {
+  const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const addMs = Math.min(Math.max(Number(days) || 0, 1), 365) * 24 * 60 * 60 * 1000;
+
+  // 找该用户最新一张同 source 的 active license
+  const existing = await env.DB.prepare(
+    `SELECT key, expires_at FROM license_keys
+      WHERE user_id = ? AND source = ? AND status = 'active'
+      ORDER BY updated_at DESC LIMIT 1`
+  )
+    .bind(userId, source)
+    .first();
+
+  let key;
+  if (existing) {
+    key = existing.key;
+    const base = Math.max(Number(existing.expires_at) || now, now);
+    const newExpires = Math.min(base + addMs, now + ONE_YEAR_MS);
+    await env.DB.prepare(
+      `UPDATE license_keys
+          SET expires_at = ?, ls_order_id = ?, ls_customer_email = ?, updated_at = ?
+        WHERE key = ?`
+    )
+      .bind(newExpires, sourceOrderId, userEmail, now, key)
+      .run();
+  } else {
+    key = await generateLicenseKey(env);
+    const expiresAt = Math.min(now + addMs, now + ONE_YEAR_MS);
+    await env.DB.prepare(
+      `INSERT INTO license_keys
+          (key, user_id, plan, status, expires_at,
+           ls_order_id, ls_subscription_id, ls_customer_email,
+           source, created_at, updated_at)
+        VALUES (?, ?, 'pro', 'active', ?, ?, '', ?, ?, ?, ?)`
+    )
+      .bind(key, userId, expiresAt, sourceOrderId, userEmail, source, now, now)
+      .run();
+  }
+  return { key };
+}
+
+/* ---------------------- 调虎皮椒下单 ---------------------- */
+async function createHupijiaoOrder(env, { tradeOrderId, totalFee, title, notifyUrl, returnUrl }) {
+  const params = {
+    version: "1.1",
+    appid: env.HUPIJIAO_APP_ID,
+    trade_order_id: tradeOrderId,
+    total_fee: Number(totalFee).toFixed(2),
+    title,
+    time: Math.floor(Date.now() / 1000).toString(),
+    notify_url: notifyUrl,
+    return_url: returnUrl,
+    nonce_str: randomToken(8).replace(/[^a-zA-Z0-9]/g, "").slice(0, 16) || "n" + Date.now(),
+    plugins: "docuearn-worker"
+  };
+  params.hash = await signHupijiao(params, env.HUPIJIAO_APP_SECRET);
+
+  const apiUrl = env.HUPIJIAO_API_URL || "https://api.xunhupay.com/payment/do.html";
+  const resp = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(params)
+  });
+  const text = await resp.text();
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error("虎皮椒返回非 JSON：" + text.slice(0, 120));
+  }
+  return json;
+}
+
+/* ---------------------- 签名 / 验签（与虎皮椒文档一致） ---------------------- */
+async function signHupijiao(params, appSecret) {
+  // 1. 收集所有非空、非 hash 字段
+  const keys = Object.keys(params)
+    .filter((k) => k !== "hash" && params[k] !== "" && params[k] !== null && params[k] !== undefined)
+    .sort();
+  // 2. 按字典序拼成 key1=value1&key2=value2...
+  const pairs = keys.map((k) => `${k}=${params[k]}`).join("&");
+  // 3. 末尾直接拼 AppSecret（无任何分隔符），MD5（32 位小写）
+  return md5Hex(pairs + (appSecret || ""));
+}
+
+/* ---------------------- 工具：trade_order_id / form 解析 ---------------------- */
+function generateTradeOrderId(userId) {
+  // 虎皮椒只允许数字字母 _-*；最长 32
+  const userPart = String(userId || "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 8) || "anon";
+  const tsPart = Date.now().toString(36);
+  const randPart = Math.random().toString(36).slice(2, 6);
+  return `GZHO_${userPart}_${tsPart}_${randPart}`.slice(0, 32);
+}
+
+function parseFormUrlEncoded(text) {
+  const out = {};
+  if (!text) return out;
+  for (const part of text.split("&")) {
+    if (!part) continue;
+    const eq = part.indexOf("=");
+    const k = decodeURIComponent((eq >= 0 ? part.slice(0, eq) : part).replace(/\+/g, " "));
+    const v = eq >= 0 ? decodeURIComponent(part.slice(eq + 1).replace(/\+/g, " ")) : "";
+    out[k] = v;
+  }
+  return out;
+}
+
+function constantTimeEqualString(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
+
+/* ============================================================
+   MD5 纯 JS 实现 — Cloudflare Workers SubtleCrypto 不支持 MD5
+   ------------------------------------------------------------
+   Source: 经典 RFC 1321 实现的 UTF-8 友好压缩版（无外部依赖）
+   ============================================================ */
+function md5Hex(input) {
+  const bytes = new TextEncoder().encode(String(input));
+  const h = md5Bytes(bytes);
+  return Array.from(h, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function md5Bytes(bytes) {
+  // 预处理：补 0x80，然后补 0x00 到 (length % 64) === 56，最后追加 64-bit 长度（低位在前）
+  const len = bytes.length;
+  const bitLenLo = (len << 3) >>> 0;
+  const bitLenHi = Math.floor(len / 0x20000000) >>> 0;
+  const padLen = (len % 64 < 56 ? 56 - (len % 64) : 120 - (len % 64));
+  const buf = new Uint8Array(len + padLen + 8);
+  buf.set(bytes);
+  buf[len] = 0x80;
+  buf[buf.length - 8] = bitLenLo & 0xff;
+  buf[buf.length - 7] = (bitLenLo >>> 8) & 0xff;
+  buf[buf.length - 6] = (bitLenLo >>> 16) & 0xff;
+  buf[buf.length - 5] = (bitLenLo >>> 24) & 0xff;
+  buf[buf.length - 4] = bitLenHi & 0xff;
+  buf[buf.length - 3] = (bitLenHi >>> 8) & 0xff;
+  buf[buf.length - 2] = (bitLenHi >>> 16) & 0xff;
+  buf[buf.length - 1] = (bitLenHi >>> 24) & 0xff;
+
+  let a = 0x67452301, b = 0xefcdab89, c = 0x98badcfe, d = 0x10325476;
+  const M = new Int32Array(16);
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  for (let off = 0; off < buf.length; off += 64) {
+    for (let i = 0; i < 16; i++) M[i] = dv.getInt32(off + i * 4, true);
+    let A = a, B = b, C = c, D = d;
+    // Round 1
+    A = ff(A,B,C,D, M[0], 7,-680876936); D = ff(D,A,B,C, M[1],12,-389564586);
+    C = ff(C,D,A,B, M[2],17, 606105819); B = ff(B,C,D,A, M[3],22,-1044525330);
+    A = ff(A,B,C,D, M[4], 7,-176418897); D = ff(D,A,B,C, M[5],12, 1200080426);
+    C = ff(C,D,A,B, M[6],17,-1473231341); B = ff(B,C,D,A, M[7],22,-45705983);
+    A = ff(A,B,C,D, M[8], 7, 1770035416); D = ff(D,A,B,C, M[9],12,-1958414417);
+    C = ff(C,D,A,B, M[10],17,-42063);     B = ff(B,C,D,A, M[11],22,-1990404162);
+    A = ff(A,B,C,D, M[12], 7, 1804603682); D = ff(D,A,B,C, M[13],12,-40341101);
+    C = ff(C,D,A,B, M[14],17,-1502002290); B = ff(B,C,D,A, M[15],22, 1236535329);
+    // Round 2
+    A = gg(A,B,C,D, M[1], 5,-165796510); D = gg(D,A,B,C, M[6], 9,-1069501632);
+    C = gg(C,D,A,B, M[11],14, 643717713); B = gg(B,C,D,A, M[0],20,-373897302);
+    A = gg(A,B,C,D, M[5], 5,-701558691); D = gg(D,A,B,C, M[10], 9, 38016083);
+    C = gg(C,D,A,B, M[15],14,-660478335); B = gg(B,C,D,A, M[4],20,-405537848);
+    A = gg(A,B,C,D, M[9], 5, 568446438); D = gg(D,A,B,C, M[14], 9,-1019803690);
+    C = gg(C,D,A,B, M[3],14,-187363961); B = gg(B,C,D,A, M[8],20, 1163531501);
+    A = gg(A,B,C,D, M[13], 5,-1444681467); D = gg(D,A,B,C, M[2], 9,-51403784);
+    C = gg(C,D,A,B, M[7],14, 1735328473); B = gg(B,C,D,A, M[12],20,-1926607734);
+    // Round 3
+    A = hh(A,B,C,D, M[5], 4,-378558); D = hh(D,A,B,C, M[8],11,-2022574463);
+    C = hh(C,D,A,B, M[11],16, 1839030562); B = hh(B,C,D,A, M[14],23,-35309556);
+    A = hh(A,B,C,D, M[1], 4,-1530992060); D = hh(D,A,B,C, M[4],11, 1272893353);
+    C = hh(C,D,A,B, M[7],16,-155497632); B = hh(B,C,D,A, M[10],23,-1094730640);
+    A = hh(A,B,C,D, M[13], 4, 681279174); D = hh(D,A,B,C, M[0],11,-358537222);
+    C = hh(C,D,A,B, M[3],16,-722521979); B = hh(B,C,D,A, M[6],23, 76029189);
+    A = hh(A,B,C,D, M[9], 4,-640364487); D = hh(D,A,B,C, M[12],11,-421815835);
+    C = hh(C,D,A,B, M[15],16, 530742520); B = hh(B,C,D,A, M[2],23,-995338651);
+    // Round 4
+    A = ii(A,B,C,D, M[0], 6,-198630844); D = ii(D,A,B,C, M[7],10, 1126891415);
+    C = ii(C,D,A,B, M[14],15,-1416354905); B = ii(B,C,D,A, M[5],21,-57434055);
+    A = ii(A,B,C,D, M[12], 6, 1700485571); D = ii(D,A,B,C, M[3],10,-1894986606);
+    C = ii(C,D,A,B, M[10],15,-1051523); B = ii(B,C,D,A, M[1],21,-2054922799);
+    A = ii(A,B,C,D, M[8], 6, 1873313359); D = ii(D,A,B,C, M[15],10,-30611744);
+    C = ii(C,D,A,B, M[6],15,-1560198380); B = ii(B,C,D,A, M[13],21, 1309151649);
+    A = ii(A,B,C,D, M[4], 6,-145523070); D = ii(D,A,B,C, M[11],10,-1120210379);
+    C = ii(C,D,A,B, M[2],15, 718787259); B = ii(B,C,D,A, M[9],21,-343485551);
+
+    a = (a + A) | 0; b = (b + B) | 0; c = (c + C) | 0; d = (d + D) | 0;
+  }
+  const out = new Uint8Array(16);
+  const dv2 = new DataView(out.buffer);
+  dv2.setInt32(0, a, true);
+  dv2.setInt32(4, b, true);
+  dv2.setInt32(8, c, true);
+  dv2.setInt32(12, d, true);
+  return out;
+}
+function md5_add(a, b) { return (a + b) | 0; }
+function md5_rol(x, n) { return ((x << n) | (x >>> (32 - n))) | 0; }
+function md5_cmn(q, a, b, x, s, t) { return md5_add(md5_rol(md5_add(md5_add(a, q), md5_add(x, t)), s), b); }
+function ff(a, b, c, d, x, s, t) { return md5_cmn((b & c) | (~b & d), a, b, x, s, t); }
+function gg(a, b, c, d, x, s, t) { return md5_cmn((b & d) | (c & ~d), a, b, x, s, t); }
+function hh(a, b, c, d, x, s, t) { return md5_cmn(b ^ c ^ d, a, b, x, s, t); }
+function ii(a, b, c, d, x, s, t) { return md5_cmn(c ^ (b | ~d), a, b, x, s, t); }

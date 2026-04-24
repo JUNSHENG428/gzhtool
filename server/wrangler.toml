@@ -50,6 +50,19 @@ LS_VARIANT_IDS = ""   # 多个 variant 用逗号分隔；为空表示该 store �
 # License key 前缀（不要带连字符）；用于 worker 端生成时区分环境
 LICENSE_KEY_PREFIX = "GZHT"
 
+# ---------------- 虎皮椒（HuPiJiao）支付通路 ----------------
+# Worker 自身的对外完整 URL，用于拼 notify_url（虎皮椒回调）
+WORKER_PUBLIC_URL = "https://api.docuearn.com"
+
+# 虎皮椒 APPID（公开值，去 admin.xunhupay.com → 我的支付渠道 复制）
+HUPIJIAO_APP_ID = "2019061793116"
+
+# 虎皮椒下单接口 URL（出问题可切备用平台 https://api.dpweixin.com/payment/do.html）
+HUPIJIAO_API_URL = "https://api.xunhupay.com/payment/do.html"
+
+# 注意：HUPIJIAO_APP_SECRET 是私密值，必须用 wrangler secret put 注入
+# 千万不要明文写在这里。本地 .dev.vars 同理。
+
 # Google OAuth 2.0 Web Client ID
 #   - 在 https://console.cloud.google.com/apis/credentials 新建 "OAuth 2.0 Client ID"
 #     → 类型 "Web application"
@@ -62,6 +75,7 @@ GOOGLE_CLIENT_ID = "458035180234-4s4h5m2kjjrg7e2cgmuc1out8p14th17.apps.googleuse
 
 # ---------------- 私密变量（必须用 wrangler secret put） ----------------
 # JWT_SECRET             —— 长度 ≥ 32 的随机字符串，用于 HS256
-# LS_WEBHOOK_SECRET      —— Lemon Squeezy webhook 的 signing secret
+# LS_WEBHOOK_SECRET      —— Lemon Squeezy webhook 的 signing secret（不用 LS 时可留空）
 # LICENSE_SIGNING_SECRET —— 用于 license key 校验位运算（与插件端无关，仅服务端用）
+# HUPIJIAO_APP_SECRET    —— 虎皮椒 AppSecret（千万不能泄露！泄露后立刻去后台重置）
 # GOOGLE_CLIENT_ID 是公开值（前端也会用），不需要 secret，可直接放上面 [vars]

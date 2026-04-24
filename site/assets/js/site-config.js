@@ -40,18 +40,13 @@ export const SITE_CONFIG = {
   WORKER_BASE: "https://api.docuearn.com",
 
   /**
-   * 支付平台 checkout 链接占位
-   * 接入虎皮椒（HuPiJiao）/ 其它支付平台后替换为真实的下单 URL；
-   * 变量名仍保留 LEMON_LINKS 是为了不改 site.js 调用处，仅作为通用 CHECKOUT_LINKS 使用。
-   * 上线前必须替换；保留 yourstore.* 占位会让用户付款失败。
+   * 套餐定义（前端只用 code + 文案；价格/天数 Worker 端有同名白名单兜底，不可信前端）
+   * 必须与 server/worker.js 中的 HUPIJIAO_PLANS 保持完全同步（key 与 fee）。
    */
-  LEMON_LINKS: {
-    monthly: "https://yourstore.example.com/checkout/REPLACE-ME-MONTHLY",
-    yearly: "https://yourstore.example.com/checkout/REPLACE-ME-YEARLY"
+  PLANS: {
+    monthly: { code: "monthly", title: "Pro 月付", fee: 29, period: "/ 月", days: 31 },
+    yearly: { code: "yearly", title: "Pro 年付", fee: 288, period: "/ 年", days: 365 }
   },
-
-  /** 是否使用 overlay checkout（弹窗内支付）。虎皮椒走标准跳转支付时设为 false */
-  LEMON_USE_OVERLAY: false,
 
   /** 支付完成 / 取消后回到的页面（dashboard 会读 ?from=checkout 弹 toast） */
   CHECKOUT_SUCCESS_URL: "/dashboard.html?from=checkout&result=success",

@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS license_keys (
   ls_subscription_id   TEXT,                     -- LS subscription id（订阅制时）
   ls_license_id        TEXT,                     -- LS 自带 license id（如果直接用 LS license）
   ls_customer_email    TEXT,                     -- LS 付款邮箱（用于回填账号绑定）
+  source               TEXT NOT NULL DEFAULT 'lemon', -- 'lemon' / 'hupijiao' / 'manual'
   created_at           INTEGER NOT NULL,
   updated_at           INTEGER NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id)
@@ -51,6 +52,33 @@ CREATE INDEX IF NOT EXISTS idx_license_user        ON license_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_license_ls_order    ON license_keys(ls_order_id);
 CREATE INDEX IF NOT EXISTS idx_license_ls_sub      ON license_keys(ls_subscription_id);
 CREATE INDEX IF NOT EXISTS idx_license_ls_email    ON license_keys(ls_customer_email);
+CREATE INDEX IF NOT EXISTS idx_license_source      ON license_keys(source);
+
+-- ---------- orders（虎皮椒等第三方支付订单流水） ----------
+-- 详见 server/migrations/002_orders.sql
+CREATE TABLE IF NOT EXISTS orders (
+  id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+  trade_order_id           TEXT NOT NULL UNIQUE,
+  user_id                  TEXT NOT NULL,
+  user_email               TEXT,
+  plan_code                TEXT NOT NULL,
+  total_fee                REAL NOT NULL,
+  days                     INTEGER NOT NULL,
+  status                   TEXT NOT NULL DEFAULT 'pending',
+  source                   TEXT NOT NULL DEFAULT 'hupijiao',
+  hupijiao_open_order_id   TEXT,
+  hupijiao_transaction_id  TEXT,
+  pay_url                  TEXT,
+  pay_qrcode               TEXT,
+  granted_license_key      TEXT,
+  notify_payload           TEXT,
+  created_at               INTEGER NOT NULL,
+  paid_at                  INTEGER,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_orders_user    ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status  ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at);
 
 -- ---------- device_activations（预留） ----------
 CREATE TABLE IF NOT EXISTS device_activations (
