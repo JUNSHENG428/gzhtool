@@ -1173,6 +1173,7 @@ async function loadUserLicenseSummary(env, userId) {
     `SELECT key, plan, status, expires_at, created_at
        FROM license_keys
       WHERE user_id = ?
+        AND status != 'refunded'
       ORDER BY created_at DESC`
   )
     .bind(userId)

@@ -147,7 +147,8 @@ function renderAccount(data) {
 
 function renderLicenseList(lic) {
   if (!els.list) return;
-  const keys = Array.isArray(lic?.keys) ? lic.keys : [];
+  const allKeys = Array.isArray(lic?.keys) ? lic.keys : [];
+  const keys = allKeys.filter((k) => k && k.status !== "refunded");
   if (!keys.length) {
     els.list.innerHTML = `
       <div class="empty-state">
@@ -170,6 +171,7 @@ function renderLicenseRow(row) {
   const statusTag = row.status === "active" ? "已激活"
     : row.status === "expired" ? "已过期"
     : row.status === "revoked" ? "已禁用"
+    : row.status === "refunded" ? "已退款"
     : row.status || "—";
   const devices = Array.isArray(row.devices) ? row.devices : [];
 
