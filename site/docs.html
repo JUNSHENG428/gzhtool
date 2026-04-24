@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="zh-Hans" class="no-js">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>使用文档 · 润笔</title>
+  <meta name="description" content="润笔（DocuEarn）使用文档：从安装、登录、配置 AI、抓取热点、改写、排版到一键发布微信公众号的完整流程。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+  />
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/img/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./assets/img/favicon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/img/apple-touch-icon.png" />
+  <link rel="stylesheet" href="./assets/css/site.css" />
+  <meta name="api-base" content="https://api.docuearn.com" />
+  <style>
+    .docs-page {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 64px 24px 96px;
+      color: var(--ink-secondary);
+      font-size: 15px;
+      line-height: 1.85;
+    }
+    .docs-page > h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(28px, 4vw, 36px);
+      color: var(--ink);
+      margin: 0 0 8px;
+      letter-spacing: -0.01em;
+    }
+    .docs-page .meta {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 0 0 32px;
+    }
+    .docs-quickstart {
+      background: linear-gradient(180deg, #fffdf6 0%, #faf3e3 100%);
+      border-radius: var(--radius);
+      border: 1px solid rgba(45, 40, 30, 0.08);
+      padding: 28px 32px;
+      margin: 0 0 48px;
+    }
+    .docs-quickstart h2 {
+      font-family: var(--font-serif);
+      color: var(--ink);
+      font-size: 22px;
+      margin: 0 0 12px;
+    }
+    .docs-quickstart ol {
+      counter-reset: step;
+      list-style: none;
+      padding: 0;
+      margin: 16px 0 0;
+    }
+    .docs-quickstart ol li {
+      counter-increment: step;
+      position: relative;
+      padding: 8px 0 8px 40px;
+      font-size: 14.5px;
+    }
+    .docs-quickstart ol li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 8px;
+      width: 28px;
+      height: 28px;
+      background: var(--brand);
+      color: #fffdf6;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .docs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 18px;
+      margin: 0 0 48px;
+    }
+    .docs-card {
+      background: #fffdf6;
+      border: 1px solid rgba(45, 40, 30, 0.08);
+      border-radius: var(--radius-sm);
+      padding: 22px 24px;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .docs-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(45, 40, 30, 0.08);
+    }
+    .docs-card .docs-card-icon {
+      font-size: 26px;
+      display: block;
+      margin-bottom: 8px;
+    }
+    .docs-card h3 {
+      font-family: var(--font-serif);
+      color: var(--ink);
+      font-size: 17px;
+      margin: 0 0 8px;
+    }
+    .docs-card p {
+      margin: 0 0 12px;
+      color: var(--ink-secondary);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .docs-card ul {
+      margin: 0;
+      padding-left: 18px;
+      font-size: 13.5px;
+    }
+    .docs-card ul li {
+      margin-bottom: 4px;
+    }
+    .docs-card a {
+      color: var(--brand);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .docs-card a:hover {
+      text-decoration: underline;
+    }
+    .docs-section {
+      margin: 56px 0 0;
+    }
+    .docs-section h2 {
+      font-family: var(--font-serif);
+      color: var(--ink);
+      font-size: 24px;
+      margin: 0 0 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(45, 40, 30, 0.08);
+    }
+    .docs-section > p {
+      margin: 12px 0 20px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .docs-step {
+      margin: 16px 0;
+      padding: 14px 18px;
+      background: rgba(248, 244, 232, 0.5);
+      border-left: 3px solid rgba(184, 114, 46, 0.4);
+      border-radius: var(--radius-sm);
+    }
+    .docs-step strong {
+      color: var(--ink);
+    }
+    .docs-page code {
+      background: rgba(45, 40, 30, 0.06);
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+    }
+    .docs-page a {
+      color: var(--brand);
+    }
+  </style>
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="site-nav-inner">
+      <a class="site-brand" href="./index">
+        <span class="site-brand-mark">润</span>
+        <span>润笔</span>
+      </a>
+      <div class="site-nav-links">
+        <a href="./index">首页</a>
+        <a href="./pricing">定价</a>
+        <a href="./dashboard">控制台</a>
+        <a href="./faq">常见问题</a>
+        <a href="./changelog">更新日志</a>
+      </div>
+      <div class="site-nav-cta">
+        <a class="btn btn-ghost" href="./login">登录</a>
+        <a class="btn btn-primary" href="./pricing">开通 Pro 会员</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <article class="docs-page">
+      <h1>使用文档</h1>
+      <p class="meta">最近更新：2026 年 4 月 24 日 · 从安装到发布全流程，约 10 分钟可上手</p>
+
+      <!-- 快速开始 -->
+      <section class="docs-quickstart">
+        <h2>5 分钟快速开始</h2>
+        <p>第一次使用，按这个顺序走一遍即可发出第一篇文章：</p>
+        <ol>
+          <li><strong>安装扩展</strong>：到 <a href="https://chromewebstore.google.com/" target="_blank" rel="noopener">Chrome 网上应用店</a>搜「润笔 DocuEarn」一键安装</li>
+          <li><strong>注册账号</strong>：到 <a href="./login">login</a> 用邮箱或 Google 一键登录注册</li>
+          <li><strong>配置 AI Key</strong>：扩展 → 设置 → AI 模型，粘贴你自己的 OpenAI / Claude / 国产模型 API key</li>
+          <li><strong>配置公众号</strong>：扩展 → 设置 → 公众号，填 AppID + AppSecret（从公众号后台 → 开发 → 基本配置 拿）</li>
+          <li><strong>开始创作</strong>：从热榜挑选题 → AI 改写 → 排版 → 一键发草稿到公众号后台</li>
+        </ol>
+      </section>
+
+      <!-- 模块概览 -->
+      <h2 style="font-family:var(--font-serif);color:var(--ink);font-size:24px;margin:0 0 18px;">模块文档</h2>
+      <div class="docs-grid">
+        <div class="docs-card">
+          <span class="docs-card-icon">📥</span>
+          <h3>安装与登录</h3>
+          <p>Chrome 扩展安装、账号注册、Google OAuth、设置插件登录密码。</p>
+          <ul>
+            <li><a href="./faq#install">登录相关 FAQ →</a></li>
+            <li><a href="./dashboard">登录控制台 →</a></li>
+          </ul>
+        </div>
+
+        <div class="docs-card">
+          <span class="docs-card-icon">🤖</span>
+          <h3>AI 模型配置</h3>
+          <p>润笔不提供 AI，调用你自己的 API key。支持 OpenAI / Anthropic / DeepSeek / 智谱 / 通义千问 / 任意 OpenAI 兼容服务。</p>
+          <ul>
+            <li><a href="./faq#ai">AI 相关 FAQ →</a></li>
+          </ul>
+        </div>
+
+        <div class="docs-card">
+          <span class="docs-card-icon">🔥</span>
+          <h3>热点抓取</h3>
+          <p>20+ 内置热榜源（今日头条 / 知乎 / 微博 / B 站 / Reddit / X 等），多源 fallback + 失败冷却。</p>
+          <ul>
+            <li>普通抓取：免费版即可使用</li>
+            <li>增强抓取：Pro + <a href="https://github.com/JUNSHENG428/gzhtool/releases?q=helper-v" target="_blank" rel="noopener">桌面助手</a></li>
+          </ul>
+        </div>
+
+        <div class="docs-card">
+          <span class="docs-card-icon">✍️</span>
+          <h3>AI 改写 / 续写</h3>
+          <p>10+ 内置写作风格模板（深度行业观察 / 轻短嘴炮 / 亲历叙事 / 辟谣帖等），支持自定义 prompt + 示例少样本。</p>
+          <ul>
+            <li>改写完可一键润色 / 缩写 / 扩写</li>
+          </ul>
+        </div>
+
+        <div class="docs-card">
+          <span class="docs-card-icon">🎨</span>
+          <h3>杂志级排版</h3>
+          <p>11 套公众号专属样式，6 套照搬 The New Yorker / Wired / Monocle / Vogue / Kinfolk 的版式语言。</p>
+          <ul>
+            <li>暗色模式自动适配（v0.1+）</li>
+            <li>所见即所得 → 直接粘贴到公众号</li>
+          </ul>
+        </div>
+
+        <div class="docs-card">
+          <span class="docs-card-icon">📤</span>
+          <h3>微信公众号发布</h3>
+          <p>填好 AppID/Secret，文章一键推送到草稿箱；支持 mass/sendall 群发（按全员 / 标签）。</p>
+          <ul>
+            <li><a href="./faq#wechat">微信发布 FAQ →</a></li>
+            <li><a href="https://github.com/JUNSHENG428/gzhtool/blob/main/docs/WECHAT_LIMITATIONS.md" target="_blank" rel="noopener">微信平台限制说明 →</a></li>
+          </ul>
+        </div>
+
+        <div class="docs-card">
+          <span class="docs-card-icon">🖥️</span>
+          <h3>桌面助手安装</h3>
+          <p>仅 Pro 用户使用 DrissionPage 增强抓取时需要。mac 右键打开 / win SmartScreen 处理。</p>
+          <ul>
+            <li><a href="https://github.com/JUNSHENG428/gzhtool/blob/main/docs/USER_DOWNLOAD_HELPER.md" target="_blank" rel="noopener">完整安装指南 →</a></li>
+            <li><a href="./faq#helper">桌面助手 FAQ →</a></li>
+          </ul>
+        </div>
+
+        <div class="docs-card">
+          <span class="docs-card-icon">🌐</span>
+          <h3>阿里云 FC 代理（可选）</h3>
+          <p>解决微信 API IP 白名单问题。开箱即用代码，月成本几乎为 0。</p>
+          <ul>
+            <li><a href="https://github.com/JUNSHENG428/gzhtool/tree/main/aliyun-fc/wechat-api-proxy" target="_blank" rel="noopener">部署指南 →</a></li>
+          </ul>
+        </div>
+
+        <div class="docs-card">
+          <span class="docs-card-icon">💳</span>
+          <h3>付费与会员</h3>
+          <p>支持微信支付 / 支付宝 / 信用卡。一次性买断，不自动续费，到期前 7 天自动提醒。</p>
+          <ul>
+            <li><a href="./pricing">查看定价 →</a></li>
+            <li><a href="./faq#payment">付费 FAQ →</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 详细流程：第一篇文章 -->
+      <section class="docs-section">
+        <h2>详细流程 · 发出你的第一篇文章</h2>
+        <p>预计耗时 8-15 分钟（其中 AI 改写约 30 秒）</p>
+
+        <div class="docs-step">
+          <strong>Step 1 · 配置 AI Key</strong><br>
+          打开扩展 → 顶部「设置」按钮 → 「AI 模型」标签页。<br>
+          以 OpenAI 为例：粘贴 <code>sk-...</code> 到「API Key」框 → 「base URL」保持默认 → 「测试连接」按钮 → 看到绿色 ✓ 即可保存。<br>
+          国产大模型（DeepSeek / 智谱）需要把 base URL 改成各自的 endpoint，详见各服务商官方文档。
+        </div>
+
+        <div class="docs-step">
+          <strong>Step 2 · 配置公众号</strong><br>
+          扩展设置 → 「公众号」标签页：
+          <ul>
+            <li><strong>AppID / AppSecret</strong>：登录 <a href="https://mp.weixin.qq.com" target="_blank" rel="noopener">公众号后台</a> → 开发 → 基本配置 → 复制粘贴</li>
+            <li><strong>API 代理 URL</strong>（可选）：如果你部署了阿里云 FC 代理，填这里就走代理</li>
+            <li>保存后点「测试连通性」按钮，看到绿色 ✓ 即配置成功</li>
+          </ul>
+        </div>
+
+        <div class="docs-step">
+          <strong>Step 3 · 抓选题</strong><br>
+          扩展 workspace → 顶部 tab 「热点」→ 选热榜源（今日头条/知乎热榜/微博热搜/...）→ 看到感兴趣的话题点「抓正文」。<br>
+          单篇正文抓不到时（多见于反爬严的网站），换「DrissionPage 增强抓取」（需 Pro + 桌面助手）。
+        </div>
+
+        <div class="docs-step">
+          <strong>Step 4 · AI 改写</strong><br>
+          抓到的正文进入「改写」面板 → 选写作风格模板 → 按「开始改写」按钮 → 30 秒内出结果。<br>
+          觉得不够好？右上角「润色 / 扩写 / 缩写」按钮可以多轮迭代。
+        </div>
+
+        <div class="docs-step">
+          <strong>Step 5 · 排版</strong><br>
+          改写完跳到「排版」面板 → 顶部样式选择器选一款（推荐先试 The New Yorker 或 Kinfolk）→ 实时预览效果 → 不满意可换其他样式。<br>
+          排版完点「导出 HTML」可直接复制粘贴到公众号后台 HTML 源码模式。
+        </div>
+
+        <div class="docs-step">
+          <strong>Step 6 · 一键发草稿</strong><br>
+          排版面板右上角「发到公众号草稿」按钮 → 自动调微信 API 上传图片 + 创建草稿 → 看到「✓ 已推草稿」即成功。<br>
+          打开公众号后台 → 草稿箱 → 找到刚才的草稿 → 检查 → 群发 / 定时发布。
+        </div>
+      </section>
+
+      <!-- 进阶 -->
+      <section class="docs-section">
+        <h2>进阶用法</h2>
+
+        <div class="docs-step">
+          <strong>多公众号矩阵管理</strong>（Pro）<br>
+          在「设置 → 公众号」可同时绑定多个 AppID。workspace 顶部下拉框切换当前操作的公众号，发布时自动用对应账号。
+        </div>
+
+        <div class="docs-step">
+          <strong>Agent 跑批选题</strong><br>
+          workspace → 「Agent」面板 → 配置选题主题 / 风格偏好 → AI 自动从多个热榜源筛选 + 评分（热度 / 相关性 / 时效）+ 给出 brief。适合每天定时跑一次拿 5-10 个候选选题。
+        </div>
+
+        <div class="docs-step">
+          <strong>群发策略</strong>（仅认证服务号）<br>
+          扩展 → 设置 → 公众号 → 群发策略：
+          <ul>
+            <li>全员群发：每月 4 次硬上限，自动统计已用次数</li>
+            <li>按标签群发：先「拉取本号所有标签」→ 选 tag → 不消耗月配额</li>
+          </ul>
+        </div>
+
+        <div class="docs-step">
+          <strong>本地数据导出 / 导入</strong><br>
+          扩展 → 设置 → 数据 → 导出 JSON 备份。所有改写结果 / 模板 / 配置都在你本机存储中，卸载扩展前记得先备份。
+        </div>
+      </section>
+
+      <!-- 资源 -->
+      <section class="docs-section">
+        <h2>更多资源</h2>
+        <ul>
+          <li><a href="./faq">常见问题 FAQ</a> · 50+ 高频问题答疑</li>
+          <li><a href="./changelog">更新日志</a> · 看最新版本带了什么</li>
+          <li><a href="https://github.com/JUNSHENG428/gzhtool" target="_blank" rel="noopener">GitHub 仓库</a> · 源码 + Issue 反馈</li>
+          <li><a href="https://github.com/JUNSHENG428/gzhtool/blob/main/docs/" target="_blank" rel="noopener">完整开发者文档</a> · WECHAT_LIMITATIONS / RESEND / OAUTH 等深度技术文档</li>
+          <li><a href="mailto:support@docuearn.com">support@docuearn.com</a> · 24 小时人工响应</li>
+        </ul>
+      </section>
+    </article>
+  </main>
+
+  <footer class="site-foot">
+    <div class="site-foot-inner">
+      <span>© <span id="year"></span> 润笔 DocuEarn · 一个让创作者多一份安稳的工具</span>
+      <nav>
+        <a href="./pricing">定价</a>
+        <a href="./faq">常见问题</a>
+        <a href="./docs">使用文档</a>
+        <a href="./changelog">更新日志</a>
+        <a href="./privacy">隐私政策</a>
+        <a href="./terms">服务条款</a>
+        <a href="mailto:support@docuearn.com">联系</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

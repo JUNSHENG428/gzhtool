@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="zh-Hans" class="no-js">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>更新日志 · 润笔</title>
+  <meta name="description" content="润笔（DocuEarn）的版本更新记录与最新功能公告。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+  />
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/img/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./assets/img/favicon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/img/apple-touch-icon.png" />
+  <link rel="stylesheet" href="./assets/css/site.css" />
+  <meta name="api-base" content="https://api.docuearn.com" />
+  <style>
+    .changelog-page {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 64px 24px 96px;
+      color: var(--ink-secondary);
+      font-size: 15px;
+      line-height: 1.85;
+    }
+    .changelog-page > h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(28px, 4vw, 36px);
+      color: var(--ink);
+      margin: 0 0 8px;
+      letter-spacing: -0.01em;
+    }
+    .changelog-page .meta {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 0 0 32px;
+    }
+    .changelog-banner {
+      background: linear-gradient(180deg, #fffdf6 0%, #faf3e3 100%);
+      border-radius: var(--radius-sm);
+      border: 1px solid rgba(45, 40, 30, 0.08);
+      padding: 18px 22px;
+      margin: 0 0 40px;
+      font-size: 14px;
+    }
+    .changelog-banner strong {
+      color: var(--ink);
+    }
+    .changelog-timeline {
+      position: relative;
+      padding-left: 24px;
+    }
+    .changelog-timeline::before {
+      content: "";
+      position: absolute;
+      left: 6px;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      background: linear-gradient(180deg, var(--brand) 0%, rgba(184, 114, 46, 0.2) 100%);
+    }
+    .changelog-entry {
+      position: relative;
+      margin: 0 0 36px;
+    }
+    .changelog-entry::before {
+      content: "";
+      position: absolute;
+      left: -24px;
+      top: 8px;
+      width: 14px;
+      height: 14px;
+      background: #fffdf6;
+      border: 3px solid var(--brand);
+      border-radius: 50%;
+      box-sizing: border-box;
+    }
+    .changelog-entry.major::before {
+      background: var(--brand);
+      box-shadow: 0 0 0 4px rgba(184, 114, 46, 0.18);
+    }
+    .changelog-date {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .changelog-date .version-tag {
+      display: inline-block;
+      padding: 2px 10px;
+      background: var(--brand);
+      color: #fffdf6;
+      border-radius: 99px;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+    }
+    .changelog-date .version-tag.minor {
+      background: rgba(184, 114, 46, 0.15);
+      color: var(--brand);
+    }
+    .changelog-entry h2 {
+      font-family: var(--font-serif);
+      color: var(--ink);
+      font-size: 20px;
+      margin: 0 0 12px;
+    }
+    .changelog-entry .changes {
+      background: #fffdf6;
+      border: 1px solid rgba(45, 40, 30, 0.08);
+      border-radius: var(--radius-sm);
+      padding: 16px 22px;
+    }
+    .changelog-entry .changes h3 {
+      color: var(--ink);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 12px 0 6px;
+      font-weight: 700;
+    }
+    .changelog-entry .changes h3:first-child {
+      margin-top: 0;
+    }
+    .changelog-entry .changes h3.added {
+      color: #2e7d4f;
+    }
+    .changelog-entry .changes h3.improved {
+      color: #b8722e;
+    }
+    .changelog-entry .changes h3.fixed {
+      color: #c0392b;
+    }
+    .changelog-entry .changes ul {
+      padding-left: 20px;
+      margin: 4px 0 12px;
+      font-size: 14px;
+      line-height: 1.75;
+    }
+    .changelog-entry .changes ul li {
+      margin-bottom: 4px;
+    }
+    .changelog-entry .changes code {
+      background: rgba(45, 40, 30, 0.06);
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12.5px;
+    }
+    .changelog-entry a {
+      color: var(--brand);
+    }
+    .changelog-cta {
+      margin: 56px 0 0;
+      padding: 24px 28px;
+      text-align: center;
+      background: var(--brand-soft);
+      border-left: 3px solid var(--brand);
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+    }
+    .changelog-cta strong {
+      color: var(--ink);
+    }
+  </style>
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="site-nav-inner">
+      <a class="site-brand" href="./index">
+        <span class="site-brand-mark">润</span>
+        <span>润笔</span>
+      </a>
+      <div class="site-nav-links">
+        <a href="./index">首页</a>
+        <a href="./pricing">定价</a>
+        <a href="./dashboard">控制台</a>
+        <a href="./faq">常见问题</a>
+        <a href="./docs">使用文档</a>
+      </div>
+      <div class="site-nav-cta">
+        <a class="btn btn-ghost" href="./login">登录</a>
+        <a class="btn btn-primary" href="./pricing">开通 Pro 会员</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <article class="changelog-page">
+      <h1>更新日志</h1>
+      <p class="meta">最近更新：2026 年 4 月 24 日 · 我们用「小步快跑」的节奏迭代，所有用户改进意见都欢迎邮件反馈</p>
+
+      <div class="changelog-banner">
+        <strong>📦 当前最新版本：</strong> 桌面助手 <a href="https://github.com/JUNSHENG428/gzhtool/releases" target="_blank" rel="noopener">helper-v0.1.0</a> · 浏览器扩展会跟随 Chrome Web Store 自动更新
+      </div>
+
+      <div class="changelog-timeline">
+        <!-- 2026-04-24 sixth -->
+        <div class="changelog-entry major">
+          <div class="changelog-date">
+            <span class="version-tag minor">SUPPORT</span>
+            <span>2026 年 4 月 24 日</span>
+          </div>
+          <h2>support@docuearn.com 自动回复全链路上线</h2>
+          <div class="changes">
+            <h3 class="added">新增</h3>
+            <ul>
+              <li>邮件发到 <code>support@docuearn.com</code> 后 30 秒内会收到自动回复，主题带 <code>[DOC-YYYYMMDD-NNNN]</code> 工单号方便追踪</li>
+              <li>自动回复正文包含 FAQ 链接、需要补充的 6 项信息清单、24 小时回复承诺、早期用户微信快速通道</li>
+            </ul>
+            <h3 class="improved">改进</h3>
+            <ul>
+              <li>所有邮件同时人工兜底转发到团队 Gmail，不会漏单</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 2026-04-24 fifth -->
+        <div class="changelog-entry major">
+          <div class="changelog-date">
+            <span class="version-tag minor">RENEWAL</span>
+            <span>2026 年 4 月 24 日</span>
+          </div>
+          <h2>会员临近到期续费提醒（4 触点同时提醒）</h2>
+          <div class="changes">
+            <h3 class="added">新增</h3>
+            <ul>
+              <li>到期前 7 天自动启用「续费提醒」状态，4 个触点同时显示倒计时：插件 hero 卡 / workspace 顶部 pill / 网页控制台横幅 / 定价页按钮</li>
+              <li>定价页 Pro 用户在临近到期窗口内按钮自动激活为「立即续费」</li>
+            </ul>
+            <h3 class="fixed">关键修复</h3>
+            <ul>
+              <li>临近到期窗口内 <strong>Pro 功能完全不会中断</strong>（之前担心的「付了钱临到期前几天突然功能被关」不会发生）</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 2026-04-24 fourth -->
+        <div class="changelog-entry">
+          <div class="changelog-date">
+            <span class="version-tag minor">UX</span>
+            <span>2026 年 4 月 24 日</span>
+          </div>
+          <h2>支付与订阅状态体验全面打磨</h2>
+          <div class="changes">
+            <h3 class="improved">改进</h3>
+            <ul>
+              <li>定价页智能态按钮：未登录 → 登录后跳回定价；已 Pro → 已开通 + 跳控制台；临近到期 → 立即续费</li>
+              <li>控制台账号同步徽标：会员状态 / 邮箱 / 到期时间一目了然</li>
+              <li>插件会员 hero 卡新增 4 个标签：账号 email / Pro 到期时间 / 本机指纹 / 备用激活码</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 2026-04-24 third -->
+        <div class="changelog-entry major">
+          <div class="changelog-date">
+            <span class="version-tag minor">WECHAT</span>
+            <span>2026 年 4 月 24 日</span>
+          </div>
+          <h2>微信公众号外部约束 4 项全部落地</h2>
+          <div class="changes">
+            <h3 class="added">新增</h3>
+            <ul>
+              <li><strong>未认证账号 48001 错误友好提示</strong>：弹窗指引复制 HTML 到剪贴板，并打开公众号后台手动粘贴</li>
+              <li><strong>群发接口 mass/sendall</strong>：支持全员群发（4 次/月配额自动统计）+ 按标签群发（不消耗配额）</li>
+              <li><strong>阿里云 FC 反向代理</strong>：开箱即用代码，破微信 IP 白名单约束，月成本几乎为 0</li>
+            </ul>
+            <h3 class="fixed">修复</h3>
+            <ul>
+              <li>暗色模式全量 fallback color：所有段落 / 标题 / 列表强制带显式颜色，避免「白底白字」灾难</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 2026-04-24 second -->
+        <div class="changelog-entry major">
+          <div class="changelog-date">
+            <span class="version-tag minor">AUTH</span>
+            <span>2026 年 4 月 24 日</span>
+          </div>
+          <h2>OAuth-only 用户插件登录闭环</h2>
+          <div class="changes">
+            <h3 class="added">新增</h3>
+            <ul>
+              <li>控制台账号区新增「为插件设置登录密码」按钮：用 Google 注册的用户也能用邮箱+密码方式登录扩展</li>
+              <li>密码重置邮件链路打通：忘记密码 → 30 秒内收邮件 → 一键重置</li>
+            </ul>
+            <h3 class="fixed">修复</h3>
+            <ul>
+              <li>「Google OAuth 注册的用户在扩展里登不上」的 P0 漏洞</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 2026-04-24 first (Google OAuth) -->
+        <div class="changelog-entry major">
+          <div class="changelog-date">
+            <span class="version-tag">v0.2</span>
+            <span>2026 年 4 月 24 日</span>
+          </div>
+          <h2>Google 一键登录上线</h2>
+          <div class="changes">
+            <h3 class="added">新增</h3>
+            <ul>
+              <li>网页控制台支持 Google OAuth 一键登录，免邮箱注册流程</li>
+              <li>4 场景真人自测全过：① 全新 Google 用户 ② 已有邮箱密码用户首次绑 Google ③ 已绑 Google 用户重新登录 ④ 退出后切换不同账号</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 2026-04-23 helper -->
+        <div class="changelog-entry major">
+          <div class="changelog-date">
+            <span class="version-tag">helper-v0.1.0</span>
+            <span>2026 年 4 月 23 日</span>
+          </div>
+          <h2>桌面助手 v0.1.0 首发</h2>
+          <div class="changes">
+            <h3 class="added">新增</h3>
+            <ul>
+              <li>跨平台桌面小程序：mac arm64 + win x64 双平台预编译包</li>
+              <li>HTTP 服务接口：DrissionPage 真实 Chromium 抓取，突破反爬</li>
+              <li>Tkinter 极简 GUI：启停按钮、状态灯、端口、日志窗口</li>
+              <li>下载入口：扩展设置页「下载桌面助手」横幅自动检测最新版</li>
+            </ul>
+            <p style="margin-top:8px;">下载：<a href="https://github.com/JUNSHENG428/gzhtool/releases/tag/helper-v0.1.0" target="_blank" rel="noopener">GitHub Release</a></p>
+          </div>
+        </div>
+
+        <!-- 早期 -->
+        <div class="changelog-entry">
+          <div class="changelog-date">
+            <span class="version-tag minor">PAYMENT</span>
+            <span>2026 年 4 月（早期）</span>
+          </div>
+          <h2>虎皮椒微信支付通路上线</h2>
+          <div class="changes">
+            <h3 class="added">新增</h3>
+            <ul>
+              <li>微信支付 / 支付宝双通道，付款 → 自动签发 1 年 Pro license</li>
+              <li>真人付款 + 真人退款全链路自测通过</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="changelog-entry">
+          <div class="changelog-date">
+            <span class="version-tag minor">CORE</span>
+            <span>2026 年 4 月（早期）</span>
+          </div>
+          <h2>核心创作流程跑通</h2>
+          <div class="changes">
+            <h3 class="added">新增</h3>
+            <ul>
+              <li>11 套杂志级排版样式（含 The New Yorker / Wired / Monocle / Vogue / Kinfolk 等 6 套手工版式）</li>
+              <li>10+ AI 写作风格模板（深度行业观察 / 轻短嘴炮 / 亲历叙事 / 辟谣帖等）</li>
+              <li>20+ 内置热榜源 + 多源 fallback + 失败冷却</li>
+              <li>多账号会员体系 + 设备指纹绑定 + 每日改写配额</li>
+              <li>一键发草稿到微信公众号</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="changelog-cta">
+        <strong>有改进建议或想看到的功能？</strong> 邮件 <a href="mailto:support@docuearn.com">support@docuearn.com</a>，<br>
+        早期用户的反馈会被优先纳入下一版迭代。
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-foot">
+    <div class="site-foot-inner">
+      <span>© <span id="year"></span> 润笔 DocuEarn · 一个让创作者多一份安稳的工具</span>
+      <nav>
+        <a href="./pricing">定价</a>
+        <a href="./faq">常见问题</a>
+        <a href="./docs">使用文档</a>
+        <a href="./changelog">更新日志</a>
+        <a href="./privacy">隐私政策</a>
+        <a href="./terms">服务条款</a>
+        <a href="mailto:support@docuearn.com">联系</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

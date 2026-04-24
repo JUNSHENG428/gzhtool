@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="zh-Hans" class="no-js">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>常见问题 FAQ · 润笔</title>
+  <meta name="description" content="润笔（DocuEarn）常见问题解答：登录、付费、AI 改写、微信公众号发布、桌面助手安装、退款政策。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+  />
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/img/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./assets/img/favicon-192.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/img/apple-touch-icon.png" />
+  <link rel="stylesheet" href="./assets/css/site.css" />
+  <meta name="api-base" content="https://api.docuearn.com" />
+  <style>
+    .faq-page {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 64px 24px 96px;
+      color: var(--ink-secondary);
+      font-size: 15px;
+      line-height: 1.85;
+    }
+    .faq-page > h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(28px, 4vw, 36px);
+      color: var(--ink);
+      margin: 0 0 8px;
+      letter-spacing: -0.01em;
+    }
+    .faq-page .meta {
+      color: var(--muted);
+      font-size: 13px;
+      margin: 0 0 32px;
+    }
+    .faq-toc {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0 0 36px;
+      padding: 16px 18px;
+      background: var(--brand-soft);
+      border-left: 3px solid var(--brand);
+      border-radius: var(--radius-sm);
+    }
+    .faq-toc a {
+      color: var(--ink);
+      font-size: 13px;
+      text-decoration: none;
+      padding: 4px 12px;
+      border-radius: 99px;
+      background: rgba(255, 253, 248, 0.7);
+      transition: background 0.15s;
+    }
+    .faq-toc a:hover {
+      background: rgba(255, 253, 248, 1);
+    }
+    .faq-section {
+      margin: 48px 0 0;
+    }
+    .faq-section h2 {
+      font-family: var(--font-serif);
+      color: var(--ink);
+      font-size: 22px;
+      margin: 0 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(45, 40, 30, 0.08);
+    }
+    .faq-item {
+      border: 1px solid rgba(45, 40, 30, 0.1);
+      border-radius: var(--radius-sm);
+      margin: 12px 0;
+      background: #fffdf6;
+      overflow: hidden;
+      transition: box-shadow 0.15s;
+    }
+    .faq-item[open] {
+      box-shadow: 0 4px 12px rgba(45, 40, 30, 0.06);
+    }
+    .faq-item summary {
+      cursor: pointer;
+      padding: 16px 20px;
+      font-weight: 600;
+      color: var(--ink);
+      font-size: 15px;
+      list-style: none;
+      position: relative;
+      padding-right: 44px;
+    }
+    .faq-item summary::-webkit-details-marker {
+      display: none;
+    }
+    .faq-item summary::after {
+      content: "+";
+      position: absolute;
+      right: 18px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 22px;
+      color: var(--brand);
+      font-weight: 400;
+      transition: transform 0.2s;
+    }
+    .faq-item[open] summary::after {
+      content: "−";
+    }
+    .faq-item summary:hover {
+      color: var(--brand);
+    }
+    .faq-item .faq-body {
+      padding: 0 20px 18px;
+      color: var(--ink-secondary);
+      font-size: 14.5px;
+      line-height: 1.78;
+    }
+    .faq-item .faq-body p {
+      margin: 8px 0;
+    }
+    .faq-item .faq-body ol,
+    .faq-item .faq-body ul {
+      padding-left: 22px;
+      margin: 8px 0;
+    }
+    .faq-item .faq-body code {
+      background: rgba(45, 40, 30, 0.06);
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+    }
+    .faq-item .faq-body a {
+      color: var(--brand);
+    }
+    .faq-cta {
+      margin: 56px 0 0;
+      padding: 24px 28px;
+      background: linear-gradient(180deg, #fffdf6 0%, #faf3e3 100%);
+      border-radius: var(--radius);
+      border: 1px solid rgba(45, 40, 30, 0.08);
+      text-align: center;
+    }
+    .faq-cta h3 {
+      font-family: var(--font-serif);
+      color: var(--ink);
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+    .faq-cta p {
+      margin: 0 0 16px;
+      color: var(--ink-secondary);
+      font-size: 14px;
+    }
+    .faq-cta .btn {
+      margin: 0 4px;
+    }
+  </style>
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="site-nav-inner">
+      <a class="site-brand" href="./index">
+        <span class="site-brand-mark">润</span>
+        <span>润笔</span>
+      </a>
+      <div class="site-nav-links">
+        <a href="./index">首页</a>
+        <a href="./pricing">定价</a>
+        <a href="./dashboard">控制台</a>
+        <a href="./docs">使用文档</a>
+        <a href="./changelog">更新日志</a>
+      </div>
+      <div class="site-nav-cta">
+        <a class="btn btn-ghost" href="./login">登录</a>
+        <a class="btn btn-primary" href="./pricing">开通 Pro 会员</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <article class="faq-page">
+      <h1>常见问题 FAQ</h1>
+      <p class="meta">最近更新：2026 年 4 月 24 日 · 找不到答案？发邮件 <a href="mailto:support@docuearn.com" style="color:var(--brand);">support@docuearn.com</a>，我们会在 24 小时内回复。</p>
+
+      <nav class="faq-toc">
+        <a href="#install">安装与登录</a>
+        <a href="#payment">付费与会员</a>
+        <a href="#ai">AI 改写</a>
+        <a href="#wechat">微信公众号</a>
+        <a href="#helper">桌面助手</a>
+        <a href="#refund">退款政策</a>
+      </nav>
+
+      <!-- ============ 安装与登录 ============ -->
+      <section class="faq-section" id="install">
+        <h2>安装与登录</h2>
+
+        <details class="faq-item">
+          <summary>为什么我用 Google 登录了官网，扩展里却登不上？</summary>
+          <div class="faq-body">
+            <p>因为 Chrome 扩展运行在 <code>chrome-extension://</code> 域下，Google 登录无法在扩展环境中直接运行。你需要先在网页控制台为插件单独设置一个登录密码：</p>
+            <ol>
+              <li>登录 <a href="./dashboard">docuearn.com 控制台</a></li>
+              <li>右侧账号卡上方会出现淡黄色提示 <strong>「为插件设置登录密码」</strong></li>
+              <li>点开按钮，输入你想要的密码（不需要旧密码）</li>
+              <li>回到扩展，用同样的邮箱 + 这个新密码即可登录</li>
+            </ol>
+            <p>这个密码只用于扩展登录，不影响你后续继续用 Google 一键登录网站。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>忘记密码了怎么办？</summary>
+          <div class="faq-body">
+            <ol>
+              <li>打开 <a href="./forgot">忘记密码页</a> 输入注册邮箱</li>
+              <li>30 秒内会收到一封 <strong>「润笔 · 重置你的密码」</strong> 邮件，主题带 <code>[润笔]</code> 前缀</li>
+              <li>点邮件里的链接 → 设置新密码 → 用新密码登录</li>
+            </ol>
+            <p><strong>收不到邮件？</strong> 先去垃圾邮件文件夹找一下（QQ / 163 邮箱很容易拦截海外发件人）。如果 5 分钟内仍没收到，邮件 <a href="mailto:support@docuearn.com">support@docuearn.com</a> 让我们手动重置。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>提示「设备数量已达上限」是什么意思？</summary>
+          <div class="faq-body">
+            <p>免费用户最多绑定 1 台设备，Pro 用户最多 3 台。设备数是按浏览器指纹（user-agent + 屏幕分辨率 + 时区等）计算的，<strong>同一台电脑换浏览器或重装系统会算成新设备</strong>。</p>
+            <p>解绑老设备：登录 <a href="./dashboard">控制台</a> → 「我的设备」→ 点旁边的「解绑」按钮 → 即时生效。</p>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============ 付费与会员 ============ -->
+      <section class="faq-section" id="payment">
+        <h2>付费与会员</h2>
+
+        <details class="faq-item">
+          <summary>付完款之后多久能用上 Pro 功能？</summary>
+          <div class="faq-body">
+            <p>支付成功后通常 <strong>10 秒内</strong>会自动激活：</p>
+            <ul>
+              <li>网页控制台的会员状态会立刻变成 Pro</li>
+              <li>扩展端的状态需要打开 workspace 页面或者按一下「刷新会员状态」按钮，会在几秒内同步</li>
+            </ul>
+            <p>如果支付完 1 分钟仍未激活，请提供 <strong>支付订单号 + 注册邮箱</strong> 邮件 <a href="mailto:support@docuearn.com">support@docuearn.com</a>，会有人工核对。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>付款方式有哪些？</summary>
+          <div class="faq-body">
+            <ul>
+              <li><strong>微信支付</strong>（虎皮椒通道，国内用户首选）</li>
+              <li><strong>支付宝</strong>（同上）</li>
+              <li><strong>信用卡 / PayPal</strong>（境外通道，海外华人用户）</li>
+            </ul>
+            <p>所有支付都是一次性买断 1 个月或 1 年，<strong>不会自动续费</strong>，到期前我们会在控制台和插件里提醒你手动续费。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>会员快到期了，会通知我吗？</summary>
+          <div class="faq-body">
+            <p>会的。到期前 <strong>7 天内</strong>，下面 4 个地方会同时显示提醒：</p>
+            <ul>
+              <li>插件 workspace 顶部 pill：<code>PRO · N天后到期</code>（琥珀色）</li>
+              <li>插件会员 hero 卡：「Pro 还剩 N 天到期」+ 主按钮变「立即续费 Pro」</li>
+              <li>网页控制台顶部琥珀横幅 + 「立即续费」按钮</li>
+              <li>定价页 Pro 用户的按钮自动从「已开通」切换为「立即续费」</li>
+            </ul>
+            <p>这段时间 Pro 功能<strong>完全不会中断</strong>，到期当天才会真正降级到 Free。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>Free 版和 Pro 版的区别？</summary>
+          <div class="faq-body">
+            <p>Free 版包含全部基础功能，每天有 5 次 AI 改写额度。Pro 版解锁：</p>
+            <ul>
+              <li>无限次 AI 改写</li>
+              <li>同时绑定多个微信公众号</li>
+              <li>DrissionPage 增强抓取（突破反爬）</li>
+              <li>多设备登录（最多 3 台）</li>
+              <li>优先客服支持</li>
+            </ul>
+            <p>详细对比见 <a href="./pricing">定价页</a>。</p>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============ AI 改写 ============ -->
+      <section class="faq-section" id="ai">
+        <h2>AI 改写</h2>
+
+        <details class="faq-item">
+          <summary>AI 改写要不要单独充值？</summary>
+          <div class="faq-body">
+            <p>不需要。润笔本身<strong>不提供 AI</strong>，而是调用你自己的 OpenAI / Anthropic / 国产大模型 API key。你只需要：</p>
+            <ol>
+              <li>到 OpenAI / Claude / DeepSeek / 智谱 / 通义千问等任一服务商注册账号</li>
+              <li>创建一个 API key</li>
+              <li>粘贴到扩展的「设置 → AI 模型配置」里</li>
+            </ol>
+            <p>这样做的好处是<strong>调用费用直接从你自己的 API 账户扣</strong>，我们看不到你的 prompt 和文章内容，更隐私。常见模型一篇文章改写约 ¥0.05-0.3 元。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>AI 改写时报错「API key 无效」怎么办？</summary>
+          <div class="faq-body">
+            <p>按这个顺序排查：</p>
+            <ol>
+              <li>API key 是不是复制时多了空格或换行？重新复制粘贴一次</li>
+              <li>API key 对应的账户余额是不是 ≤ 0？登录服务商后台确认</li>
+              <li>「base URL」是不是和 key 来源对应？OpenAI 是 <code>https://api.openai.com/v1</code>，国产大模型各有自己的 endpoint</li>
+              <li>有没有配置 IP 白名单？OpenAI 在中国大陆 IP 直连会失败，需要走代理</li>
+            </ol>
+            <p>仍未解决可邮件 <a href="mailto:support@docuearn.com">support@docuearn.com</a>，附上：使用的服务商 + base URL（不要发 API key 本身）+ 报错截图。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>改写出来的内容太「AI 味」怎么办？</summary>
+          <div class="faq-body">
+            <p>试试这几招：</p>
+            <ul>
+              <li>切换写作模板（10+ 种风格内置：深度行业观察 / 轻短嘴炮 / 亲历叙事 / 辟谣帖 …）</li>
+              <li>在「自定义 prompt」里加示例文章片段，让 AI 模仿你的语气</li>
+              <li>把模型换成 Claude 系列（claude-3.5-sonnet 自然度普遍优于 GPT）</li>
+              <li>改写完后用「润色」按钮再过一遍，调低 temperature</li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============ 微信公众号 ============ -->
+      <section class="faq-section" id="wechat">
+        <h2>微信公众号发布</h2>
+
+        <details class="faq-item">
+          <summary>提示「48001 api unauthorized」是什么？</summary>
+          <div class="faq-body">
+            <p>这是微信官方从 2025 年 7 月开始执行的新规：<strong>未认证的订阅号无权调用 add_draft 接口</strong>。三种解决方法：</p>
+            <ol>
+              <li><strong>认证服务号</strong>（推荐）：每年 ¥300 微信认证费，认证后所有 API 全部解锁</li>
+              <li><strong>使用「复制 HTML 到剪贴板」</strong>：在弹出的 modal 里点这个按钮，然后到 <a href="https://mp.weixin.qq.com" target="_blank" rel="noopener">公众号后台</a> → 新建图文 → 右上角「&lt;/&gt;」HTML 源码 → 粘贴。文字 + 排版完整保留，只是图片要手动重传一次</li>
+              <li><strong>认证个人订阅号</strong>：2024 年起也开放了个人订阅号认证（年费同样 ¥300），适合个人创作者</li>
+            </ol>
+            <p>详细背景见 <a href="https://github.com/JUNSHENG428/gzhtool/blob/main/docs/WECHAT_LIMITATIONS.md" target="_blank" rel="noopener">WECHAT_LIMITATIONS.md</a>。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>提示「IP 不在白名单」怎么办？</summary>
+          <div class="faq-body">
+            <p>微信公众号 API 默认只允许在公众号后台「设置 → 安全中心 → IP 白名单」里登记过的 IP 调用。两种解决方法：</p>
+            <ol>
+              <li><strong>把你家网关 IP 加到白名单</strong>（最简单，但你换 WiFi / 手机热点都得重加，运营商分配的动态 IP 会过几天就变）</li>
+              <li><strong>部署阿里云函数计算（FC）代理</strong>（推荐）：用一个固定出口 IP 作为中转，扩展所有请求走代理出去。我们提供了开箱即用的代码：<a href="https://github.com/JUNSHENG428/gzhtool/tree/main/aliyun-fc/wechat-api-proxy" target="_blank" rel="noopener">aliyun-fc/wechat-api-proxy/</a>，按 README 部署后填到「扩展设置 → 高级 → 微信 API 代理」即可。月成本几乎为 0（FC 月免费额度内）</li>
+            </ol>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>发出去的文章在暗色模式下看不清？</summary>
+          <div class="faq-body">
+            <p>这是微信暗色模式只反转「没指定 color」元素的特性。我们已经在 v0.1 之后给所有段落 / 标题 / 列表加了显式 fallback 颜色（<code>#2d3036</code> / <code>#1f2228</code>），新发的文章在暗色模式下完全可读。</p>
+            <p>如果你的文章是 v0.1 之前发布的，需要重新走一遍「排版 → 重新发布草稿」流程；或者直接到公众号后台手动改文字颜色。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>怎么群发到所有粉丝？</summary>
+          <div class="faq-body">
+            <p>需要 <strong>认证的服务号</strong>，订阅号无群发权限。在「扩展设置 → 公众号 → 群发策略」里选：</p>
+            <ul>
+              <li><strong>全员群发</strong>：每月 4 次硬上限（微信平台限制，我们会自动统计已用次数）</li>
+              <li><strong>按标签群发</strong>：先调用「拉取本号所有标签」按钮，选一个 tag 就只发给该标签下的粉丝，不消耗月配额</li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============ 桌面助手 ============ -->
+      <section class="faq-section" id="helper">
+        <h2>桌面助手（DrissionPage 抓取）</h2>
+
+        <details class="faq-item">
+          <summary>什么时候需要装桌面助手？</summary>
+          <div class="faq-body">
+            <p>只有 Pro 用户使用「DrissionPage 增强抓取」时才需要。普通抓取（基础 fetch + Cheerio）不需要。</p>
+            <p>触发场景：抓取微博 / 小红书 / 知乎等有强反爬、需要真实浏览器渲染才能拿到内容的网站。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>mac 双击打开提示「无法验证开发者」怎么办？</summary>
+          <div class="faq-body">
+            <p>因为我们暂时还没有买 Apple 开发者证书。<strong>第一次打开必须右键</strong>：</p>
+            <ol>
+              <li>在 Finder 里右键 <code>Runbi Helper.app</code> → <strong>打开</strong></li>
+              <li>系统弹「无法验证开发者」→ 点 <strong>打开</strong> / <strong>仍要打开</strong></li>
+              <li>之后双击就能直接开了</li>
+            </ol>
+            <p>详细安装步骤见 <a href="https://github.com/JUNSHENG428/gzhtool/blob/main/docs/USER_DOWNLOAD_HELPER.md" target="_blank" rel="noopener">USER_DOWNLOAD_HELPER.md</a>。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>Windows 提示「Windows 已保护你的电脑」怎么办？</summary>
+          <div class="faq-body">
+            <ol>
+              <li>SmartScreen 弹窗里点 <strong>「更多信息」</strong></li>
+              <li>下面会出现 <strong>「仍要运行」</strong> 按钮，点它</li>
+              <li>之后双击就能直接开了</li>
+            </ol>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============ 退款政策 ============ -->
+      <section class="faq-section" id="refund">
+        <h2>退款政策</h2>
+
+        <details class="faq-item">
+          <summary>付费后觉得不合用，能退款吗？</summary>
+          <div class="faq-body">
+            <p>可以。<strong>购买后 7 天内</strong>，且累计使用次数 ≤ 30 次的，无理由全额退款。</p>
+            <p>申请方式：邮件 <a href="mailto:support@docuearn.com">support@docuearn.com</a>，提供：</p>
+            <ul>
+              <li>购买时使用的邮箱</li>
+              <li>支付订单号</li>
+              <li>退款原因（一句话即可，方便我们改进）</li>
+            </ul>
+            <p>1-3 个工作日内原路退回到你的支付账户。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>超过 7 天能退吗？</summary>
+          <div class="faq-body">
+            <p>原则上不退。但如果是因为 <strong>服务出现重大问题（功能完全无法使用 / 长期宕机）</strong>，我们会按未使用天数比例退款。请详细描述问题 + 提供截图发到 <a href="mailto:support@docuearn.com">support@docuearn.com</a>。</p>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============ CTA ============ -->
+      <div class="faq-cta">
+        <h3>没找到你的问题？</h3>
+        <p>邮件给我们，24 小时内人工回复（带 <code>[DOC-...]</code> 工单号自动追踪）</p>
+        <a class="btn btn-primary" href="mailto:support@docuearn.com">写邮件给我们</a>
+        <a class="btn btn-ghost" href="./docs">查看完整文档</a>
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-foot">
+    <div class="site-foot-inner">
+      <span>© <span id="year"></span> 润笔 DocuEarn · 一个让创作者多一份安稳的工具</span>
+      <nav>
+        <a href="./pricing">定价</a>
+        <a href="./faq">常见问题</a>
+        <a href="./docs">使用文档</a>
+        <a href="./changelog">更新日志</a>
+        <a href="./privacy">隐私政策</a>
+        <a href="./terms">服务条款</a>
+        <a href="mailto:support@docuearn.com">联系</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+    // 支持 URL hash 自动展开对应问题（FAQ 链接到具体一条时）
+    if (location.hash) {
+      const target = document.querySelector(location.hash);
+      if (target) {
+        if (target.tagName === "DETAILS") target.open = true;
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  </script>
+</body>
+</html>
