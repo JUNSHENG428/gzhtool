@@ -1,0 +1,48 @@
+edition: 3.0.0
+name: gzh-wechat-api-proxy
+access: default
+
+# ──────────────────────────────────────────────────────────────────────────
+# 阿里云函数计算 FC 3.0 部署描述（Serverless Devs CLI 用）
+#
+# 部署：在本目录执行
+#   $ s deploy -y
+#
+# 部署完看终端 "url:" 一行，把那个 https://xxxxx.fcapp.run 填到扩展
+# 「设置 → 公众号 → 微信 API 自定义 base」即可。
+#
+# 重要：只在你的公众号后台「IP 白名单」里加阿里云的出口 IP 段。
+# 阿里云 FC 各 region 的出口段可以在控制台「服务 → 出口 IP 列表」查到，
+# 一次性贴进去就够用。
+# ──────────────────────────────────────────────────────────────────────────
+
+resources:
+  proxy:
+    component: fc3
+    props:
+      region: cn-hangzhou
+      functionName: gzh-wechat-api-proxy
+      runtime: nodejs18
+      handler: index.handler
+      timeout: 30
+      memorySize: 256
+      cpu: 0.35
+      diskSize: 512
+      code: ./
+      environmentVariables:
+        # 可选：设置后所有请求需要 header X-Proxy-Token: <值>
+        # 留空 = 完全公开（任何人拿到 URL 都能调，仅适合临时测试）
+        PROXY_TOKEN: ""
+      triggers:
+        - triggerName: http
+          triggerType: http
+          triggerConfig:
+            authType: anonymous # 公开触发；要鉴权请改 function 并自己实现
+            methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - PATCH
+              - OPTIONS
+              - HEAD

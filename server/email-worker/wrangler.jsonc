@@ -1,0 +1,37 @@
+{
+  // ---------------------------------------------------------------------
+  // support-autoreply Worker · 自动回复 support@docuearn.com 的来信
+  // ---------------------------------------------------------------------
+  // 部署：
+  //   cd server/email-worker
+  //   npx wrangler deploy
+  //
+  // 部署后必做（仅首次）：
+  //   1. Settings → Variables and Secrets 加 RESEND_API_KEY (Secret)
+  //      ⚠️ 必须用 Secret 不要用 Plain text，否则明文存储被 dashboard 显示
+  //   2. Cloudflare → Email Routing → Destination addresses 加并验证 FORWARD_TO
+  //      指向的 Gmail 地址（Cloudflare 会发验证邮件，必须点链接确认）
+  //   3. Cloudflare → Email Routing → Routes → support@docuearn.com 的 Action
+  //      改为 "Send to a Worker" → 选 support-autoreply
+  //
+  // 完整 SOP：见同目录 README.md
+  // ---------------------------------------------------------------------
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "support-autoreply",
+  "main": "support-autoreply.js",
+  "compatibility_date": "2025-04-01",
+
+  // 公开变量（非密钥可放这里；如需改运营 Gmail / 微信号，改完 wrangler deploy 即生效）
+  "vars": {
+    "FROM_ADDR": "support@docuearn.com",
+    // ⚠️ 下面两个填生产真实值后再 deploy。FORWARD_TO 必须先在 Cloudflare Email Routing
+    //    Destination addresses 完成验证。WECHAT_ID 会出现在自动回复正文里给用户看到。
+    "FORWARD_TO": "REPLACE_WITH_REAL_GMAIL@gmail.com",
+    "WECHAT_ID": "REPLACE_WITH_REAL_WECHAT_ID"
+  }
+
+  // 私密变量（必须用 wrangler secret put 注入，禁止写在这里）：
+  //   RESEND_API_KEY  —— Resend API Key (re_xxx...)，参考 docs/RESEND_EMAIL_SETUP.md
+  //   注入命令：
+  //     npx wrangler secret put RESEND_API_KEY --name support-autoreply
+}
