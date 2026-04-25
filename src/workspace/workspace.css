@@ -643,6 +643,29 @@ h2 {
   margin-bottom: 16px;
 }
 
+.image-source-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px dashed #d7dbc8;
+}
+
+.cover-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.cover-empty-actions button {
+  flex: 1 1 auto;
+}
+
 .image-card {
   display: grid;
   grid-template-columns: 84px 1fr;
@@ -1714,6 +1737,122 @@ h2 {
   color: #173722;
 }
 
+/* ===== firstRun 4 步任务清单（与 welcome 页 onboarding-step 共用结构） ===== */
+.first-run-card--checklist {
+  width: min(560px, calc(100vw - 48px));
+  text-align: left;
+  padding: 32px 32px 28px;
+}
+
+.first-run-card--checklist h2 {
+  text-align: center;
+  font-size: 22px;
+}
+
+.first-run-card--checklist .first-run-icon {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.first-run-card--checklist .first-run-subtitle {
+  text-align: center;
+  margin-bottom: 18px;
+  font-size: 13px;
+}
+
+.first-run-card--checklist .onboarding-steps {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.first-run-card--checklist .onboarding-step {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.first-run-card--checklist .onboarding-step[data-status="completed"] {
+  background: rgba(107, 143, 113, 0.1);
+  border-color: rgba(107, 143, 113, 0.4);
+}
+
+.first-run-card--checklist .onboarding-step[data-status="skipped"] {
+  border-style: dashed;
+  opacity: 0.78;
+}
+
+.first-run-card--checklist .onboarding-step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--soft-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.first-run-card--checklist .onboarding-step[data-status="completed"] .onboarding-step-num {
+  background: #2f5a37;
+  color: #fff;
+}
+
+.first-run-card--checklist .onboarding-step-body {
+  display: grid;
+  gap: 2px;
+}
+
+.first-run-card--checklist .onboarding-step-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.first-run-card--checklist .onboarding-step-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.first-run-card--checklist .onboarding-step-desc {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--soft-ink);
+  line-height: 1.55;
+}
+
+.first-run-card--checklist .onboarding-step-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--soft-ink);
+}
+
+.first-run-card--checklist .onboarding-step-badge[data-status="completed"] {
+  background: rgba(107, 143, 113, 0.18);
+  color: #2f5a37;
+}
+
+.first-run-card--checklist .onboarding-step-badge[data-status="skipped"] {
+  font-style: italic;
+}
+
+.first-run-card--checklist .onboarding-step-badge[data-status="pending"] {
+  background: rgba(225, 175, 60, 0.16);
+  color: #8a6300;
+}
+
 .empty-prompt-card {
   display: flex;
   flex-direction: column;
@@ -2056,6 +2195,43 @@ h2 {
     0 0 0 2px var(--surface-elevated),
     0 0 0 4px rgba(23, 55, 34, 0.32),
     0 1px 2px rgba(23, 55, 34, 0.18);
+}
+
+/* AI 模板生成（PRO） — 强调辅助风格，跟主"AI 改写"主按钮配色协调
+   但用更克制的金边 + 暖色背景，和 PRO 徽章一致 */
+.layout-toolbar-btn--accent {
+  background: linear-gradient(135deg, rgba(255, 247, 233, 0.96) 0%, rgba(255, 235, 205, 0.92) 100%);
+  border: 1px solid rgba(192, 142, 61, 0.5);
+  color: #6b4a16;
+  font-weight: 600;
+  gap: 6px;
+}
+
+.layout-toolbar-btn--accent:hover {
+  background: linear-gradient(135deg, rgba(255, 244, 222, 1) 0%, rgba(255, 226, 184, 1) 100%);
+  border-color: rgba(192, 142, 61, 0.8);
+  color: #4d3409;
+}
+
+.layout-toolbar-btn--accent:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--surface-elevated),
+    0 0 0 4px rgba(192, 142, 61, 0.32);
+}
+
+.layout-toolbar-pro-tag {
+  display: inline-flex;
+  align-items: center;
+  font-family: 'Helvetica Neue', 'Arial', sans-serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 1px 6px;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: rgba(107, 74, 22, 0.92);
+  color: #fff7e9;
+  line-height: 1.4;
 }
 
 /* prompt + 主按钮 视觉分组：紧贴 4px gap，跟左侧"抓取"的 8px gap 形成层级差 */
@@ -2486,6 +2662,14 @@ h2 {
     var(--card, #fbf7ec);
 }
 
+/* 即将到期：琥珀/橙色，比 expired 弱、比 pro 强，提示性而非告警性 */
+.member-hero[data-status="expiring"] {
+  border-color: rgba(217, 119, 6, 0.45);
+  background:
+    linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(255, 253, 248, 0) 60%) ,
+    var(--card, #fbf7ec);
+}
+
 .member-hero-main {
   display: flex;
   align-items: flex-start;
@@ -2514,6 +2698,32 @@ h2 {
 .member-hero[data-status="stale"] .member-hero-icon {
   background: rgba(196, 89, 60, 0.12);
   color: #b14d34;
+}
+
+.member-hero[data-status="expiring"] .member-hero-icon {
+  background: rgba(245, 158, 11, 0.16);
+  color: #b45309;
+}
+
+.member-hero[data-status="expiring"] .member-hero-label {
+  color: #92400e;
+}
+
+.member-hero[data-status="expiring"] .member-hero-tag {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(217, 119, 6, 0.3);
+  color: #92400e;
+}
+
+.member-hero[data-status="expiring"] .member-btn-primary {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  border-color: #d97706;
+  color: #fff;
+}
+
+.member-hero[data-status="expiring"] .member-btn-primary:hover {
+  background: linear-gradient(135deg, #d97706, #b45309);
+  border-color: #b45309;
 }
 
 .member-hero-meta {
@@ -2930,4 +3140,144 @@ h2 {
   .member-actions-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ==========================================================================
+   P1 · WeChat 外部约束相关 UI（workspace 端）
+   - .publish-send-strategy        : 发布面板的「群发策略」radio block（P1.2）
+   - .modal / .modal-backdrop      : 「需要认证账号」兜底 modal（P1.1）
+   ========================================================================== */
+
+.publish-send-strategy {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px dashed #d8d5ca;
+  border-radius: 14px;
+  background: rgba(255, 253, 248, 0.6);
+}
+
+.publish-send-strategy legend {
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink, #2a2f24);
+}
+
+.publish-send-strategy legend small {
+  margin-left: 6px;
+  font-weight: 400;
+  color: var(--soft-ink, #6f6e64);
+}
+
+.publish-send-strategy-options {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.publish-send-strategy-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 6px 0;
+}
+
+.publish-send-strategy-tag-row[hidden] {
+  display: none;
+}
+
+.publish-send-quota-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--soft-ink, #6f6e64);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(22, 32, 26, 0.46);
+  backdrop-filter: blur(4px);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.modal {
+  position: fixed;
+  z-index: 201;
+  top: 50%;
+  left: 50%;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 60px);
+  overflow: auto;
+  padding: 0;
+  background: #fffdf8;
+  border-radius: 18px;
+  border: 1px solid #d8d5ca;
+  box-shadow: 0 20px 60px rgba(38, 44, 33, 0.22);
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+}
+
+.modal[hidden] {
+  display: none;
+}
+
+.modal .modal-header {
+  padding: 18px 22px 8px;
+  border-bottom: 1px solid #efeadd;
+}
+
+.modal .modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--ink, #2a2f24);
+}
+
+.modal .modal-body {
+  padding: 14px 22px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--ink, #2a2f24);
+}
+
+.modal .modal-body code {
+  padding: 1px 6px;
+  background: rgba(38, 44, 33, 0.06);
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.modal .modal-body ul {
+  padding-left: 20px;
+  margin: 6px 0 12px;
+}
+
+.modal .modal-footer {
+  padding: 12px 22px 18px;
+  border-top: 1px solid #efeadd;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.modal .button-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(38, 44, 33, 0.06);
+  color: var(--ink, #2a2f24);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.modal .button-link:hover {
+  background: rgba(38, 44, 33, 0.12);
 }

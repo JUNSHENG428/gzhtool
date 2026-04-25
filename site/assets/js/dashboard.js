@@ -94,27 +94,146 @@ function bindGlobalActions() {
 
 /**
  * 付款回流：用户从第三方支付平台付完款回到 dashboard
- * URL 形如 /dashboard.html?from=checkout&result=success
- * 我们弹一个 toast 告诉他「Pro 权益开通中，几十秒后会自动同步到账号」。
+ * URL 形如 /dashboard.html?from=checkout&result=success&order=xxx
+ *   - 前端立刻 hydrate 一次（如果 webhook 抢在前面到了，直接显示已开通）
+ *   - 没到的话顶部挂一个 syncing 徽标 + 每 3s 轮询 /api/me，最多 60s
+ *   - plan === "pro" 时停止轮询，撤掉徽标，弹"已开通"toast
+ *   - 60s 还没到账时撤徽标 + 改提示，让用户手动刷新
+ *   - 不论哪种结局都把 ?from=checkout 清掉，避免刷新二次触发
  */
-function handleCheckoutReturn() {
+const SYNC_TIMEOUT_MS = 60 * 1000;
+const SYNC_INTERVAL_MS = 3000;
+let syncPollTimer = null;
+let syncStartedAt = 0;
+
+async function handleCheckoutReturn() {
   const params = new URLSearchParams(location.search);
   if (params.get("from") !== "checkout") return;
   const result = params.get("result");
-  if (result === "success") {
-    showToast(
-      "支付完成 ✓ Pro 权益正在开通，30 秒内会自动同步到你的账号。",
-      "success",
-      5000
-    );
-    setTimeout(() => void hydrate(), 5000);
-  } else if (result === "cancel") {
-    showToast("已取消支付，可以随时回来继续。", "warning");
-  }
-  // 把 query 清掉，避免刷新就再 toast 一次
+
   if (history.replaceState) {
     history.replaceState({}, "", location.pathname);
   }
+
+  if (result === "cancel") {
+    showToast("已取消支付，可以随时回来继续。", "warning");
+    return;
+  }
+  if (result !== "success") return;
+
+  showToast("支付完成 ✓ 正在为账号开通 Pro 权益…", "success", 4000);
+
+  // 给 hydrate() 一次机会先把数据拉回来；如果 webhook 抢在前面，直接收尾。
+  try {
+    const data = await auth.me();
+    renderAccount(data);
+    renderLicenseList(data?.license);
+    if ((data?.license?.plan || "free") === "pro") {
+      showToast("Pro 会员已开通 ✓", "success", 3500);
+      return;
+    }
+  } catch {
+    // 拉数据失败也无妨，下面照样起轮询
+  }
+
+  showSyncIndicator("正在同步会员权益（最多约 30 秒）…");
+  startMembershipPolling();
+}
+
+function startMembershipPolling() {
+  if (syncPollTimer) return;
+  syncStartedAt = Date.now();
+
+  // 注：DOMContentLoaded 里已经 hydrate() 过一次（webhook 抢在前面就直接显示已开通）。
+  // 这里只起定时器，避免和 hydrate() 同帧并发拉两次 /api/me。
+  syncPollTimer = setInterval(() => {
+    if (Date.now() - syncStartedAt > SYNC_TIMEOUT_MS) {
+      stopMembershipPolling();
+      hideSyncIndicator();
+      showToast(
+        "权益还在路上，可手动刷新查看；如几分钟后仍未开通请联系 support@docuearn.com。",
+        "warning",
+        6000
+      );
+      return;
+    }
+    void tickMembership();
+  }, SYNC_INTERVAL_MS);
+}
+
+async function tickMembership() {
+  try {
+    const data = await auth.me();
+    renderAccount(data);
+    renderLicenseList(data?.license);
+    if ((data?.license?.plan || "free") === "pro") {
+      stopMembershipPolling();
+      hideSyncIndicator();
+      showToast("Pro 会员已开通 ✓", "success", 4000);
+    }
+  } catch (error) {
+    if (error?.status === 401) {
+      stopMembershipPolling();
+    }
+    // 其它错误：等下一轮再试
+  }
+}
+
+function stopMembershipPolling() {
+  if (syncPollTimer) {
+    clearInterval(syncPollTimer);
+    syncPollTimer = null;
+  }
+}
+
+function showSyncIndicator(text) {
+  let el = document.getElementById("checkoutSyncBadge");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "checkoutSyncBadge";
+    el.className = "checkout-sync-badge";
+    ensureSyncBadgeStyles();
+    const sub = els.sub;
+    if (sub?.parentNode) {
+      sub.parentNode.insertBefore(el, sub.nextSibling);
+    } else {
+      document.querySelector(".dash-shell .wrap")?.prepend(el);
+    }
+  }
+  el.innerHTML = `
+    <span class="checkout-sync-badge__dot"></span>
+    <span class="checkout-sync-badge__text"></span>
+    <button type="button" class="checkout-sync-badge__refresh">立即刷新</button>
+  `;
+  el.querySelector(".checkout-sync-badge__text").textContent = text;
+  el
+    .querySelector(".checkout-sync-badge__refresh")
+    .addEventListener("click", () => location.reload());
+}
+
+function hideSyncIndicator() {
+  document.getElementById("checkoutSyncBadge")?.remove();
+}
+
+function ensureSyncBadgeStyles() {
+  if (document.getElementById("checkout-sync-badge-style")) return;
+  const css = `
+    .checkout-sync-badge{display:inline-flex;align-items:center;gap:10px;
+      margin:14px auto 0;padding:8px 14px;border-radius:999px;
+      background:#fffbeb;border:1px solid #fde68a;color:#92400e;
+      font-size:0.86rem;line-height:1;}
+    .checkout-sync-badge__dot{width:8px;height:8px;border-radius:50%;
+      background:#f59e0b;animation:cs-pulse 1.2s ease-in-out infinite;}
+    @keyframes cs-pulse{0%,100%{opacity:.45;}50%{opacity:1;}}
+    .checkout-sync-badge__refresh{border:none;background:transparent;
+      color:#b45309;cursor:pointer;font-size:0.86rem;font-family:inherit;
+      padding:0 0 0 6px;border-left:1px solid rgba(180,83,9,.3);font-weight:500;}
+    .checkout-sync-badge__refresh:hover{color:#92400e;}
+  `;
+  const style = document.createElement("style");
+  style.id = "checkout-sync-badge-style";
+  style.textContent = css;
+  document.head.appendChild(style);
 }
 
 async function hydrate() {
@@ -162,6 +281,98 @@ function renderAccount(data) {
     const needsPw = !!user.needsPluginPassword;
     els.pluginPwCard.hidden = !needsPw;
   }
+
+  renderRenewalBanner(plan, lic);
+}
+
+/**
+ * 临近到期 / 已到期续费提醒横幅。
+ * 触发条件：
+ *   - plan === "pro"
+ *   - expiresAt > 0（永久会员不弹）
+ *   - 剩余 ≤ 7 天 或者已到期
+ * 横幅放在欢迎语下方、账号卡上方，琥珀色 / 红色 + 「立即续费」按钮。
+ */
+function renderRenewalBanner(plan, lic) {
+  const host = document.querySelector(".dash-shell .wrap") || document.querySelector("main");
+  if (!host) return;
+
+  let banner = document.getElementById("renewalBanner");
+  const expiresAt = Number(lic?.expiresAt || lic?.expires_at) || 0;
+  if (plan !== "pro" || expiresAt <= 0) {
+    banner?.remove();
+    return;
+  }
+
+  const msLeft = expiresAt - Date.now();
+  const totalDays = Math.ceil(msLeft / (24 * 60 * 60 * 1000));
+  // 已到期由 expired 状态去处理，这里只管 8 天 ~ 已到期 0 天的提醒区间
+  if (msLeft > 7 * 24 * 60 * 60 * 1000) {
+    banner?.remove();
+    return;
+  }
+
+  const expired = msLeft <= 0;
+  const daysLeft = Math.max(1, totalDays);
+
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "renewalBanner";
+    banner.className = "renewal-banner";
+    ensureRenewalBannerStyles();
+    const greeting = document.querySelector(".section-head");
+    if (greeting?.parentNode) {
+      greeting.parentNode.insertBefore(banner, greeting.nextSibling);
+    } else {
+      host.prepend(banner);
+    }
+  }
+
+  banner.dataset.tone = expired ? "danger" : "warning";
+  banner.innerHTML = `
+    <div class="renewal-banner__inner">
+      <span class="renewal-banner__icon" aria-hidden="true">⏳</span>
+      <div class="renewal-banner__body">
+        <strong class="renewal-banner__title">
+          ${expired
+            ? `Pro 会员已于 ${escapeHtml(formatDate(expiresAt))} 到期`
+            : `Pro 会员还剩 ${daysLeft} 天到期`}
+        </strong>
+        <p class="renewal-banner__desc">
+          ${expired
+            ? "续费后会员权益立即恢复，绑定的设备与历史无需重新设置。"
+            : `到期日 ${escapeHtml(formatDate(expiresAt))}。建议提前续费，避免到期当天 Pro 功能突然停用。`}
+        </p>
+      </div>
+      <a class="renewal-banner__action" href="./pricing">立即续费</a>
+    </div>
+  `;
+}
+
+function ensureRenewalBannerStyles() {
+  if (document.getElementById("renewal-banner-style")) return;
+  const css = `
+    .renewal-banner{box-sizing:border-box;max-width:920px;margin:0 auto 22px;
+      padding:16px 18px;border-radius:14px;border:1px solid #fde68a;
+      background:#fffbeb;color:#92400e;}
+    .renewal-banner[data-tone=danger]{background:#fef2f2;border-color:#fecaca;color:#991b1b;}
+    .renewal-banner__inner{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+    .renewal-banner__icon{font-size:22px;line-height:1;flex-shrink:0;}
+    .renewal-banner__body{flex:1 1 280px;min-width:0;}
+    .renewal-banner__title{display:block;font-size:0.98rem;font-weight:600;line-height:1.4;}
+    .renewal-banner__desc{margin:4px 0 0;font-size:0.86rem;line-height:1.55;color:inherit;opacity:0.9;}
+    .renewal-banner__action{display:inline-flex;align-items:center;justify-content:center;
+      padding:8px 18px;border-radius:9px;background:currentColor;color:#fff !important;
+      font-size:0.88rem;font-weight:600;text-decoration:none;
+      transition:opacity .15s;flex-shrink:0;}
+    .renewal-banner__action:hover{opacity:0.85;}
+    .renewal-banner[data-tone=warning] .renewal-banner__action{background:#d97706;}
+    .renewal-banner[data-tone=danger] .renewal-banner__action{background:#dc2626;}
+  `;
+  const style = document.createElement("style");
+  style.id = "renewal-banner-style";
+  style.textContent = css;
+  document.head.appendChild(style);
 }
 
 function renderLicenseList(lic) {

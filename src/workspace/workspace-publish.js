@@ -41,6 +41,22 @@ function _bindPublishEvents() {
   );
   document.querySelector("#syncWebEditorButton").addEventListener("click", syncCurrentToWebEditor);
 
+  // P1.2 · 群发策略 radio + tag_id 输入框联动 + 配额提示。
+  // 用户每次切策略都重新 render 提示文案，避免"看不到为什么 tag_id 没生效"。
+  document.querySelectorAll('input[name="publishSendStrategy"]').forEach((input) => {
+    input.addEventListener("change", _refreshSendStrategyUi);
+  });
+  // 把设置页的默认值带过来
+  void _hydrateSendStrategyDefaults();
+
+  // P1.1 · 「需要认证账号」兜底 modal 的关闭 + 复制 HTML 按钮
+  const closeBtn = document.querySelector("#closeVerifiedAccountModalButton");
+  const copyBtn = document.querySelector("#copyHtmlForManualPasteButton");
+  const verifiedBackdrop = document.querySelector("#verifiedAccountModalBackdrop");
+  if (closeBtn) closeBtn.addEventListener("click", _closeVerifiedAccountModal);
+  if (verifiedBackdrop) verifiedBackdrop.addEventListener("click", _closeVerifiedAccountModal);
+  if (copyBtn) copyBtn.addEventListener("click", _copyCurrentArticleHtmlForPaste);
+
   // 历史记录抽屉
   document.querySelector("#historyButton").addEventListener("click", () => void openHistoryDrawer());
   document.querySelector("#closeHistoryDrawerButton").addEventListener("click", closeHistoryDrawer);
@@ -70,6 +86,114 @@ function _bindPublishEvents() {
       void deleteHistoryRecord(id);
     }
   });
+}
+
+/**
+ * P1.2 · 把 settings 里的群发默认值 hydrate 到发布面板上，让用户看到的不是空状态。
+ * 不在 init() 里同步取，是因为 storage.get 是 async；用 fire-and-forget 兼顾顺手。
+ */
+async function _hydrateSendStrategyDefaults() {
+  try {
+    const settings = await getSettings();
+    const radios = document.querySelectorAll('input[name="publishSendStrategy"]');
+    const defaultStrategy = ["none", "all", "tag"].includes(settings.wechatSendStrategy)
+      ? settings.wechatSendStrategy
+      : "none";
+    radios.forEach((r) => {
+      r.checked = r.value === defaultStrategy;
+    });
+    const tagInput = document.querySelector("#publishSendTagId");
+    if (tagInput && settings.wechatSendTagId) {
+      tagInput.value = String(settings.wechatSendTagId);
+    }
+    const ignoreInput = document.querySelector("#publishSendIgnoreReprint");
+    if (ignoreInput) ignoreInput.checked = Boolean(settings.wechatSendIgnoreReprint);
+    _refreshSendStrategyUi();
+  } catch (err) {
+    console.warn("[workspace-publish] hydrate sendStrategy failed:", err);
+  }
+}
+
+function _refreshSendStrategyUi() {
+  const checked = document.querySelector('input[name="publishSendStrategy"]:checked');
+  const strategy = checked?.value || "none";
+  const tagRow = document.querySelector("#publishSendStrategyTagRow");
+  const ignoreRow = document.querySelector("#publishSendIgnoreReprintRow");
+  const quotaHint = document.querySelector("#publishSendQuotaHint");
+  if (tagRow) tagRow.hidden = strategy !== "tag";
+  if (ignoreRow) ignoreRow.hidden = strategy === "none";
+  if (quotaHint) {
+    if (strategy === "all") {
+      // 异步读 storage 渲染本月已用次数，避免在 UI 文案里 hardcode 数值
+      void _renderSendAllQuotaHint(quotaHint);
+    } else if (strategy === "tag") {
+      quotaHint.textContent = "群发到指定标签不计入「全员 4 次/月」配额，可放心使用。";
+    } else {
+      quotaHint.textContent = "";
+    }
+  }
+}
+
+async function _renderSendAllQuotaHint(el) {
+  try {
+    const settings = await getSettings();
+    const now = new Date();
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const used = settings.wechatSendAllUsageMonth === monthKey
+      ? Number(settings.wechatSendAllUsageCount) || 0
+      : 0;
+    el.textContent = `本月已用 ${used} / 4 次「群发全员」配额（自维护估算，新月自动归零）。`;
+  } catch {
+    el.textContent = "本月「群发全员」配额读取失败。";
+  }
+}
+
+// ── P1.1 · 「需要认证账号」兜底 modal ──
+
+/** 显示「需要认证账号」的兜底弹窗。errorPayload = response.error，可能含 errcode / message。 */
+function _openVerifiedAccountModal(errorPayload) {
+  const modal = document.querySelector("#verifiedAccountModal");
+  const backdrop = document.querySelector("#verifiedAccountModalBackdrop");
+  const detail = document.querySelector("#verifiedAccountModalDetail");
+  if (!modal || !backdrop) return;
+  modal.hidden = false;
+  modal.removeAttribute("aria-hidden");
+  backdrop.hidden = false;
+  if (detail) {
+    const errcode = errorPayload?.errcode ? `errcode=${errorPayload.errcode} · ` : "";
+    const msg = errorPayload?.message || "";
+    detail.textContent = msg ? `${errcode}${msg}` : "";
+  }
+}
+
+function _closeVerifiedAccountModal() {
+  const modal = document.querySelector("#verifiedAccountModal");
+  const backdrop = document.querySelector("#verifiedAccountModalBackdrop");
+  if (modal) {
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+  }
+  if (backdrop) backdrop.hidden = true;
+}
+
+async function _copyCurrentArticleHtmlForPaste() {
+  const { state, getCurrentArticle, buildExportHtmlForArticle, setStatus } = _ctx;
+  try {
+    const current = typeof getCurrentArticle === "function"
+      ? getCurrentArticle()
+      : state.articleBundle?.[state.currentArticleIndex || 0];
+    if (!current) {
+      setStatus("当前没有可复制的文章。", "warning");
+      return;
+    }
+    // 用最终给公众号用的 themed + sanitize 后 HTML，确保粘贴到后台「HTML 源码」时排版完整
+    const themed = buildExportHtmlForArticle(current);
+    const sanitized = prepareHtmlForWechat(themed);
+    await navigator.clipboard.writeText(sanitized);
+    setStatus("已复制到剪贴板。请到公众号后台「素材管理 → 新建图文」点正文区右上角『&lt;&gt; HTML 源码』粘贴。", "success");
+  } catch (err) {
+    setStatus(`复制失败：${err?.message || err}`, "warning");
+  }
 }
 
 // ── 发布 / 草稿 ──
@@ -129,13 +253,19 @@ export async function publishBundle(mode) {
       `${mode === "publish" ? "正在提交多图文发布" : "正在推送多图文草稿包"} · 账号「${accountLabel}」...`
     );
 
-    const payload = _buildWechatPublishPayload(mode);
+    const payload = await _buildWechatPublishPayload(mode);
     payload.accountOverride = accountOverride;
     payload.accountLabel = accountLabel;
     payload.profileIndex = profileIndex;
+    // P1.2 · 把发布面板里临时选的群发策略带过去
+    Object.assign(payload, _readSendStrategyFromUi());
     const response = await chrome.runtime.sendMessage({ type: "PUBLISH_TO_WECHAT", payload });
 
     if (!response?.ok) {
+      // P1.1 · 48001/53400：触发"复制 HTML 手动粘贴"弹窗，避免用户对着红 toast 干瞪眼
+      if (response?.error?.requiresVerifiedAccount) {
+        _openVerifiedAccountModal(response.error);
+      }
       throw new Error(formatRuntimeError(response?.error, "公众号发布失败。"));
     }
 
@@ -147,6 +277,10 @@ export async function publishBundle(mode) {
     };
     syncWorkspace();
     schedulePersist();
+    // P1.2 · 群发全员后立即重画配额提示，让用户实时看到「3/4」「4/4」
+    if (response.data?.sendStrategy === "all") {
+      _refreshSendStrategyUi();
+    }
     await saveCurrentDraftRecord(mode === "publish" ? "发布完成" : "推送到公众号草稿箱");
 
     if (response.data.publishId) {
@@ -193,12 +327,43 @@ export async function publishBundle(mode) {
   }
 }
 
-function _buildWechatPublishPayload(mode) {
-  const { state, buildExportHtmlForArticle } = _ctx;
-  const articles = state.articleBundle.map((article, index) => {
-    const coverImage = state.source?.images?.[Number(article.meta.coverImageIndex || 0) - 1] || null;
+/**
+ * 从发布面板的 radio + 输入框读出群发策略，返回 payload 片段。
+ * 永远只返回 publishMode === "publish" 时该带的字段；草稿模式下后端忽略。
+ */
+function _readSendStrategyFromUi() {
+  const checked = document.querySelector('input[name="publishSendStrategy"]:checked');
+  const strategy = checked?.value === "all" || checked?.value === "tag" ? checked.value : "none";
+  const tagId = Number(document.querySelector("#publishSendTagId")?.value || 0);
+  const ignoreReprint = Boolean(document.querySelector("#publishSendIgnoreReprint")?.checked);
+  return {
+    sendStrategy: strategy,
+    sendTagId: strategy === "tag" ? tagId : 0,
+    sendIgnoreReprint: ignoreReprint
+  };
+}
+
+async function _buildWechatPublishPayload(mode) {
+  const { state, buildExportHtmlForArticle, ensureFallbackCoverImage } = _ctx;
+  const articles = [];
+  const autoGeneratedIndexes = [];
+
+  for (const [index, article] of state.articleBundle.entries()) {
     if (!article.meta.title.trim()) throw new Error(`第 ${index + 1} 篇没有填写标题。`);
-    if (!coverImage?.src) throw new Error(`第 ${index + 1} 篇还没有选择封面图。`);
+
+    // P1.3 · 封面救济：用户没选封面（包括抓取无图、index 为 0、或图被删掉了），
+    // 不再硬抛错——自动用文章标题生成一张简洁的占位封面，让"无封面图也能推"对
+    // 用户感知就是"一键就能推"。微信 add_draft 仍然能拿到合法 thumb_media_id。
+    let coverImage = state.source?.images?.[Number(article.meta.coverImageIndex || 0) - 1] || null;
+    if (!coverImage?.src) {
+      if (typeof ensureFallbackCoverImage !== "function") {
+        throw new Error(
+          `第 ${index + 1} 篇还没有封面图。请在「采集信息」面板上传本地图片或一键生成占位封面后重试。`
+        );
+      }
+      coverImage = await ensureFallbackCoverImage(article);
+      autoGeneratedIndexes.push(index + 1);
+    }
 
     // 公众号 add_draft 对 HTML 极挑剔：先用 prepareHtmlForWechat 把容器
     // 标签、class、危险节点和零宽字符干净化；再 tokenize 图片以便后台批量
@@ -207,7 +372,7 @@ function _buildWechatPublishPayload(mode) {
     const themedHtml = buildExportHtmlForArticle(article);
     const sanitizedHtml = prepareHtmlForWechat(themedHtml);
     const preparedHtml = _tokenizeImages(sanitizedHtml);
-    return {
+    articles.push({
       meta: {
         title: article.meta.title.trim(),
         author: article.meta.author.trim(),
@@ -219,8 +384,19 @@ function _buildWechatPublishPayload(mode) {
       html: preparedHtml.html,
       inlineImages: preparedHtml.inlineImages,
       cover: { src: coverImage.src, filename: _deriveFilename(coverImage.src, `cover-${index + 1}`) }
-    };
-  });
+    });
+  }
+
+  // 把自动生成情况告诉用户，避免"莫名多了张占位封面"的困惑
+  if (autoGeneratedIndexes.length > 0) {
+    _ctx.syncWorkspace();
+    _ctx.schedulePersist();
+    _ctx.setStatus(
+      `第 ${autoGeneratedIndexes.join(" / ")} 篇没有封面图，已为它自动生成简洁占位封面（建议后续替换为更合适的图片）。`,
+      "warning"
+    );
+  }
+
   return { articles, publishMode: mode };
 }
 

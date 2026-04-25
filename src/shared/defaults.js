@@ -29,6 +29,27 @@ export const DEFAULT_SETTINGS = {
   wechatDefaultOnlyFansCanComment: false,
   wechatProfiles: [],
   activeWechatProfileIndex: -1,
+  // 微信 API base（P1.3 · IP 白名单代理）。空字符串 = 走官方 https://api.weixin.qq.com，
+  // 适合公网 IP 已加白名单的场景。如果用户家用动态 IP 进不了白名单，
+  // 推荐走「阿里云函数计算 FC 代理」，把 FC 域名填到这里，FC 出口 IP 段是阿里云固定段，
+  // 一次性加进公众号后台白名单后所有 cgi-bin/* 接口就都通了。
+  // 完整部署文档：aliyun-fc/wechat-api-proxy/README.md
+  wechatApiBase: "",
+  // 公众号群发策略（P1.2 · 让认证账号文章显示到公众号列表）。
+  //   "none" → 仅走 freepublish/submit，不调群发。文章不显示在列表，关注者无通知。
+  //   "all"  → add_draft → mass/sendall(is_to_all=true)。群发全员、进列表，但**每月最多 4 次**。
+  //   "tag"  → add_draft → mass/sendall(is_to_all=false, tag_id)。群发指定标签，进列表，不计入月配额。
+  //
+  // 注：mass/sendall 仅认证服务号可用；订阅号 / 未认证账号会报 48001/53400。
+  // 默认 "none" 是安全行为，不会让旧用户在 2026-04 后突然吃配额。
+  wechatSendStrategy: "none",
+  wechatSendTagId: 0,
+  wechatSendIgnoreReprint: false,
+  // 公众号「本月已用 mass/sendall(is_to_all=true) 群发次数」的本地计数器（P1.2 配额可视化）。
+  // 微信侧没有提供查询当月已用次数的接口，所以只能在扩展端自维护一个估算计数：
+  // 每次成功调用 sendall(is_to_all=true) +1，进入新自然月时由 UI 自动 reset 到 0。
+  wechatSendAllUsageMonth: "",
+  wechatSendAllUsageCount: 0,
   hotTopicsDailyHotBase: "",
   hotTopicsNewsnowBase: "",
   // DrissionPage 增强抓取（可选）。需要本地启动一个 helper 服务，
@@ -36,6 +57,11 @@ export const DEFAULT_SETTINGS = {
   // 默认关闭；开启时也会保留"内置抓取兜底"，所以即使 helper 挂掉也不至于全链路失败。
   drissionEnabled: false,
   drissionHelperUrl: "",
+  // 本地 helper 的鉴权 token。粘贴含 ?token=… 的完整地址时，
+  // src/shared/drission.js 的 normalizeDrissionHelperUrl 会自动拆出 token
+  // 并由 options.js 在 saveSettings 之前同步到这个字段。
+  // 留空 = helper 也未开启鉴权（兼容老用户），扩展不会附带 X-Runbi-Helper-Token。
+  drissionHelperToken: "",
   drissionTimeoutMs: 30000
 };
 

@@ -9,10 +9,14 @@ import {
   getActiveTemplateId,
   getPromptTemplates,
   getSettings,
+  savePromptTemplates,
   setActiveTemplateId
 } from "../shared/storage.js";
 import { PAID_FEATURES } from "../shared/license.js";
 import { showUpgradeModal } from "../shared/upgrade-modal.js";
+import { openAiTemplateDialog } from "../shared/ai-template-dialog.js";
+
+const AI_GEN_OPTION_VALUE = "__ai_gen__";
 
 let _ctx;
 let _templates = [];
@@ -41,8 +45,40 @@ export function init(ctx) {
 
   _templateSelect?.addEventListener("change", async () => {
     const value = _templateSelect.value || "";
+    if (value === AI_GEN_OPTION_VALUE) {
+      _templateSelect.value = _selectedTemplateId || "";
+      const opened = await openAiGenTemplateFlow();
+      if (!opened) {
+        _templateSelect.value = _selectedTemplateId || "";
+      }
+      return;
+    }
     _selectedTemplateId = value;
     await setActiveTemplateId(value);
+  });
+
+  document
+    .querySelector("#aiGenTemplateBtnLayout")
+    ?.addEventListener("click", openAiGenTemplateFlow);
+}
+
+/**
+ * 打开 AI 模板生成对话框，生成成功后自动保存 + 选中。
+ * 由共享模块 src/shared/ai-template-dialog.js 处理 Pro 闸门 / 升级弹窗 / 表单。
+ */
+async function openAiGenTemplateFlow() {
+  const setStatus = _ctx?.setStatus || (() => {});
+  return openAiTemplateDialog({
+    pricingUrl: (typeof window !== "undefined" && window.__pricingUrl) || undefined,
+    setStatus,
+    onSaved: async (template) => {
+      const next = [..._templates, template];
+      await savePromptTemplates(next);
+      await setActiveTemplateId(template.id);
+      _templates = next;
+      _selectedTemplateId = template.id;
+      renderTemplateOptions();
+    }
   });
 }
 
@@ -63,7 +99,10 @@ async function hydrateTemplatePicker() {
 
 function renderTemplateOptions() {
   if (!_templateSelect) return;
-  const options = ['<option value="">默认 prompt（不套用模板）</option>'];
+  const options = [
+    '<option value="">默认 prompt（不套用模板）</option>',
+    `<option value="${AI_GEN_OPTION_VALUE}" data-ai-gen="true">✨ 用 AI 生成新模板（PRO）</option>`
+  ];
   for (const t of _templates) {
     const label = `${t.icon || "📝"} ${escapeAttr(t.name || t.id)}`;
     options.push(`<option value="${escapeAttr(t.id)}">${label}</option>`);

@@ -38,6 +38,9 @@ const VERIFY_INTERVAL_MS = 24 * 60 * 60 * 1000;       // 24h 主动复验
 const STALE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;        // 7 天宽限期
 const FREE_DAILY_REWRITE_QUOTA = 5;                    // 与 worker FREE_DAILY_AI_QUOTA 对齐
 const FREE_MULTI_ACCOUNT_LIMIT = 2;                    // 免费版多账号上限
+// 进入「即将到期」窗口阈值：剩余 ≤ 7 天但未过期。effectivePlan 仍为 pro，
+// 不影响功能；仅用于 UI 在 hero / dashboard / pricing 顶部展示倒计时 + 续费 CTA。
+const EXPIRING_SOON_MS = 7 * 24 * 60 * 60 * 1000;
 
 // License Key 离线格式校验（仍保留，避免无意义请求打到服务器）
 const KEY_PATTERN = /^GZHT-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/;
@@ -519,6 +522,32 @@ export function evaluateLicense(record) {
     record.expiresAt && Number(record.expiresAt) > 0
       ? `Pro 会员有效至 ${formatDate(record.expiresAt)}`
       : "Pro 会员（按订阅周期续费）";
+
+  // 即将到期窗口：剩余天数 ≤ 7 但 > 0。功能保持 pro，仅状态码翻 expiring，
+  // 让 UI（workspace member / dashboard / pricing）能挂续费提醒，
+  // 又不会误降级关掉付费功能。
+  const expiresAt = Number(record.expiresAt) || 0;
+  if (expiresAt > 0) {
+    const msLeft = expiresAt - Date.now();
+    if (msLeft > 0 && msLeft <= EXPIRING_SOON_MS) {
+      const daysLeft = Math.max(1, Math.ceil(msLeft / (24 * 60 * 60 * 1000)));
+      return {
+        status: "expiring",
+        label: "Pro 会员（即将到期）",
+        hint: `Pro 会员还剩 ${daysLeft} 天到期，建议提前续费避免功能中断`,
+        daysLeft,
+        key: record.key,
+        displayKey: maskKey(record.key),
+        plan: "pro",
+        effectivePlan: "pro",
+        expiresAt,
+        features,
+        dailyQuota,
+        user: record.user || null
+      };
+    }
+  }
+
   return {
     status: "pro",
     label: "Pro 会员",
@@ -527,7 +556,7 @@ export function evaluateLicense(record) {
     displayKey: maskKey(record.key),
     plan: "pro",
     effectivePlan: "pro",
-    expiresAt: record.expiresAt || 0,
+    expiresAt,
     features,
     dailyQuota,
     user: record.user || null
@@ -760,8 +789,161 @@ export const LICENSE_CONSTANTS = Object.freeze({
   FREE_MULTI_ACCOUNT_LIMIT,
   VERIFY_INTERVAL_MS,
   STALE_GRACE_MS,
+  EXPIRING_SOON_MS,
   DEFAULT_API_BASE
 });
+
+// =====================================================================
+// 统一会员状态文案 helper（P0 上架前体验统一）
+// =====================================================================
+//
+// 背景：popup pill / workspace 顶部 pill / member hero / options 会员区 /
+// dashboard 横幅 5 个触点之前各写各的文案，导致同一种状态用户看到 3 种说法。
+// 这个 helper 把状态翻译成 { tone, label, sub, primaryCta } 四元组，
+// 任何 UI 调用一次就能拿到一致的展示。
+//
+// 入参建议：
+//   - state: getLicenseState() / evaluateLicense() 返回值
+//   - usage: 可选，{ today: { rewrite } } 形态，用于给 Free 用户算"剩余次数"
+//   - auth:  可选，getAuthRecord() 返回值，用于区分"已登录免费"vs"未登录"
+//
+// 出参字段：
+//   tone        : "pro" | "expiring" | "expired" | "stale" | "invalid" | "free" | "guest" | "loading"
+//   label       : 短标签，给 pill 用（不超过 12 字）
+//   sub         : 一行解释，给 pill 的 hover/title 或卡片副标题用
+//   primaryCta  : { label, action } 推荐主按钮（"upgrade" | "renew" | "verify" | "login" | "manage"）
+//   accent      : 配色 token，用于 css 变量切换（绿/琥珀/红/灰）
+export function getLicenseSummaryText(state, { usage, auth } = {}) {
+  // 1) 加载中
+  if (!state) {
+    return {
+      tone: "loading",
+      label: "检测中…",
+      sub: "正在读取本地会员缓存",
+      primaryCta: null,
+      accent: "neutral"
+    };
+  }
+
+  const todayRewrite = Number(usage?.today?.rewrite) || 0;
+
+  // 2) 已过期 / 失效（红色，立刻续费）
+  if (state.status === "expired") {
+    return {
+      tone: "expired",
+      label: "Pro 已到期",
+      sub: state.hint || "续费后立即恢复 Pro 功能",
+      primaryCta: { label: "立即续费", action: "renew" },
+      accent: "danger"
+    };
+  }
+  if (state.status === "invalid") {
+    return {
+      tone: "invalid",
+      label: "授权异常",
+      sub: state.hint || "License 已被服务端冻结，请联系客服",
+      primaryCta: { label: "联系客服", action: "support" },
+      accent: "danger"
+    };
+  }
+
+  // 3) 临近到期（琥珀色，强提醒续费）
+  if (state.status === "expiring") {
+    const days = Number(state.daysLeft) || 1;
+    return {
+      tone: "expiring",
+      label: `Pro 还剩 ${days} 天`,
+      sub: `${days} 天后到期，建议提前续费避免功能中断`,
+      primaryCta: { label: "立即续费", action: "renew" },
+      accent: "warning"
+    };
+  }
+
+  // 4) Pro 正常（金色，无 CTA 或仅"管理"）
+  if (state.status === "pro") {
+    const expiresAt = Number(state.expiresAt) || 0;
+    const sub =
+      expiresAt > 0
+        ? `Pro 有效至 ${formatDate(expiresAt)}`
+        : "Pro 会员（按订阅周期续费）";
+    return {
+      tone: "pro",
+      label: "Pro 会员",
+      sub,
+      primaryCta: { label: "管理会员", action: "manage" },
+      accent: "success"
+    };
+  }
+
+  // 5) 需要重新验证（灰色，点一下复验）
+  if (state.status === "stale") {
+    return {
+      tone: "stale",
+      label: "需要重新验证",
+      sub: state.hint || "已超过 7 天未联网核验",
+      primaryCta: { label: "向服务器复验", action: "verify" },
+      accent: "neutral"
+    };
+  }
+
+  // 6) Free（已登录 / 未登录两种口径）
+  const cap =
+    Number.isFinite(state.dailyQuota) && state.dailyQuota > 0
+      ? state.dailyQuota
+      : FREE_DAILY_REWRITE_QUOTA;
+  const remain = Math.max(0, cap - todayRewrite);
+  const remainText =
+    todayRewrite > 0
+      ? `今日剩余 ${remain}/${cap} 次 AI 改写`
+      : `今日可用 ${cap} 次 AI 改写`;
+
+  if (auth?.user?.email) {
+    return {
+      tone: "free",
+      label: "免费版",
+      sub: `${auth.user.email} · ${remainText}`,
+      primaryCta: { label: "开通 Pro", action: "upgrade" },
+      accent: "neutral"
+    };
+  }
+  return {
+    tone: "guest",
+    label: "免费版",
+    sub: `未登录 · ${remainText}`,
+    primaryCta: { label: "登录 / 同步会员", action: "login" },
+    accent: "neutral"
+  };
+}
+
+/**
+ * Pro 闸门拦截时统一的"被拦能力 + 升级后获得"文案。
+ *
+ * 与 errors.js 的 WECHAT_NEEDS_VERIFIED_ACCOUNT 同口径——任何 Pro 闸门弹窗都应该
+ * 让用户立刻知道：① 这次具体被拦的是哪一项 ② 升级后立即能用什么。
+ *
+ * 入参：featureKey (PAID_FEATURES 的 key)
+ * 出参：{ title, blocked, gain, ctaLabel, ctaHref }
+ */
+export function getUpgradePrompt(featureKey, { pricingUrl, runtimeHint } = {}) {
+  const meta = PAID_FEATURES[featureKey];
+  if (!meta || meta.tier === "free") {
+    return null;
+  }
+  const url = String(pricingUrl || "https://docuearn.com/pricing");
+  return {
+    featureName: meta.name,
+    title: `${meta.name} · 需要 Pro 会员`,
+    blocked: `本次被拦的是「${meta.name}」`,
+    // gain 优先用调用方传入的 runtimeHint（比如「今日剩余 0/3 次」这类带具体数字的提示），
+    // 没有就退到 PAID_FEATURES 的静态 hint。
+    gain: String(runtimeHint || meta.hint || "开通 Pro 后立即解锁"),
+    ctaLabel: "查看 Pro 套餐",
+    ctaHref: url,
+    // 直接给 showUpgradeModal({ ...prompt }) 用：把字段名也对齐
+    hint: String(runtimeHint || meta.hint || "开通 Pro 后立即解锁"),
+    primaryAction: { label: "查看 Pro 套餐", url }
+  };
+}
 
 /**
  * 统一的 license 状态变化订阅入口。

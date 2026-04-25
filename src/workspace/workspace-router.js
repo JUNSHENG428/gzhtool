@@ -19,8 +19,21 @@
  */
 
 import { getUsageSnapshot } from "../shared/usage-stats.js";
-import { subscribeLicenseChanges, LICENSE_STORAGE_KEY } from "../shared/license.js";
+import {
+  subscribeLicenseChanges,
+  LICENSE_STORAGE_KEY,
+  getLicenseState,
+  getAuthRecord,
+  getLicenseSummaryText
+} from "../shared/license.js";
 import { STORAGE_KEYS } from "../shared/defaults.js";
+import { getOnboardingSnapshot, subscribeOnboarding } from "../shared/onboarding.js";
+import { openAiTemplateDialog } from "../shared/ai-template-dialog.js";
+import {
+  getPromptTemplates,
+  savePromptTemplates,
+  setActiveTemplateId
+} from "../shared/storage.js";
 
 const VALID_ROUTES = new Set([
   "dashboard",
@@ -174,6 +187,105 @@ function bindNavigation() {
     }
     applyRoute(route);
   });
+}
+
+/**
+ * 渲染顶部「下一步推荐动作」横幅（P0：dashboard 从数据面板改为下一步工作台）。
+ *
+ * 推荐规则（基于 onboarding 评估，按用户的实际进度选最该做的一步）：
+ *   - 4 步全完成 → 隐藏横幅（让出空间给数据 / 草稿）
+ *   - 否则取 snap.nextStep 作为推荐动作；map 到对应 CTA
+ */
+async function fillNextStep() {
+  const card = document.getElementById("dashboardNextStep");
+  if (!card) return;
+
+  let snap;
+  try {
+    snap = await getOnboardingSnapshot();
+  } catch (err) {
+    console.warn("[workspace-router] onboarding snapshot failed", err);
+    return;
+  }
+
+  if (snap.allDone || !snap.nextStep) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+
+  const next = snap.nextStep;
+  const titleEl = document.getElementById("dashboardNextStepTitle");
+  const descEl = document.getElementById("dashboardNextStepDesc");
+  const kickerEl = document.getElementById("dashboardNextStepKicker");
+  const primaryBtn = document.getElementById("dashboardNextStepPrimary");
+  const secondaryBtn = document.getElementById("dashboardNextStepSecondary");
+
+  if (kickerEl) kickerEl.textContent = `推荐下一步 · 完成 ${snap.completedCount} / ${snap.steps.length}`;
+  if (titleEl) titleEl.textContent = next.title;
+  if (descEl) descEl.textContent = next.desc;
+
+  if (primaryBtn) {
+    primaryBtn.textContent = labelForNextStep(next);
+    primaryBtn.dataset.action = next.id;
+    if (!primaryBtn.dataset.bound) {
+      primaryBtn.dataset.bound = "1";
+      primaryBtn.addEventListener("click", () => handleNextStepCta(primaryBtn.dataset.action));
+    }
+  }
+
+  if (secondaryBtn) {
+    if (next.skippable) {
+      secondaryBtn.hidden = false;
+      secondaryBtn.textContent = "稍后再说";
+      if (!secondaryBtn.dataset.bound) {
+        secondaryBtn.dataset.bound = "1";
+        secondaryBtn.addEventListener("click", async () => {
+          const onboarding = await import("../shared/onboarding.js");
+          await onboarding.markStepSkipped(primaryBtn?.dataset.action);
+          await fillNextStep();
+        });
+      }
+    } else {
+      secondaryBtn.hidden = true;
+    }
+  }
+}
+
+function labelForNextStep(step) {
+  switch (step.id) {
+    case "configureAi": return "去设置 API Key";
+    case "captureOne": return "抓取当前网页";
+    case "rewriteOne": return "去编辑台 · AI 改写";
+    case "publishOrCopy": return "去发布 / 复制 HTML";
+    default: return step.primaryCta?.label || "开始";
+  }
+}
+
+function handleNextStepCta(action) {
+  switch (action) {
+    case "configureAi": {
+      try { chrome.runtime.openOptionsPage(); } catch { /* ignore */ }
+      return;
+    }
+    case "captureOne": {
+      const btn = document.getElementById("captureButton");
+      if (btn) btn.click();
+      return;
+    }
+    case "rewriteOne": {
+      // 进入编辑排版视图，让用户能看到「AI 改写当前篇」按钮
+      location.hash = "layout";
+      return;
+    }
+    case "publishOrCopy": {
+      location.hash = "publish";
+      return;
+    }
+    default: {
+      // ignore
+    }
+  }
 }
 
 /**
@@ -359,38 +471,82 @@ function fillRecentDrafts(all) {
 }
 
 /**
+ * 把 license 记录里的 expiresAt 翻译成"还剩几天到期"。
+ * - 没绑定 / 永久 → 返回 null
+ * - 已过期 → 返回 0
+ * - 未到期 → 向上取整的天数（最少 1，避免显示"0 天后到期"误导）
+ *
+ * 注：这是 syncTopStatus 的本地复刻；workspace-router 不能直接 import
+ * shared/license.js 的 evaluateLicense（会引入循环 + 异步加载），
+ * 所以保留一份足够"看 pill 数字"的轻量版本即可。
+ */
+/**
+ * 从 storage 里的 usageStats raw 结构里挑出"今天"的计数。
+ * 不依赖 usage-stats.js 的 getUsageSnapshot（避免重复 read）。
+ */
+function computeTodayUsageFromRaw(raw) {
+  if (!raw || typeof raw !== "object" || !raw.byDay) return { rewrite: 0, capture: 0, publish: 0 };
+  const d = new Date();
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const today = raw.byDay[key] || {};
+  return {
+    rewrite: Number(today.rewrite) || 0,
+    capture: Number(today.capture) || 0,
+    publish: Number(today.publish) || 0
+  };
+}
+
+function computeDaysLeft(record) {
+  const expiresAt = Number(record?.expiresAt) || 0;
+  if (!expiresAt) return null;
+  const ms = expiresAt - Date.now();
+  if (ms <= 0) return 0;
+  return Math.max(1, Math.ceil(ms / (24 * 60 * 60 * 1000)));
+}
+
+/**
  * 顶部状态栏：会员徽章 / AI 状态。
- * 这部分由 license / settings 监听补充；这里只做初始读取。
+ *
+ * P0 上架前优化：会员 pill 文案改用 license.js 的 getLicenseSummaryText
+ * 统一翻译，避免 popup / workspace pill / member 页 / options 4 处文案漂移。
  */
 async function syncTopStatus() {
   if (!globalThis.chrome?.storage?.local) return;
   try {
-    // 注意：这里必须用真实 storage key（STORAGE_KEYS.settings = "wechatWriterSettings"，
-    // LICENSE_STORAGE_KEY = "wechatWriterLicense"）。
-    // 历史 bug：之前直接用了字面量 settings / licenseRecord 这两个错的 key（少了
-    // wechatWriter 前缀），导致 AI 状态永远显示"未配置"、会员徽章也读不到记录。
-    // 回归测试见 scripts/smoke.mjs 的 workspace-router 一节。
+    // 顶部 settings 仍按 storage 读（不需要异步评估）；license 走 evaluateLicense 才能拿到 expiring / stale / invalid 的精确状态
     const data = await new Promise((resolve) => {
-      chrome.storage.local.get([LICENSE_STORAGE_KEY, STORAGE_KEYS.settings], (d) => resolve(d || {}));
+      chrome.storage.local.get([LICENSE_STORAGE_KEY, STORAGE_KEYS.settings, "usageStats"], (d) => resolve(d || {}));
     });
+
     const pill = document.getElementById("topMemberPill");
     const label = document.getElementById("topMemberLabel");
     const navBadge = document.getElementById("navMemberBadge");
     if (pill && label) {
-      const rec = data[LICENSE_STORAGE_KEY];
-      if (rec && rec.plan === "pro") {
-        pill.dataset.status = "pro";
-        label.textContent = "PRO";
-        if (navBadge) {
+      let summary;
+      try {
+        const [state, auth] = await Promise.all([
+          getLicenseState({ refresh: false }),
+          getAuthRecord()
+        ]);
+        // usage 直接用本地 storage 里的 usageStats.today（usage-stats.js 已暴露 todayKey 计算）
+        const usage = computeTodayUsageFromRaw(data.usageStats);
+        summary = getLicenseSummaryText(state, { usage: { today: usage }, auth });
+      } catch (err) {
+        console.warn("[workspace-router] license summary failed", err);
+        summary = { tone: "free", label: "免费版", sub: "" };
+      }
+
+      pill.dataset.status = summary.tone;
+      label.textContent = summary.label;
+      pill.title = summary.sub ? `${summary.label} · ${summary.sub}` : summary.label;
+
+      if (navBadge) {
+        if (summary.tone === "pro" || summary.tone === "expiring") {
           navBadge.hidden = false;
-          navBadge.textContent = "PRO";
+          navBadge.textContent = summary.tone === "expiring" ? "续费" : "PRO";
+        } else {
+          navBadge.hidden = true;
         }
-      } else if (rec && rec.status === "expired") {
-        pill.dataset.status = "expired";
-        label.textContent = "已到期";
-      } else {
-        pill.dataset.status = "free";
-        label.textContent = "免费版";
       }
     }
 
@@ -455,6 +611,44 @@ function bindCaptureShortcuts() {
       if (main) main.click();
     });
   }
+
+  // dashboard 「AI 生成模板」磁贴 — 直接打开共享对话框（带 Pro 闸门），
+  // 生成成功后写入 storage 并设为当前模板，无需先切到编辑台。
+  const quickAiTpl = document.getElementById("quickAiTemplate");
+  if (quickAiTpl) {
+    quickAiTpl.addEventListener("click", () =>
+      openAiTemplateDialog({
+        pricingUrl: (typeof window !== "undefined" && window.__pricingUrl) || undefined,
+        onSaved: async (template) => {
+          const list = await getPromptTemplates();
+          await savePromptTemplates([...list, template]);
+          await setActiveTemplateId(template.id);
+        }
+      })
+    );
+  }
+
+  // dashboard 最近草稿空态的 3 个明确入口（P0：减少"不知道下一步"的迷茫）
+  const emptyCapture = document.getElementById("dashboardEmptyCapture");
+  if (emptyCapture) {
+    emptyCapture.addEventListener("click", () => {
+      const main = document.getElementById("captureButton");
+      if (main) main.click();
+    });
+  }
+  const emptySample = document.getElementById("dashboardEmptySample");
+  if (emptySample) {
+    emptySample.addEventListener("click", () => {
+      // 触发示例稿导入：复用导入草稿包按钮（用户可以在弹出的 file input 里选示例 JSON）
+      // 同时引导到 hot-topics 作为兜底，让用户至少有一个可以马上写的来源
+      const importBtn = document.getElementById("importBundleButton");
+      if (importBtn) {
+        importBtn.click();
+      } else {
+        location.hash = "hot";
+      }
+    });
+  }
 }
 
 /**
@@ -487,13 +681,20 @@ export function initWorkspaceRouter() {
   bindCaptureShortcuts();
   bindEmbedOpenButtons();
   fillDashboard();
+  fillNextStep();
   syncTopStatus();
   applyRoute(readRoute());
+
+  // onboarding 任一存储变化（settings / session / 草稿 / usage / 跳过）都重渲推荐动作
+  subscribeOnboarding(() => {
+    void fillNextStep();
+  });
 
   // license / auth 变化时实时刷新顶部 license badge（统一通过 license.js 订阅）
   subscribeLicenseChanges(() => {
     syncTopStatus();
     fillDashboard();
+    fillNextStep();
   });
 
   // settings / 草稿 / 计数器 等其它变化继续走 storage.onChanged

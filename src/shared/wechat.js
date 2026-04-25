@@ -1,11 +1,58 @@
 import { cleanInvisibleChars } from "./wechat-html.js";
 
-const TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token";
-const UPLOAD_ARTICLE_IMAGE_URL = "https://api.weixin.qq.com/cgi-bin/media/uploadimg";
-const ADD_MATERIAL_URL = "https://api.weixin.qq.com/cgi-bin/material/add_material";
-const ADD_DRAFT_URL = "https://api.weixin.qq.com/cgi-bin/draft/add";
-const SUBMIT_PUBLISH_URL = "https://api.weixin.qq.com/cgi-bin/freepublish/submit";
-const GET_PUBLISH_STATUS_URL = "https://api.weixin.qq.com/cgi-bin/freepublish/get";
+// ---------------------------------------------------------------------------
+// 微信公众号 API 端点
+// ---------------------------------------------------------------------------
+// 不再硬编码 https://api.weixin.qq.com，而是统一走 buildWechatApiUrl(settings, path)：
+//   - settings.wechatApiBase 为空 → 走官方 api.weixin.qq.com（默认行为，向后兼容）
+//   - settings.wechatApiBase 非空 → 拼到自定义 base 之上（例如阿里云 FC 代理域名）
+// 这样在用户家用动态 IP 进不了官方白名单时，可以一行配置切到 FC 代理。
+// 详见 aliyun-fc/wechat-api-proxy/README.md。
+
+const DEFAULT_WECHAT_API_HOST = "https://api.weixin.qq.com";
+
+const WECHAT_PATHS = {
+  token: "/cgi-bin/token",
+  uploadArticleImage: "/cgi-bin/media/uploadimg",
+  addMaterial: "/cgi-bin/material/add_material",
+  addDraft: "/cgi-bin/draft/add",
+  submitPublish: "/cgi-bin/freepublish/submit",
+  getPublishStatus: "/cgi-bin/freepublish/get",
+  massSendAll: "/cgi-bin/message/mass/sendall",
+  tagsGet: "/cgi-bin/tags/get"
+};
+
+/**
+ * 构造一个微信 cgi-bin 接口的完整 URL。
+ *
+ * @param {object} settings - 用户设置（读 wechatApiBase）；可传 {} 表示走官方
+ * @param {string} path     - 以 "/cgi-bin/..." 开头的路径
+ * @returns {URL}           - 已 new URL() 好的对象，调用方继续 .searchParams.set()
+ *
+ * 边界处理：
+ *  - 用户的 base 末尾带不带 "/" 都允许，统一去掉
+ *  - 用户写成 "https://xxx/cgi-bin/" 这种"已含前缀"的会自动去前缀，避免拼成
+ *    "https://xxx/cgi-bin/cgi-bin/token"
+ *  - 任何解析失败都退回官方域名，确保不会因为配置笔误把所有发布请求打挂
+ */
+export function buildWechatApiUrl(settings, path) {
+  const userBase = String(settings?.wechatApiBase || "").trim();
+  const cleanPath = String(path || "").startsWith("/") ? path : `/${path || ""}`;
+
+  if (!userBase) {
+    return new URL(`${DEFAULT_WECHAT_API_HOST}${cleanPath}`);
+  }
+  try {
+    let normalized = userBase.replace(/\/+$/, "");
+    // 用户写成 ".../cgi-bin" 时去掉，避免拼成 "/cgi-bin/cgi-bin/..."
+    if (cleanPath.startsWith("/cgi-bin/") && /\/cgi-bin$/.test(normalized)) {
+      normalized = normalized.replace(/\/cgi-bin$/, "");
+    }
+    return new URL(`${normalized}${cleanPath}`);
+  } catch {
+    return new URL(`${DEFAULT_WECHAT_API_HOST}${cleanPath}`);
+  }
+}
 
 const COMPATIBLE_IMAGE_TYPES = new Set([
   "image/jpeg",
@@ -123,7 +170,7 @@ export async function publishToWechat(settings, payload) {
   const allFailedImages = [];
 
   for (const [index, article] of payload.articles.entries()) {
-    const { replacements, failedImages } = await uploadInlineImages(accessToken, article.inlineImages || []);
+    const { replacements, failedImages } = await uploadInlineImages(settings, accessToken, article.inlineImages || []);
     // workspace 端已经做过 DOM 级 sanitize；这里再用纯字符串层的清洗
     // 兜一道（去 BOM / 零宽 / 控制字符 / NFC），避免 service worker 内任何
     // 拼接环节再次引入不可见字符导致草稿乱码。
@@ -145,8 +192,13 @@ export async function publishToWechat(settings, payload) {
     }
 
     let coverMediaId = "";
-    let coverFilename = article.cover.filename || `cover-${index + 1}.png`;
+    let coverFilename = article?.cover?.filename || `cover-${index + 1}.png`;
     try {
+      if (!article?.cover?.src) {
+        throw new Error(
+          `第 ${index + 1} 篇没有封面图源。请到「发布」面板上传或一键生成占位封面后重试。`
+        );
+      }
       const coverBlob = await fetchImageBlob(article.cover.src);
       const coverCompatibleBlob = await ensureCompatibleImageBlob(coverBlob, {
         sourceUrl: article.cover.src,
@@ -155,6 +207,7 @@ export async function publishToWechat(settings, payload) {
       });
       coverFilename = normalizeFilename(coverFilename, coverCompatibleBlob.type);
       coverMediaId = await uploadPermanentImage(
+        settings,
         accessToken,
         coverCompatibleBlob,
         coverFilename
@@ -162,7 +215,7 @@ export async function publishToWechat(settings, payload) {
     } catch (error) {
       allFailedImages.push({
         type: "cover",
-        src: article.cover.src,
+        src: article?.cover?.src || "",
         filename: coverFilename,
         mime: error?.detectedMime || "",
         articleIndex: index + 1,
@@ -181,13 +234,47 @@ export async function publishToWechat(settings, payload) {
     });
   }
 
-  const draftMediaId = await createDraft(accessToken, preparedArticles);
+  const draftMediaId = await createDraft(settings, accessToken, preparedArticles);
 
   if (payload.publishMode === "publish") {
-    const publishId = await submitPublish(accessToken, draftMediaId);
+    // 群发策略（P1.2）：
+    //   - sendStrategy === "all" 或 "tag" → 走 mass/sendall（让认证服务号文章进列表）
+    //   - 其余（含未传 / "none"）→ 走 freepublish/submit（旧行为，仅认证号能用，不进列表）
+    const sendStrategy = String(payload.sendStrategy || settings.wechatSendStrategy || "none");
+    if (sendStrategy === "all" || sendStrategy === "tag") {
+      const sendTagId = Number(
+        payload.sendTagId !== undefined ? payload.sendTagId : settings.wechatSendTagId
+      );
+      const ignoreReprintCheck = Boolean(
+        payload.sendIgnoreReprint !== undefined
+          ? payload.sendIgnoreReprint
+          : settings.wechatSendIgnoreReprint
+      );
+
+      const massResult = await massSendArticle(settings, accessToken, draftMediaId, {
+        strategy: sendStrategy,
+        tagId: sendTagId,
+        ignoreReprintCheck
+      });
+      return {
+        draftMediaId,
+        publishId: "",
+        massSendMsgId: massResult.msgId || "",
+        massSendDataId: massResult.msgDataId || "",
+        sendStrategy,
+        sendTagId: sendStrategy === "tag" ? sendTagId : 0,
+        articleCount: preparedArticles.length,
+        imageCount: totalImageCount,
+        mode: "publish",
+        failedImages: allFailedImages
+      };
+    }
+
+    const publishId = await submitPublish(settings, accessToken, draftMediaId);
     return {
       draftMediaId,
       publishId,
+      sendStrategy: "none",
       articleCount: preparedArticles.length,
       imageCount: totalImageCount,
       mode: "publish",
@@ -211,10 +298,10 @@ export async function queryPublishStatus(settings, publishId) {
   }
 
   const accessToken = await getAccessToken(settings);
-  return getPublishStatus(accessToken, publishId);
+  return getPublishStatus(settings, accessToken, publishId);
 }
 
-export async function testWechatConnection({ appId, appSecret, timeoutMs = 12000 }) {
+export async function testWechatConnection({ appId, appSecret, wechatApiBase = "", timeoutMs = 12000 }) {
   const targetAppId = String(appId || "").trim();
   const targetAppSecret = String(appSecret || "").trim();
 
@@ -234,7 +321,8 @@ export async function testWechatConnection({ appId, appSecret, timeoutMs = 12000
     };
   }
 
-  const url = new URL(TOKEN_URL);
+  // 测试连接也走 wechatApiBase（如果填了），便于"配完代理 → 一键测通"
+  const url = buildWechatApiUrl({ wechatApiBase }, WECHAT_PATHS.token);
   url.searchParams.set("grant_type", "client_credential");
   url.searchParams.set("appid", targetAppId);
   url.searchParams.set("secret", targetAppSecret);
@@ -326,13 +414,16 @@ function validatePublishPayload(payload) {
       throw new Error(`第 ${index + 1} 篇正文为空。`);
     }
     if (!article?.cover?.src) {
-      throw new Error(`第 ${index + 1} 篇还没有封面图。`);
+      throw new Error(
+        `第 ${index + 1} 篇还没有封面图。请回到工作台「发布」面板，` +
+          `用「📷 上传本地封面」或「✨ 一键生成占位封面」补一张后再试。`
+      );
     }
   }
 }
 
 async function getAccessToken(settings) {
-  const url = new URL(TOKEN_URL);
+  const url = buildWechatApiUrl(settings, WECHAT_PATHS.token);
   url.searchParams.set("grant_type", "client_credential");
   url.searchParams.set("appid", settings.wechatAppId.trim());
   url.searchParams.set("secret", settings.wechatAppSecret.trim());
@@ -348,7 +439,7 @@ async function getAccessToken(settings) {
   return payload.access_token;
 }
 
-async function uploadInlineImages(accessToken, inlineImages) {
+async function uploadInlineImages(settings, accessToken, inlineImages) {
   const replacements = {};
   const failedImages = [];
 
@@ -366,6 +457,7 @@ async function uploadInlineImages(accessToken, inlineImages) {
       detectedMime = compatibleBlob.type;
       finalFilename = normalizeFilename(finalFilename, compatibleBlob.type);
       const uploadedUrl = await uploadArticleImage(
+        settings,
         accessToken,
         compatibleBlob,
         finalFilename
@@ -389,8 +481,8 @@ async function uploadInlineImages(accessToken, inlineImages) {
   return { replacements, failedImages };
 }
 
-async function uploadArticleImage(accessToken, blob, filename) {
-  const url = new URL(UPLOAD_ARTICLE_IMAGE_URL);
+async function uploadArticleImage(settings, accessToken, blob, filename) {
+  const url = buildWechatApiUrl(settings, WECHAT_PATHS.uploadArticleImage);
   url.searchParams.set("access_token", accessToken);
 
   const formData = new FormData();
@@ -410,8 +502,8 @@ async function uploadArticleImage(accessToken, blob, filename) {
   return payload.url;
 }
 
-async function uploadPermanentImage(accessToken, blob, filename) {
-  const url = new URL(ADD_MATERIAL_URL);
+async function uploadPermanentImage(settings, accessToken, blob, filename) {
+  const url = buildWechatApiUrl(settings, WECHAT_PATHS.addMaterial);
   url.searchParams.set("access_token", accessToken);
   url.searchParams.set("type", "image");
 
@@ -432,8 +524,8 @@ async function uploadPermanentImage(accessToken, blob, filename) {
   return payload.media_id;
 }
 
-async function createDraft(accessToken, articles) {
-  const url = new URL(ADD_DRAFT_URL);
+async function createDraft(settings, accessToken, articles) {
+  const url = buildWechatApiUrl(settings, WECHAT_PATHS.addDraft);
   url.searchParams.set("access_token", accessToken);
 
   const response = await fetch(url.toString(), {
@@ -464,8 +556,8 @@ async function createDraft(accessToken, articles) {
   return payload.media_id;
 }
 
-async function submitPublish(accessToken, mediaId) {
-  const url = new URL(SUBMIT_PUBLISH_URL);
+async function submitPublish(settings, accessToken, mediaId) {
+  const url = buildWechatApiUrl(settings, WECHAT_PATHS.submitPublish);
   url.searchParams.set("access_token", accessToken);
 
   const response = await fetch(url.toString(), {
@@ -487,8 +579,8 @@ async function submitPublish(accessToken, mediaId) {
   return payload.publish_id;
 }
 
-async function getPublishStatus(accessToken, publishId) {
-  const url = new URL(GET_PUBLISH_STATUS_URL);
+async function getPublishStatus(settings, accessToken, publishId) {
+  const url = buildWechatApiUrl(settings, WECHAT_PATHS.getPublishStatus);
   url.searchParams.set("access_token", accessToken);
 
   const response = await fetch(url.toString(), {
@@ -504,6 +596,95 @@ async function getPublishStatus(accessToken, publishId) {
   ensureWechatOk(response, payload, "查询公众号发布状态失败");
 
   return normalizePublishStatus(payload);
+}
+
+// ---------------------------------------------------------------------------
+// P1.2 · 群发接口（让认证服务号文章进公众号文章列表）
+// ---------------------------------------------------------------------------
+// 公众号「自动发布到列表」的官方姿势：
+//   1) 先 add_draft 拿到 draft media_id（已有，复用 createDraft）
+//   2) 再调 mass/sendall 用 mpnews + media_id 群发
+//      - is_to_all=true     → 全员，**每月最多 4 次**，会真正进入用户对话框
+//      - is_to_all=false    → 必须指定 tag_id（用户标签 ID），不计入 4 次/月
+// 仅认证服务号（type=2 service + 已认证）可用，订阅号 / 未认证号会回 48001/53400。
+//
+// 上层 publishToWechat 负责把 sendStrategy 翻译成 options 调进来：
+//   { strategy: "all" | "tag", tagId: number, ignoreReprintCheck: boolean }
+
+/**
+ * 调用 message/mass/sendall 发送 mpnews。
+ *
+ * @returns {{ msgId: string, msgDataId: string }}
+ *   - msgId      公众号侧的群发任务 ID（数字，但官方文档里以 number 返回，这里统一字符串方便序列化到本地缓存）
+ *   - msgDataId  群发的图文消息 ID，可用于后续删除/查询
+ */
+export async function massSendArticle(settings, accessToken, mediaId, options = {}) {
+  if (!mediaId) {
+    throw new Error("massSendArticle: 缺少 draft media_id。");
+  }
+
+  const strategy = options.strategy === "all" ? "all" : "tag";
+  const tagId = Number(options.tagId || 0);
+
+  if (strategy === "tag" && !(tagId > 0)) {
+    throw new Error(
+      "群发到指定标签时必须填写有效的 tag_id（>0）。请到公众号后台『用户管理 → 标签管理』确认标签 ID。"
+    );
+  }
+
+  const body = {
+    filter:
+      strategy === "all"
+        ? { is_to_all: true }
+        : { is_to_all: false, tag_id: tagId },
+    mpnews: { media_id: mediaId },
+    msgtype: "mpnews",
+    send_ignore_reprint: options.ignoreReprintCheck ? 1 : 0
+  };
+
+  const url = buildWechatApiUrl(settings, WECHAT_PATHS.massSendAll);
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => ({}));
+  ensureWechatOk(response, payload, "公众号群发失败");
+
+  return {
+    msgId: payload.msg_id !== undefined ? String(payload.msg_id) : "",
+    msgDataId: payload.msg_data_id !== undefined ? String(payload.msg_data_id) : ""
+  };
+}
+
+/**
+ * 列出公众号下所有用户标签，用于发布面板的"群发到标签"下拉填充。
+ *
+ * 返回：[{ id, name, count }]
+ *
+ * 任何 errcode 都会被翻译成带分类的 Error 抛出（含 requiresVerifiedAccount=true 的情形），
+ * 上层可以直接 try/catch 后展示给用户。
+ */
+export async function listUserTags(settings) {
+  validateSettings(settings);
+  const accessToken = await getAccessToken(settings);
+
+  const url = buildWechatApiUrl(settings, WECHAT_PATHS.tagsGet);
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(url.toString());
+  const payload = await response.json().catch(() => ({}));
+  ensureWechatOk(response, payload, "拉取用户标签失败");
+
+  return Array.isArray(payload?.tags)
+    ? payload.tags.map((tag) => ({
+        id: Number(tag.id),
+        name: String(tag.name || ""),
+        count: Number(tag.count || 0)
+      }))
+    : [];
 }
 
 async function fetchImageBlob(src) {
@@ -854,6 +1035,17 @@ export function buildWechatError(payload, response, fallback) {
     }
   }
 
+  // errcode=40164 时，微信 errmsg 形如 "invalid ip xx.xx.xx.xx ipv6 ::ffff:xx.xx.xx.xx, not in whitelist"，
+  // 把当前真实出口 IP 也带上——这正是用户唯一需要的、能直接复制粘贴到白名单的关键信息。
+  // 老版本只用了 catalog 静态文案，把这个 IP 完全吞掉了，用户只能盲找。
+  const detectedIp = errcode === 40164 ? extractWechatIpFromErrmsg(payload?.errmsg) : "";
+  if (detectedIp) {
+    userMessage =
+      `IP 白名单未通过（40164）：当前出口 IP 是 ${detectedIp}，` +
+      `不在公众号后台『开发 → 基本配置 → IP 白名单』里。\n` +
+      `请把 ${detectedIp} 复制后加到白名单（动态 IP 用户建议改用『微信 API 代理地址』，详见设置页）。`;
+  }
+
   const baseMessage = userMessage || `${fallback}：${payload?.errmsg || "未知错误"}`;
   const diagnostics = [
     errcode ? `errcode=${errcode}` : "",
@@ -873,7 +1065,44 @@ export function buildWechatError(payload, response, fallback) {
   err.errmsg = payload?.errmsg || "";
   err.userMessage = baseMessage;
   err.httpStatus = response?.status || 0;
+  // P1.1 · 2025-07 起未认证账号失去 draft/add 权限。专门给前端一个布尔旗标，
+  // 让 popup/workspace 可以弹"复制 HTML 手动粘贴"的兜底 modal，
+  // 而不必在前端再 hardcode 一份 errcode 列表。
+  err.requiresVerifiedAccount = errcode === 48001 || errcode === 53400;
+  // 40164 专用：让上层（service-worker / UI）能直接读出口 IP，
+  // 未来想加「一键复制 IP」按钮也只需读这一个字段。
+  if (detectedIp) err.detectedIp = detectedIp;
   return err;
+}
+
+/**
+ * 从微信 errcode=40164 的 errmsg 里提取出口 IP。
+ *
+ * 微信实际 errmsg 形态（已踩坑确认，见 aliyun-fc/wechat-api-proxy/README.md）：
+ *   "invalid ip 1.2.3.4, not in whitelist hint: [xxxx]"
+ *   "invalid ip 240e:abcd:1234::1, not in whitelist"
+ *   "invalid ip 1.2.3.4 ipv6 ::ffff:1.2.3.4, not in whitelist"  ← 双栈机器
+ *
+ * 返回空字符串表示无法解析，调用方需要回落到通用文案。
+ *
+ * @param {string} errmsg
+ * @returns {string}
+ */
+export function extractWechatIpFromErrmsg(errmsg) {
+  const text = String(errmsg || "");
+  if (!text) return "";
+  // ipv4 优先：用户更熟悉、更易复制粘贴；同时避开 ::ffff:1.2.3.4 这种 ipv4-mapped ipv6 形式
+  // 直接抽到外层 ipv4 数字段（最常见的家用宽带/办公网都是 ipv4）。
+  const ipv4 = text.match(
+    /\b(?:25[0-5]|2[0-4]\d|[01]?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d?\d)){3}\b/
+  );
+  if (ipv4) return ipv4[0];
+  // ipv6：第一段 hex + 至少 2 个 ":[hex]{0,4}"（{0,4} 允许 :: 缩写形成空段，
+  // 比如 "240e:abcd:1234::1" 里的 ":" 本身可被 ":[hex]{0,4}" 中 hex 取 0 个匹配）。
+  // 不能用 \b 边界——\b 是字母数字与非字母数字的分界，:: 会让 \b 在中间断掉，匹配不到完整地址。
+  const ipv6 = text.match(/[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7}/);
+  if (ipv6) return ipv6[0].replace(/^::ffff:/i, "");
+  return "";
 }
 
 function mapWechatConnectionError(payload, status) {

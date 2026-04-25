@@ -91,6 +91,9 @@
         <button id="captureAndOpen" class="primary-button" type="button">
           抓取当前页
         </button>
+        <p class="popup-pane-hint" id="captureHint">
+          抓取后会自动进入「编辑台」，再点 AI 改写。
+        </p>
 
         <div class="capture-mode-grid">
           <button id="captureSelection" class="ghost-button" type="button" data-mode="selection">
@@ -158,7 +161,8 @@
         </section>
 
         <p class="popup-pane-hint">
-          点击任一条目可在新标签页打开。要看完整热榜（含分类切换），点上方「全部」。
+          点击任一条目可在新标签页打开热点原文。
+          <strong>点击右侧「全部」 → 在热榜面板里选条 → 「一键入库」就会进入编辑台开始改写。</strong>
         </p>
       </section>
 
@@ -190,11 +194,21 @@
             <span id="licensePillLabel" class="license-pill-label">检测中…</span>
             <span id="licensePillHint" class="license-pill-hint">读取授权状态</span>
           </span>
-          <span class="license-pill-cta" aria-hidden="true">
+          <span class="license-pill-cta" id="licensePillCta" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="12" height="12">
               <path fill="currentColor" d="M9 6l6 6-6 6V6z" />
             </svg>
           </span>
+        </button>
+
+        <!-- P0：会员状态明细行（剩余次数 / 到期 / 账号 / 同步） -->
+        <ul class="popup-member-meta" id="popupMemberMeta">
+          <li><span class="meta-key">今日剩余</span><span class="meta-val" id="memberQuotaRemain">— / —</span></li>
+          <li><span class="meta-key">会员状态</span><span class="meta-val" id="memberPlanLine">读取中…</span></li>
+          <li><span class="meta-key">登录账号</span><span class="meta-val" id="memberAccountLine">未登录</span></li>
+        </ul>
+        <button id="memberSyncBtn" class="ghost-button ghost-button--full" type="button">
+          同步会员状态
         </button>
 
         <section id="aiCard" class="info-card info-card--with-dot" data-state="loading" aria-label="AI 接口状态">

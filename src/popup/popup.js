@@ -1,6 +1,13 @@
 import { formatRuntimeError } from "../shared/utils.js";
 import { getSettings } from "../shared/storage.js";
-import { getLicenseState, subscribeLicenseChanges } from "../shared/license.js";
+import {
+  getLicenseState,
+  subscribeLicenseChanges,
+  getAuthRecord,
+  getLicenseSummaryText,
+  verifyLicenseRemote
+} from "../shared/license.js";
+import { getUsageSnapshot } from "../shared/usage-stats.js";
 
 const els = {
   status: document.querySelector("#status"),
@@ -27,7 +34,12 @@ const els = {
   lastSourceText: document.querySelector("#lastSourceText"),
   licensePill: document.querySelector("#licensePill"),
   licensePillLabel: document.querySelector("#licensePillLabel"),
-  licensePillHint: document.querySelector("#licensePillHint")
+  licensePillHint: document.querySelector("#licensePillHint"),
+  captureHint: document.querySelector("#captureHint"),
+  memberQuotaRemain: document.querySelector("#memberQuotaRemain"),
+  memberPlanLine: document.querySelector("#memberPlanLine"),
+  memberAccountLine: document.querySelector("#memberAccountLine"),
+  memberSyncBtn: document.querySelector("#memberSyncBtn")
 };
 
 const SITE_LABELS = [
@@ -153,6 +165,31 @@ function bindEvents() {
   document.querySelector("#openWorkspaceFromMe")?.addEventListener("click", () =>
     runAction({ type: "OPEN_WORKSPACE", autoCapture: false }, "已打开编辑台。")
   );
+
+  els.memberSyncBtn?.addEventListener("click", async () => {
+    setStatus("正在向服务器同步会员状态…", "info");
+    try {
+      const state = await getLicenseState({ refresh: false });
+      if (!state?.key) {
+        // 未绑定 key 时，「同步」≈ 提示用户去 options 登录 / 激活
+        await chrome.tabs.create({
+          url: chrome.runtime.getURL("src/options/options.html#license")
+        });
+        window.close();
+        return;
+      }
+      const result = await verifyLicenseRemote(state.key, { silent: true });
+      if (result?.ok || result?.status === "active") {
+        setStatus("已同步会员状态 ✓", "success");
+      } else {
+        const msg = result?.message || result?.reason || "服务器返回未通过";
+        setStatus(`同步未通过：${msg}`, "warning");
+      }
+      await hydrateLicenseStatus();
+    } catch (err) {
+      setStatus(formatRuntimeError(err, "同步失败，请稍后再试。"), "error");
+    }
+  });
 }
 
 async function hydrateCurrentTab() {
@@ -160,32 +197,125 @@ async function hydrateCurrentTab() {
   currentTab = tabs?.[0] || null;
 
   if (!currentTab) {
-    setPageCard("未找到当前标签页", "", false);
+    setPageCard({ kind: "unknown", title: "未找到当前标签页", host: "" });
     return;
   }
 
-  const canCapture = isScrapableUrl(currentTab.url);
-  const host = formatHost(currentTab.url);
-  const label = host ? labelForHost(host) : currentTab.title || "未命名页面";
-  setPageCard(label, host, canCapture);
+  const detect = detectPageKind(currentTab);
+  setPageCard(detect);
+}
+
+/**
+ * 4 态网页可用性判断（P0：当前网页卡增加可用性提示）：
+ *   - normal       普通网页（http/https）→ 可抓取
+ *   - wechat-mp    公众号后台 → 不能直接抓，但可引导到「设置 / 多账号绑定」
+ *   - blocked-host 浏览器内部页 / 扩展页 → 不可抓
+ *   - no-permission 协议不支持（file://、chrome-extension://、view-source 等）
+ */
+function detectPageKind(tab) {
+  const rawUrl = String(tab?.url || "").trim();
+  const url = rawUrl.toLowerCase();
+  const host = formatHost(rawUrl);
+
+  if (!rawUrl) {
+    return { kind: "unknown", title: tab?.title || "未命名页面", host: "", url: "" };
+  }
+  // chrome:// / edge:// / about:// 等浏览器内部页
+  if (/^(chrome|edge|brave|about|view-source):/i.test(rawUrl)) {
+    return { kind: "blocked-host", title: tab?.title || "浏览器内部页", host, url: rawUrl };
+  }
+  // 扩展自身页面
+  if (/^chrome-extension:/i.test(rawUrl)) {
+    return { kind: "blocked-host", title: "扩展内部页", host, url: rawUrl };
+  }
+  // 本地文件
+  if (/^file:/i.test(rawUrl)) {
+    return { kind: "no-permission", title: "本地文件页", host, url: rawUrl };
+  }
+  if (!/^https?:/i.test(rawUrl)) {
+    return { kind: "no-permission", title: tab?.title || "未知协议页面", host, url: rawUrl };
+  }
+  // 公众号后台（mp.weixin.qq.com 含 cgi-bin / advanced）— 不抓正文，引导走"绑定 AppID"
+  if (host === "mp.weixin.qq.com" && /\/(cgi-bin|advanced|appmsgpublish|smartreply)/i.test(url)) {
+    return { kind: "wechat-mp", title: "公众号后台", host, url: rawUrl };
+  }
+  // 普通网页
+  const label = host ? labelForHost(host) : (tab?.title || "未命名页面");
+  return { kind: "normal", title: label, host, url: rawUrl };
 }
 
 async function hydrateLicenseStatus() {
   if (!els.licensePill) return;
+  let state = null;
+  let auth = null;
+  let usage = null;
   try {
-    const state = await getLicenseState();
-    setLicensePill(state.status, state.label, state.hint);
-  } catch {
-    setLicensePill("free", "免费版", "未激活会员，所有基础功能均可使用");
+    [state, auth, usage] = await Promise.all([
+      getLicenseState({ refresh: false }).catch(() => null),
+      getAuthRecord().catch(() => null),
+      getUsageSnapshot().catch(() => null)
+    ]);
+  } catch (err) {
+    console.warn("[popup] hydrateLicense failed", err);
+  }
+
+  const summary = getLicenseSummaryText(state, { usage, auth });
+  setLicensePill(summary);
+  renderMemberMeta({ state, auth, usage, summary });
+}
+
+function setLicensePill(summary) {
+  if (!els.licensePill || !summary) return;
+  els.licensePill.dataset.status = summary.tone || "free";
+  if (els.licensePillLabel) els.licensePillLabel.textContent = summary.label || "免费版";
+  if (els.licensePillHint) els.licensePillHint.textContent = summary.sub || "";
+  els.licensePill.title = summary.sub ? `${summary.label} · ${summary.sub}` : summary.label || "";
+}
+
+/**
+ * 「我的」Tab 的会员状态明细行。和 license-pill 一起组成完整的"会员卡"。
+ * 文案统一从 getLicenseSummaryText 出，确保和 workspace pill / member 页一致。
+ */
+function renderMemberMeta({ state, auth, usage, summary }) {
+  if (els.memberQuotaRemain) {
+    if (state?.plan === "pro" && state?.dailyQuota === -1) {
+      els.memberQuotaRemain.textContent = "Pro · 不限次数";
+    } else {
+      const cap = Number.isFinite(state?.dailyQuota) && state.dailyQuota > 0
+        ? state.dailyQuota
+        : 5;
+      const used = Number(usage?.today?.rewrite) || 0;
+      const remain = Math.max(0, cap - used);
+      els.memberQuotaRemain.textContent = `${remain} / ${cap} 次`;
+    }
+  }
+
+  if (els.memberPlanLine) {
+    if (state?.status === "expiring") {
+      els.memberPlanLine.textContent = `Pro · 还剩 ${state.daysLeft} 天到期`;
+    } else if (state?.status === "pro") {
+      els.memberPlanLine.textContent = state?.expiresAt
+        ? `Pro · 有效至 ${formatYmd(state.expiresAt)}`
+        : "Pro · 长期有效";
+    } else if (state?.status === "expired" || state?.status === "invalid") {
+      els.memberPlanLine.textContent = summary?.label || "已到期";
+    } else if (state?.status === "stale") {
+      els.memberPlanLine.textContent = "需要重新验证";
+    } else {
+      els.memberPlanLine.textContent = "免费版";
+    }
+  }
+
+  if (els.memberAccountLine) {
+    const email = auth?.user?.email || state?.user?.email;
+    els.memberAccountLine.textContent = email || "未登录 · 点同步可登录";
   }
 }
 
-function setLicensePill(status, label, hint) {
-  if (!els.licensePill) return;
-  els.licensePill.dataset.status = status || "free";
-  if (els.licensePillLabel) els.licensePillLabel.textContent = label || "免费版";
-  if (els.licensePillHint) els.licensePillHint.textContent = hint || "";
-  els.licensePill.title = hint ? `${label} · ${hint}` : label || "";
+function formatYmd(ts) {
+  const d = new Date(Number(ts) || 0);
+  if (!Number.isFinite(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 async function hydrateAiStatus() {
@@ -301,17 +431,59 @@ function renderHotTopics(items, { errorMessage = "" } = {}) {
   });
 }
 
-function setPageCard(title, host, canCapture) {
-  els.pageCardTitle.textContent = title;
-  els.pageCardHost.textContent = host || (canCapture ? "" : "该页面不支持直接抓取");
+/**
+ * 渲染当前网页卡（4 态）。state 来自 detectPageKind()。
+ *   normal       → 可抓取，主按钮可用
+ *   wechat-mp    → 不抓正文；主按钮置灰，副提示引导去「设置」绑定 AppID
+ *   blocked-host → 内部页 / 扩展页，主按钮置灰
+ *   no-permission → file:// 之类，主按钮置灰
+ */
+function setPageCard(detect) {
+  const kind = detect?.kind || "unknown";
+  const canCapture = kind === "normal";
+
+  els.pageCardTitle.textContent = detect?.title || "未命名页面";
+
+  const hostText = detect?.host || "";
+  const subByKind = {
+    normal: hostText,
+    "wechat-mp": "公众号后台 · 不抓正文，可去设置绑定 AppID",
+    "blocked-host": "浏览器内部页 / 扩展页 · 不可抓取",
+    "no-permission": "扩展无权限访问该协议（例如 file://）",
+    unknown: "无法识别当前页面"
+  };
+  els.pageCardHost.textContent = subByKind[kind] || hostText;
+
   els.captureAndOpen.disabled = !canCapture;
   els.captureSelection.disabled = !canCapture;
   els.captureReadable.disabled = !canCapture;
   els.captureRaw.disabled = !canCapture;
 
-  els.pageCardBadge.textContent = canCapture ? "可抓取" : "不可抓取";
-  els.pageCardBadge.dataset.state = canCapture ? "ready" : "blocked";
-  els.pageCard.dataset.state = canCapture ? "ready" : "blocked";
+  const badgeByKind = {
+    normal: { text: "普通网页", state: "ready" },
+    "wechat-mp": { text: "公众号后台", state: "info" },
+    "blocked-host": { text: "不可抓取页面", state: "blocked" },
+    "no-permission": { text: "无权限页面", state: "blocked" },
+    unknown: { text: "检测中", state: "loading" }
+  };
+  const badge = badgeByKind[kind];
+  els.pageCardBadge.textContent = badge.text;
+  els.pageCardBadge.dataset.state = badge.state;
+  els.pageCard.dataset.state = badge.state === "ready" ? "ready" : badge.state === "info" ? "info" : "blocked";
+
+  // 抓取后去向提示：随状态调整
+  if (els.captureHint) {
+    if (canCapture) {
+      els.captureHint.textContent = "抓取后会自动进入「编辑台」，再点 AI 改写。";
+      els.captureHint.dataset.tone = "info";
+    } else if (kind === "wechat-mp") {
+      els.captureHint.textContent = "想直接发到这个公众号？请到「设置 → 公众号」绑定 AppID/AppSecret。";
+      els.captureHint.dataset.tone = "warning";
+    } else {
+      els.captureHint.textContent = "请切到普通网页（http/https）后再抓取。";
+      els.captureHint.dataset.tone = "warning";
+    }
+  }
 }
 
 function setAiCard(state, title, modelText) {
@@ -322,8 +494,12 @@ function setAiCard(state, title, modelText) {
 }
 
 function triggerCapture(mode) {
-  if (!isScrapableUrl(currentTab?.url)) {
-    setStatus("当前页面不支持抓取，请切到普通网页后重试。", "warning");
+  const detect = currentTab ? detectPageKind(currentTab) : { kind: "unknown" };
+  if (detect.kind !== "normal") {
+    const tip = detect.kind === "wechat-mp"
+      ? "当前在公众号后台，无法抓正文。请切到普通网页后再试。"
+      : "当前页面不支持抓取，请切到普通网页（http/https）后重试。";
+    setStatus(tip, "warning");
     return;
   }
   const successMessage =
@@ -364,7 +540,8 @@ function setBusy(isBusy) {
     els.captureReadable,
     els.captureRaw
   ];
-  const canCapture = isScrapableUrl(currentTab?.url);
+  // 当前标签可抓取性 = detectPageKind 返回 normal
+  const canCapture = currentTab && detectPageKind(currentTab).kind === "normal";
   captureButtons.forEach((button) => {
     if (!button) return;
     button.disabled = isBusy || !canCapture;

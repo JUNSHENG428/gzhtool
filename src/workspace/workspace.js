@@ -42,7 +42,11 @@ import {
   getCoverImageForArticle,
   getSelectedImage,
   deleteSourceImage,
-  reorderSourceImages
+  reorderSourceImages,
+  addCustomImageFromFile,
+  generatePlaceholderCoverDataUrl,
+  useGeneratedPlaceholderCover,
+  ensureFallbackCoverImage
 } from "./workspace-state.js";
 
 import {
@@ -132,6 +136,7 @@ const controls = {
   length: document.querySelector("#lengthSelect"),
   theme: document.querySelector("#themeSelect"),
   coverImageIndex: document.querySelector("#coverImageSelect"),
+  coverUploadInput: document.querySelector("#coverUploadInput"),
   publishMode: document.querySelector("#publishModeSelect"),
   needOpenComment: document.querySelector("#openCommentCheckbox"),
   onlyFansCanComment: document.querySelector("#fansOnlyCheckbox"),
@@ -264,6 +269,8 @@ async function bootstrap() {
     buildHistoryLabel, validateCurrentArticleForPublish,
     deriveDigestFromEditor, deriveDigestFromArticle, getCoverImageForArticle, getSelectedImage,
     deleteSourceImage, reorderSourceImages,
+    addCustomImageFromFile, generatePlaceholderCoverDataUrl, useGeneratedPlaceholderCover,
+    ensureFallbackCoverImage,
     // workspace-render.js
     syncWorkspace, renderSource, renderCoverPreview, renderHistoryDrawer,
     renderArticleStack, fillThemeOptions, applyTheme,
@@ -440,12 +447,14 @@ function _bindStorageSync() {
 }
 
 function _bindFirstRunEvents() {
-  document.querySelector("#firstRunOptionsButton")?.addEventListener("click", () => {
-    chrome.runtime.openOptionsPage();
-  });
-  document.querySelector("#firstRunCaptureButton")?.addEventListener("click", () => {
-    view.firstRunOverlay.hidden = true;
+  // 主 CTA：免费试一次抓取改写 — 直接关掉 overlay 并触发抓取
+  document.querySelector("#firstRunStartTrial")?.addEventListener("click", () => {
+    if (view.firstRunOverlay) view.firstRunOverlay.hidden = true;
     document.querySelector("#captureButton")?.click();
+  });
+  // 副 CTA：稍后配置 — 关掉 overlay，进入空编辑台
+  document.querySelector("#firstRunSkipButton")?.addEventListener("click", () => {
+    if (view.firstRunOverlay) view.firstRunOverlay.hidden = true;
   });
   document.querySelector("#firstRunHelpLink")?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -454,5 +463,80 @@ function _bindFirstRunEvents() {
   document.querySelector("#emptyPromptCaptureButton")?.addEventListener("click", () => {
     view.emptyPromptCard.hidden = true;
     document.querySelector("#captureButton")?.click();
+  });
+
+  // 用 onboarding 共享模块渲染 4 步任务清单到 overlay 内
+  void _renderFirstRunChecklist();
+  // storage 变化时增量刷新（不跳路由，不重新弹层）
+  if (globalThis.chrome?.storage?.onChanged) {
+    chrome.storage.onChanged.addListener(() => void _renderFirstRunChecklist());
+  }
+}
+
+async function _renderFirstRunChecklist() {
+  const list = document.querySelector("#firstRunSteps");
+  const progress = document.querySelector("#firstRunProgress");
+  if (!list) return;
+
+  let snap;
+  try {
+    const mod = await import("../shared/onboarding.js");
+    snap = await mod.getOnboardingSnapshot();
+  } catch (err) {
+    console.warn("[workspace] onboarding snapshot failed", err);
+    return;
+  }
+
+  if (progress) {
+    if (snap.allDone) {
+      progress.textContent = "已全部完成 · 可关闭此弹层";
+    } else {
+      progress.textContent = `完成 ${snap.completedCount} / ${snap.steps.length} · 还差 ${snap.pendingCount} 步`;
+    }
+  }
+
+  list.innerHTML = "";
+  snap.steps.forEach((step, idx) => {
+    const li = document.createElement("li");
+    li.className = "onboarding-step";
+    li.dataset.stepId = step.id;
+    li.dataset.status = step.status;
+
+    const num = document.createElement("span");
+    num.className = "onboarding-step-num";
+    if (step.status === "completed") {
+      num.textContent = "✓";
+    } else if (step.status === "skipped") {
+      num.textContent = "—";
+    } else {
+      num.textContent = String(idx + 1);
+    }
+
+    const body = document.createElement("div");
+    body.className = "onboarding-step-body";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "onboarding-step-title-row";
+
+    const title = document.createElement("p");
+    title.className = "onboarding-step-title";
+    title.textContent = step.title;
+
+    const badge = document.createElement("span");
+    badge.className = "onboarding-step-badge";
+    badge.dataset.status = step.status;
+    if (step.status === "completed") badge.textContent = "已完成";
+    else if (step.status === "skipped") badge.textContent = "已跳过";
+    else badge.textContent = step.skippable ? "可跳过" : "未完成";
+
+    titleRow.append(title, badge);
+
+    const desc = document.createElement("p");
+    desc.className = "onboarding-step-desc muted";
+    desc.textContent = step.desc;
+
+    body.append(titleRow, desc);
+    li.append(num, body);
+    list.appendChild(li);
   });
 }

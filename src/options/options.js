@@ -2,6 +2,10 @@ import { DEFAULT_SETTINGS } from "../shared/defaults.js";
 import { clearHistory, listSnapshots } from "../shared/history.js";
 import { getSettings, saveSettings } from "../shared/storage.js";
 import { formatRuntimeError, escapeHtml } from "../shared/utils.js";
+import {
+  normalizeDrissionHelperToken,
+  parseDrissionHelperInput
+} from "../shared/drission.js";
 import { initPromptTemplates } from "./prompt-templates.js";
 import {
   getAgentConfig,
@@ -27,8 +31,10 @@ import {
   unbindLicenseFromAccount,
   validateLicenseKeyOffline,
   verifyLicenseRemote,
-  subscribeLicenseChanges
+  subscribeLicenseChanges,
+  getLicenseSummaryText
 } from "../shared/license.js";
+import { getUsageSnapshot } from "../shared/usage-stats.js";
 import { showUpgradeModal } from "../shared/upgrade-modal.js";
 
 /**
@@ -72,6 +78,11 @@ const fields = {
   wechatDefaultPublishMode: document.querySelector("#wechatDefaultPublishMode"),
   wechatDefaultOpenComment: document.querySelector("#wechatDefaultOpenComment"),
   wechatDefaultOnlyFansCanComment: document.querySelector("#wechatDefaultOnlyFansCanComment"),
+  // P1.3 / P1.2 · 微信 API 代理 + 群发策略
+  wechatApiBase: document.querySelector("#wechatApiBase"),
+  wechatSendStrategy: document.querySelector("#wechatSendStrategy"),
+  wechatSendTagId: document.querySelector("#wechatSendTagId"),
+  wechatSendIgnoreReprint: document.querySelector("#wechatSendIgnoreReprint"),
   hotTopicsDailyHotBase: document.querySelector("#hotTopicsDailyHotBase"),
   hotTopicsNewsnowBase: document.querySelector("#hotTopicsNewsnowBase"),
   drissionEnabled: document.querySelector("#drissionEnabled"),
@@ -90,6 +101,11 @@ const testHotTopicsNewsnowButton = document.querySelector("#testHotTopicsNewsnow
 const testHotTopicsNewsnowResult = document.querySelector("#testHotTopicsNewsnowResult");
 const testDrissionConnectionButton = document.querySelector("#testDrissionConnectionButton");
 const testDrissionConnectionResult = document.querySelector("#testDrissionConnectionResult");
+const drissionHelperTokenStatus = document.querySelector("#drissionHelperTokenStatus");
+
+// 隐藏在 module 作用域，不放进 fields 字典里 → saveForm 通用循环不会把 ""
+// 或别的脏值吹掉它；只在 saveForm 末尾显式合并到 patch.drissionHelperToken。
+let pendingHelperToken = "";
 const exportHistoryButton = document.querySelector("#exportHistoryButton");
 const clearHistoryButton = document.querySelector("#clearHistoryButton");
 
@@ -164,6 +180,24 @@ document.querySelector("#openTermsPage").addEventListener("click", () =>
     field.addEventListener(evt, () => clearTestResult(testDrissionConnectionResult));
   });
 
+// helper 地址支持「粘贴含 ?token=… 的整段 URL」自动拆 token：
+// - paste 走 clipboard 事件，能在浏览器把值塞进 input 之前拿到原始文本，立即拆 token；
+// - 兜底再监听 change/blur，处理用户手敲完输入失焦的场景。
+fields.drissionHelperUrl?.addEventListener("paste", (event) => {
+  const text = event.clipboardData?.getData("text") ?? "";
+  if (text) {
+    event.preventDefault();
+    fields.drissionHelperUrl.value = text;
+    applyHelperUrlInput(text);
+  }
+});
+fields.drissionHelperUrl?.addEventListener("change", () => {
+  applyHelperUrlInput(fields.drissionHelperUrl.value);
+});
+fields.drissionHelperUrl?.addEventListener("blur", () => {
+  applyHelperUrlInput(fields.drissionHelperUrl.value);
+});
+
 // 闸门：DrissionPage 是 Pro 功能，免费用户尝试勾选时拦截并弹升级框
 fields.drissionEnabled?.addEventListener("change", async (event) => {
   if (!event.target.checked) return;
@@ -195,8 +229,35 @@ async function hydrateForm() {
     }
     field.value = settings[key] ?? "";
   }
+  pendingHelperToken = normalizeDrissionHelperToken(settings.drissionHelperToken || "");
+  refreshHelperTokenStatus();
   currentProfiles = Array.isArray(settings.wechatProfiles) ? settings.wechatProfiles : [];
   renderProfiles();
+}
+
+function refreshHelperTokenStatus() {
+  if (!drissionHelperTokenStatus) return;
+  if (pendingHelperToken) {
+    drissionHelperTokenStatus.textContent =
+      "✅ 已检测到 helper token，请求会通过 X-Runbi-Helper-Token 安全传输。如需更新，重新粘贴新 helper 地址即可。";
+    drissionHelperTokenStatus.style.color = "#15803d";
+  } else {
+    drissionHelperTokenStatus.textContent =
+      "建议在桌面助手 GUI 点「复制 helper 地址」并粘贴到这里。token 会被自动拆出并加密保存，不会显示在地址栏。";
+    drissionHelperTokenStatus.style.color = "";
+  }
+}
+
+function applyHelperUrlInput(rawValue) {
+  const parsed = parseDrissionHelperInput(rawValue);
+  if (parsed.token) {
+    pendingHelperToken = normalizeDrissionHelperToken(parsed.token);
+  }
+  // 把字段值替换成不带 token 的干净 URL（避免 token 留在 DOM/HTML 缓存里）
+  if (parsed.url && parsed.url !== rawValue) {
+    fields.drissionHelperUrl.value = parsed.url;
+  }
+  refreshHelperTokenStatus();
 }
 
 async function saveForm() {
@@ -227,10 +288,21 @@ async function saveForm() {
       patch[key] = field.value.trim();
     }
   }
+
+  // helper URL 在保存前再拆一次，避免用户手敲后没触发 blur 就直接点保存
+  if (typeof patch.drissionHelperUrl === "string" && patch.drissionHelperUrl) {
+    const parsed = parseDrissionHelperInput(patch.drissionHelperUrl);
+    if (parsed.token) {
+      pendingHelperToken = normalizeDrissionHelperToken(parsed.token);
+    }
+    patch.drissionHelperUrl = parsed.url || "";
+  }
+  patch.drissionHelperToken = normalizeDrissionHelperToken(pendingHelperToken);
   patch.wechatProfiles = currentProfiles;
 
   await saveSettings(patch);
   await saveAgentSettings();
+  refreshHelperTokenStatus();
   setStatus("设置已保存。");
 }
 
@@ -243,7 +315,11 @@ const SECTION_KEYS = {
     "wechatDefaultSourceUrl",
     "wechatDefaultPublishMode",
     "wechatDefaultOpenComment",
-    "wechatDefaultOnlyFansCanComment"
+    "wechatDefaultOnlyFansCanComment",
+    "wechatApiBase",
+    "wechatSendStrategy",
+    "wechatSendTagId",
+    "wechatSendIgnoreReprint"
   ],
   preferences: [
     "defaultAudience",
@@ -330,7 +406,9 @@ async function testWechatConnection() {
       type: "TEST_WECHAT_CONNECTION",
       payload: {
         appId: fields.wechatAppId.value.trim(),
-        appSecret: fields.wechatAppSecret.value.trim()
+        appSecret: fields.wechatAppSecret.value.trim(),
+        // P1.3 · 把代理地址也透给后端，方便用户"配代理 → 一键测通"
+        wechatApiBase: fields.wechatApiBase?.value?.trim() || ""
       }
     });
 
@@ -362,6 +440,86 @@ async function testWechatConnection() {
     );
   } finally {
     testWechatConnectionButton.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// P1.2 · 公众号群发：拉取标签 + 月配额可视化
+// ---------------------------------------------------------------------------
+function initWechatExtras() {
+  const tagsBtn = document.querySelector("#fetchWechatTagsBtn");
+  if (tagsBtn) tagsBtn.addEventListener("click", fetchWechatTags);
+  void refreshWechatSendUsage();
+}
+
+async function fetchWechatTags() {
+  const tagsBtn = document.querySelector("#fetchWechatTagsBtn");
+  const result = document.querySelector("#wechatTagsResult");
+  if (!tagsBtn || !result) return;
+
+  const appId = fields.wechatAppId?.value?.trim();
+  const appSecret = fields.wechatAppSecret?.value?.trim();
+  if (!appId || !appSecret) {
+    setTestResult(result, "error", "请先在上方填写 AppID + AppSecret，并保存。");
+    return;
+  }
+
+  tagsBtn.disabled = true;
+  setTestResult(result, "loading", "正在拉取标签...");
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "LIST_WECHAT_TAGS",
+      payload: {
+        // 用 form 里当前的值，让用户能在没保存的情况下也测一遍
+        appId,
+        appSecret,
+        wechatApiBase: fields.wechatApiBase?.value?.trim() || ""
+      }
+    });
+    if (!response?.ok) {
+      const msg = formatRuntimeError(response?.error, "拉取失败，请检查权限。");
+      const verifiedHint = response?.error?.requiresVerifiedAccount
+        ? "（48001/53400：通常意味着账号未认证或不开放此接口；订阅号无标签接口）"
+        : "";
+      setTestResult(result, "error", `${msg}${verifiedHint}`);
+      return;
+    }
+    const tags = Array.isArray(response.data?.tags) ? response.data.tags : [];
+    if (tags.length === 0) {
+      setTestResult(result, "success", "拉取成功，但当前账号没有任何标签。可到「公众号后台 → 用户管理 → 标签管理」新建。");
+      return;
+    }
+    const lines = tags
+      .map((t) => `#${t.id} · ${escapeHtml(t.name)}（${t.count} 人）`)
+      .join("｜");
+    setTestResult(result, "success", `共 ${tags.length} 个标签：${lines}`);
+  } catch (error) {
+    setTestResult(result, "error", error.message || "拉取失败，请稍后再试。");
+  } finally {
+    tagsBtn.disabled = false;
+  }
+}
+
+/** 把"本月已用群发全员次数 / 4"展示出来；进入新自然月时自动归零保存。 */
+async function refreshWechatSendUsage() {
+  const label = document.querySelector("#wechatSendAllUsageCountLabel");
+  if (!label) return;
+  try {
+    const settings = await getSettings();
+    const ym = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+    if (settings.wechatSendAllUsageMonth !== ym) {
+      // 新一个月，归零 + 持久化（不阻塞 UI）
+      await saveSettings({
+        wechatSendAllUsageMonth: ym,
+        wechatSendAllUsageCount: 0
+      });
+      label.textContent = "0";
+    } else {
+      label.textContent = String(Number(settings.wechatSendAllUsageCount || 0));
+    }
+  } catch {
+    label.textContent = "?";
   }
 }
 
@@ -410,11 +568,23 @@ async function testDrissionConnection() {
   testDrissionConnectionButton.disabled = true;
   setTestResult(testDrissionConnectionResult, "loading", "正在测试 helper...");
 
+  // 测连接时也允许 inline 拆 token：用户可能贴了完整地址但还没点保存
+  const rawUrl = fields.drissionHelperUrl?.value?.trim() || "";
+  const parsed = parseDrissionHelperInput(rawUrl);
+  if (parsed.token && parsed.token !== pendingHelperToken) {
+    pendingHelperToken = normalizeDrissionHelperToken(parsed.token);
+    if (parsed.url && fields.drissionHelperUrl.value !== parsed.url) {
+      fields.drissionHelperUrl.value = parsed.url;
+    }
+    refreshHelperTokenStatus();
+  }
+
   try {
     const response = await chrome.runtime.sendMessage({
       type: "TEST_DRISSION_CONNECTION",
       payload: {
-        helperUrl: fields.drissionHelperUrl?.value?.trim() || "",
+        helperUrl: parsed.url || rawUrl,
+        helperToken: pendingHelperToken,
         timeoutMs: Number(fields.drissionTimeoutMs?.value || 0) || undefined
       }
     });
@@ -1291,9 +1461,27 @@ async function renderLicenseStatus() {
   const state = await getLicenseState({ refresh: false });
   const record = await getLicenseRecord();
 
-  if (licenseEls.statusBox) licenseEls.statusBox.dataset.status = state.status;
-  if (licenseEls.statusLabel) licenseEls.statusLabel.textContent = state.label;
-  if (licenseEls.statusHint) licenseEls.statusHint.textContent = state.hint;
+  // P0：会员状态文案统一 — options 会员区也走 getLicenseSummaryText（与 popup/workspace pill/member hero 一致）
+  let label = state.label;
+  let hint = state.hint;
+  let dataStatus = state.status;
+  try {
+    const auth = await getAuthRecord().catch(() => null);
+    const usage = await getUsageSnapshot().catch(() => null);
+    const summary = getLicenseSummaryText(state, {
+      auth,
+      usage: { today: { rewrite: Number(usage?.today?.rewrite) || 0 } }
+    });
+    label = summary.label;
+    hint = summary.sub;
+    dataStatus = summary.tone;
+  } catch (err) {
+    console.warn("[options] license summary failed, fallback", err);
+  }
+
+  if (licenseEls.statusBox) licenseEls.statusBox.dataset.status = dataStatus;
+  if (licenseEls.statusLabel) licenseEls.statusLabel.textContent = label;
+  if (licenseEls.statusHint) licenseEls.statusHint.textContent = hint;
   if (licenseEls.statusKey) {
     if (state.displayKey) {
       licenseEls.statusKey.hidden = false;
@@ -1483,6 +1671,11 @@ async function bootstrapOptionsPage() {
   initNoviceMode();
   initChecklist();
   initQuickNav();
+  try {
+    initWechatExtras();
+  } catch (err) {
+    console.error("[options] initWechatExtras failed:", err);
+  }
   try {
     await initLicenseSection();
   } catch (err) {

@@ -156,7 +156,15 @@ export function renderCoverPreview() {
   const { view } = _ctx;
   const image = _ctx.getCoverImageForArticle(_ctx.getCurrentArticle());
   if (!image?.src) {
-    view.coverPreview.innerHTML = '<p>还没有封面图。请在左侧来源图片里点“设为封面”。</p>';
+    // 空态：不再让用户去对面找按钮，直接在这里就能上传 / 一键生成
+    view.coverPreview.innerHTML = `
+      <p><strong>还没有封面图。</strong>请用以下任一方式补一张：</p>
+      <div class="cover-empty-actions">
+        <button type="button" class="ghost" data-cover-action="upload">📷 上传本地图片</button>
+        <button type="button" class="ghost" data-cover-action="generate">✨ 一键生成占位封面</button>
+      </div>
+      <p class="muted" style="margin-top:8px;">也可以到「编辑」页 → 采集信息里点任意图片「设为封面」。</p>
+    `;
     return;
   }
   view.coverPreview.innerHTML = `

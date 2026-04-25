@@ -237,6 +237,28 @@ h1 {
   color: var(--ink-muted);
 }
 
+/* P0：4 个补充状态（与 getLicenseSummaryText 的 tone 一一对应） */
+.license-pill[data-status="expiring"] {
+  border-color: rgba(225, 175, 60, 0.55);
+  background: rgba(225, 175, 60, 0.12);
+}
+.license-pill[data-status="expiring"] .license-pill-icon {
+  color: #8a6300;
+}
+.license-pill[data-status="expiring"] .license-pill-label {
+  color: #8a6300;
+}
+
+.license-pill[data-status="stale"] {
+  border-color: var(--card-border);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.license-pill[data-status="guest"],
+.license-pill[data-status="free"] {
+  border-color: var(--card-border);
+}
+
 /* ----- 信息卡（页面 / AI） ----- */
 
 .info-card {
@@ -309,6 +331,64 @@ h1 {
   border-color: rgba(183, 134, 64, 0.4);
   color: var(--warning);
   background: var(--warning-soft);
+}
+
+/* P0：4 态网页判断 — 公众号后台 / 加载中 → info 灰蓝 */
+.status-pill[data-state="info"] {
+  border-color: rgba(60, 120, 200, 0.35);
+  color: #1f4f8a;
+  background: rgba(60, 120, 200, 0.1);
+}
+
+.status-pill[data-state="loading"] {
+  opacity: 0.85;
+}
+
+/* 不同 page-card 状态对应的整张卡轻微着色 */
+.info-card[data-state="info"] {
+  background: rgba(60, 120, 200, 0.05);
+}
+
+.info-card[data-state="blocked"] {
+  background: rgba(183, 134, 64, 0.06);
+}
+
+/* P0：popup「我的」会员卡明细行 */
+.popup-member-meta {
+  list-style: none;
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  font-size: 12.5px;
+}
+
+.popup-member-meta li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.popup-member-meta .meta-key {
+  color: var(--ink-muted);
+}
+
+.popup-member-meta .meta-val {
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* P0 capture hint 配色：normal = info / 异常 = warning */
+#captureHint[data-tone="warning"] {
+  color: var(--warning);
 }
 
 .ai-dot {
@@ -692,6 +772,16 @@ h1 {
   font-size: 12px;
   line-height: 1.55;
   color: var(--ink-muted);
+}
+
+.popup-pane-hint strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* P0 capture-hint 默认走 info（蓝绿色），异常态由 popup.js 设 data-tone="warning" */
+#captureHint[data-tone="info"] {
+  color: var(--accent-green, var(--ink-soft));
 }
 
 /* ──────────────────────────────────────────────────────────────

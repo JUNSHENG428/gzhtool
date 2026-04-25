@@ -4,11 +4,17 @@ import {
   getPromptTemplates,
   getSession,
   getSettings,
-  saveSession
+  saveSession,
+  saveSettings
 } from "../shared/storage.js";
 import { WECHAT_WEB_EDITOR_URL } from "../shared/defaults.js";
 import { classifyError } from "../shared/errors.js";
-import { publishToWechat, queryPublishStatus, testWechatConnection } from "../shared/wechat.js";
+import {
+  listUserTags,
+  publishToWechat,
+  queryPublishStatus,
+  testWechatConnection
+} from "../shared/wechat.js";
 import { normalizeCaptureMode, sleep } from "../shared/utils.js";
 import { fetchHotTopics, testHotTopicsBackend } from "../shared/hot-topics.js";
 import {
@@ -252,9 +258,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "TEST_WECHAT_CONNECTION": {
         const result = await testWechatConnection({
           appId: message.payload?.appId,
-          appSecret: message.payload?.appSecret
+          appSecret: message.payload?.appSecret,
+          // P1.3 · 把 UI 输入的代理地址透到 wechat.js，让用户能"配代理 → 一键测通"
+          wechatApiBase: message.payload?.wechatApiBase || ""
         });
         sendResponse(result);
+        break;
+      }
+      case "LIST_WECHAT_TAGS": {
+        // P1.2 · options 页「拉取标签」按钮专用。
+        // 不复用 settings.wechatAppId / Secret，让 UI 能用当前 form 里未保存的凭证测试。
+        const baseSettings = await getSettings();
+        const appId = String(message.payload?.appId || baseSettings.wechatAppId || "").trim();
+        const appSecret = String(
+          message.payload?.appSecret || baseSettings.wechatAppSecret || ""
+        ).trim();
+        const wechatApiBase =
+          message.payload?.wechatApiBase !== undefined
+            ? String(message.payload.wechatApiBase || "").trim()
+            : baseSettings.wechatApiBase || "";
+        if (!appId || !appSecret) {
+          sendResponse({
+            ok: false,
+            error: {
+              code: "WECHAT_INVALID_SECRET",
+              message: "请先填好 AppID / AppSecret 再拉取标签。",
+              retryable: false
+            }
+          });
+          break;
+        }
+        const tags = await listUserTags({
+          ...baseSettings,
+          wechatAppId: appId,
+          wechatAppSecret: appSecret,
+          wechatApiBase
+        });
+        sendResponse({ ok: true, data: { tags } });
         break;
       }
       case "TEST_HOT_TOPICS_BACKEND": {
@@ -266,9 +306,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "TEST_DRISSION_CONNECTION": {
-        // helper 是本地服务，不读 settings；允许 UI 直接传 url 来即时测试用户输入。
+        // helper 是本地服务，不读 settings；允许 UI 直接传 url + token 来即时测试用户输入，
+        // 这样测连接按钮可以在 saveSettings 之前就反馈 token 是否能通。
         const result = await testDrissionConnection({
           helperUrl: message.payload?.helperUrl,
+          helperToken: message.payload?.helperToken,
           timeoutMs: message.payload?.timeoutMs
         });
         sendResponse(result);
@@ -297,6 +339,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           `公众号发布（${accountLabel}）`
         );
         void bumpUsage("publish");
+        // P1.2 · 群发全员（is_to_all=true）有「每月最多 4 次」硬上限。
+        // 微信侧没有"查询本月已用次数"的接口，只能在扩展端自维护一个估算计数器。
+        // 这里仅在 sendStrategy === "all" 且成功的路径上 +1，"tag" 不计配额。
+        if (result?.sendStrategy === "all" && result?.massSendMsgId) {
+          void bumpWechatSendAllQuota().catch((err) => {
+            console.warn("[gzh] bumpWechatSendAllQuota failed:", err);
+          });
+        }
         sendResponse({ ok: true, data: { ...result, accountLabel } });
         break;
       }
@@ -430,11 +480,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   })().catch((error) => {
     const classified = classifyError(error);
-    sendResponse({ ok: false, error: { code: classified.code, message: classified.message, retryable: classified.retryable } });
+    const errorPayload = {
+      code: classified.code,
+      message: classified.message,
+      retryable: classified.retryable
+    };
+    if (classified.requiresVerifiedAccount || error?.requiresVerifiedAccount) {
+      errorPayload.requiresVerifiedAccount = true;
+      if (error?.errcode) errorPayload.errcode = error.errcode;
+    }
+    // 40164 IP 白名单：把当前出口 IP 透到前端，让 UI（toast / future「一键复制 IP」按钮）可以直接读，
+    // 不必再从 message 字符串里 regex 二次解析。
+    const detectedIp = classified.detectedIp || error?.detectedIp;
+    if (detectedIp) errorPayload.detectedIp = detectedIp;
+    sendResponse({ ok: false, error: errorPayload });
   });
 
   return true;
 });
+
+/**
+ * P1.2 · 「群发全员」配额自维护。
+ * 微信侧没有"查询本月已用次数"的接口，只能在扩展端自己估算：
+ *   - key 形如 "2026-04"，每月一段
+ *   - 进入新自然月时自动重置 count 为 0
+ *   - 每次成功调用 mass/sendall(is_to_all=true) +1
+ * 注意：这只是估算，多设备同步、API 端调失败但实际送达等极端 case 都会让计数和官方实际配额脱钩。
+ */
+async function bumpWechatSendAllQuota() {
+  const now = new Date();
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const settings = await getSettings();
+  const sameMonth = settings.wechatSendAllUsageMonth === monthKey;
+  const nextCount = (sameMonth ? Number(settings.wechatSendAllUsageCount) || 0 : 0) + 1;
+  await saveSettings({
+    wechatSendAllUsageMonth: monthKey,
+    wechatSendAllUsageCount: nextCount
+  });
+  return nextCount;
+}
 
 async function withRetry(fn, maxRetries, operationName) {
   let lastError = null;
@@ -585,7 +669,8 @@ async function scrapeLastSourceTab(captureMode = "readable") {
       });
       return capture;
     } catch (error) {
-      console.warn("[gzh] DrissionPage 抓取失败，回退到内置抓取：", error?.message || error);
+      const code = error?.helperErrorCode ? ` [${error.helperErrorCode}]` : "";
+      console.warn(`[gzh] DrissionPage 抓取失败，回退到内置抓取${code}：`, error?.message || error);
     }
   }
 
@@ -710,7 +795,8 @@ async function scrapeBackgroundSilent(targetUrl) {
       });
       return capture;
     } catch (error) {
-      console.warn("[gzh] DrissionPage 后台抓取失败，回退到内置 tab 抓取：", error?.message || error);
+      const code = error?.helperErrorCode ? ` [${error.helperErrorCode}]` : "";
+      console.warn(`[gzh] DrissionPage 后台抓取失败，回退到内置 tab 抓取${code}：`, error?.message || error);
     }
   }
 

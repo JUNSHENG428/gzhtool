@@ -144,17 +144,20 @@ async function main() {
     await page.reload({ waitUntil: "networkidle" });
     await page.waitForTimeout(400);
 
-    // 记录这个 UX 观察
+    // 记录这个 UX 观察：options 中按钮在 novice 模式下确实仍被 data-advanced 隐藏，
+    // 但已经不再是阻塞问题 —— workspace 端有 3 处常驻入口（编辑台 toolbar / dashboard
+    // 磁贴 / 改写模板下拉），novice 用户通过 workspace 即可发现 Pro 卖点。
     const buttonVisibleInNovice = await page.evaluate(() => {
-      // 切回 novice 看下按钮是否真的不可见
       document.body.setAttribute("data-novice-mode", "on");
       const btn = document.querySelector("#aiGenerateTemplateButton");
       const visible = btn && btn.offsetParent !== null;
       document.body.setAttribute("data-novice-mode", "off");
       return visible;
     });
-    log("ux", "novice 模式下 AI 模板生成器按钮可见", buttonVisibleInNovice ? "ok" : "warn",
-      buttonVisibleInNovice ? "" : "默认 novice 模式按钮被藏在 data-advanced 区，Pro 卖点曝光不足");
+    log("ux", "options novice 模式下按钮隐藏（workspace 已补 3 处入口）", "ok",
+      buttonVisibleInNovice
+        ? "options 端按钮在 novice 模式下也可见"
+        : "options 端 novice 隐藏属预期；workspace 编辑台 toolbar / dashboard 磁贴 / 改写下拉常驻可见");
 
     await page.click("#aiGenerateTemplateButton").catch(() => {});
     await page.waitForTimeout(400);
@@ -190,23 +193,66 @@ async function main() {
     await page.click("#aiGenerateTemplateButton");
     await page.waitForTimeout(400);
 
+    // 对话框由共享模块 src/shared/ai-template-dialog.js lazy-mount 到 document.body
     const dialogVisible = await page.evaluate(
-      () => document.querySelector("#aiGenBackdrop")?.hidden === false
+      () => document.querySelector("#ai-template-dialog-root")?.hidden === false
     );
     log("ai-tpl", "fake-pro 后弹出问卷对话框", dialogVisible ? "ok" : "fail");
 
     if (dialogVisible) {
       const quizCount = await page.evaluate(
-        () => document.querySelectorAll(".ai-gen-quiz-options[data-quiz]").length
+        () => document.querySelectorAll(".ai-template-quiz-options[data-quiz]").length
       );
       log("ai-tpl", `问卷题目容器数 = ${quizCount}`, quizCount >= 6 ? "ok" : "fail", "期望至少 6 题");
 
       const themeCards = await page.evaluate(
-        () => document.querySelectorAll(".ai-gen-theme-card").length
+        () => document.querySelectorAll(".ai-template-theme-card").length
       );
       log("ai-tpl", `视觉主题卡片数 = ${themeCards}`, themeCards >= 6 ? "ok" : "fail", "期望至少 6 张");
     }
     await page.close();
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // 3.5) workspace 三处 AI 模板入口可见性（不依赖 novice 模式）
+  // ──────────────────────────────────────────────────────────
+  console.log("\n[3.5] workspace AI 模板入口曝光（toolbar / dashboard / 改写下拉）");
+  {
+    const ws = await context.newPage();
+    await ws.goto(`chrome-extension://${extId}/src/workspace/workspace.html`, { waitUntil: "networkidle" });
+    await ws.waitForTimeout(600);
+
+    // dashboard 路由：快捷动作磁贴
+    const quickTileVisible = await ws.evaluate(() => {
+      const el = document.querySelector("#quickAiTemplate");
+      return Boolean(el && el.offsetParent !== null);
+    });
+    log("ai-tpl", "workspace dashboard 快捷磁贴 #quickAiTemplate",
+      quickTileVisible ? "ok" : "fail",
+      quickTileVisible ? "" : "未在 .ui-quick-grid 看到 AI 生成模板磁贴");
+
+    // 切到改写排版（toolbar 按钮在 #layout 路由的 .rewrite-cluster 里）
+    await ws.evaluate(() => { location.hash = "#layout"; });
+    await ws.waitForTimeout(400);
+
+    const toolbarBtnVisible = await ws.evaluate(() => {
+      const el = document.querySelector("#aiGenTemplateBtnLayout");
+      return Boolean(el && el.offsetParent !== null);
+    });
+    log("ai-tpl", "workspace 改写工具栏按钮 #aiGenTemplateBtnLayout",
+      toolbarBtnVisible ? "ok" : "fail",
+      toolbarBtnVisible ? "" : "未在 .rewrite-cluster 看到 AI 新模板按钮");
+
+    const inlineOptionPresent = await ws.evaluate(() => {
+      const sel = document.querySelector("#rewriteTemplateSelect");
+      if (!sel) return false;
+      return Array.from(sel.options).some((o) => o.value === "__ai_gen__");
+    });
+    log("ai-tpl", "改写模板下拉含 ✨ 用 AI 生成新模板 选项",
+      inlineOptionPresent ? "ok" : "fail",
+      inlineOptionPresent ? "" : "renderTemplateOptions 未注入 __ai_gen__ 选项");
+
+    await ws.close();
   }
 
   // ──────────────────────────────────────────────────────────

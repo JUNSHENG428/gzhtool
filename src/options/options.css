@@ -2393,3 +2393,100 @@ body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="prompt"
     display: none;
   }
 }
+
+/* ==========================================================================
+   P1 · WeChat 外部约束相关 UI
+   - .wechat-policy-banner   : 2025-07 政策红色横幅
+   - .wechat-subblock        : 「微信 API 代理」「群发策略」子区块
+   ========================================================================== */
+.wechat-policy-banner {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 12px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid #f3b9b9;
+  background: linear-gradient(180deg, #fff5f5 0%, #ffecec 100%);
+  border-left: 4px solid #c0392b;
+  border-radius: 12px;
+  color: #5b1a1a;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.wechat-policy-banner-icon {
+  font-size: 22px;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.wechat-policy-banner-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.wechat-policy-banner-body strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 4px;
+  color: #8a1414;
+}
+
+.wechat-policy-banner-body p {
+  margin: 4px 0 0;
+}
+
+.wechat-policy-banner-body code {
+  background: rgba(192, 57, 43, 0.1);
+  color: #8a1414;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12.5px;
+}
+
+.wechat-policy-banner-body a {
+  color: #8a1414;
+  text-decoration: underline;
+  font-weight: 600;
+}
+
+.wechat-subblock {
+  margin-top: 22px;
+  padding: 16px 18px;
+  border: 1px dashed var(--line, #d7dbc8);
+  border-radius: 12px;
+  background: rgba(247, 245, 239, 0.55);
+}
+
+.wechat-subblock-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink, #1f4329);
+}
+
+.wechat-subblock-title small {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted, #7d7d7d);
+}
+
+.wechat-subblock-desc {
+  margin: 4px 0 12px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink-soft, #4a5048);
+}
+
+.wechat-subblock-desc.muted {
+  color: var(--muted, #7d7d7d);
+  font-size: 12.5px;
+}
+
+.wechat-subblock-desc code {
+  background: rgba(31, 67, 41, 0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12.5px;
+}

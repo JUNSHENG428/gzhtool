@@ -208,6 +208,22 @@
           <p>
             填好后可一键把改写好的文章推到公众号草稿箱或直接发布。<strong>如果只用 AI 改写、不直推到公众号，这一节可以跳过。</strong>
           </p>
+
+          <!-- P1.1 · 2025-07 政策红色横幅，常驻显示 -->
+          <div class="wechat-policy-banner" role="alert">
+            <div class="wechat-policy-banner-icon" aria-hidden="true">⚠️</div>
+            <div class="wechat-policy-banner-body">
+              <strong>2025-07 起：未认证账号将失去 draft/add 权限</strong>
+              <p>
+                根据微信公开通告，<strong>个人主体 / 未认证企业号 / 不支持认证的账号</strong>将失去通过 API 推送草稿（<code>draft/add</code>）的能力，意味着本扩展的"一键发草稿"对这类账号会直接报 <code>48001 / 53400</code>。
+              </p>
+              <p>
+                <strong>兜底姿势</strong>：发布面板提供"复制 HTML 手动粘贴"按钮，把已经排好版的 HTML 复制到剪贴板，再到公众号后台「素材管理 → 新建图文」粘贴即可。详见
+                <a href="https://github.com/JUNSHENG428/gzhtool/blob/main/docs/WECHAT_LIMITATIONS.md" target="_blank" rel="noreferrer">WECHAT_LIMITATIONS.md</a>。
+              </p>
+            </div>
+          </div>
+
           <details class="field-help">
             <summary>不知道 AppID/AppSecret 在哪？点这里看获取步骤</summary>
             <ol>
@@ -263,6 +279,76 @@
           <button id="testWechatConnectionButton" class="ghost" type="button">测试公众号连接</button>
           <p id="testWechatConnectionResult" class="test-result" aria-live="polite"></p>
           <small class="field-hint">注意：测试只能验证 AppID/AppSecret 能换到 token，不代表你账号有「群发」「草稿」接口权限——真正发的时候还可能因为权限不足报错。</small>
+        </div>
+
+        <!-- P1.3 · 微信 API 代理（破 IP 白名单） -->
+        <div class="wechat-subblock split-full" data-advanced="true">
+          <h3 class="wechat-subblock-title">微信 API 代理地址<small>（动态 IP 用户必备 / 高级）</small></h3>
+          <p class="wechat-subblock-desc">
+            如果你家用宽带 / 4G/5G 是动态 IP 进不了公众号后台白名单，会反复报 <code>40164</code>。
+            把请求中转到一台<strong>有固定出口 IP 的代理</strong>就能解决。推荐用阿里云函数计算（FC）：
+            个人版有免费额度，FC 出口 IP 是阿里云固定段，<strong>把这段 IP 一次性加白名单后所有 cgi-bin 接口就都通了</strong>。
+            一键部署模板见仓库 <code>aliyun-fc/wechat-api-proxy/</code>。
+          </p>
+          <p class="wechat-subblock-desc muted">
+            ⚠️ Cloudflare Workers <strong>不适合</strong>做这件事：CF 出口是动态 IP 段，每天换，加白名单白加了。
+          </p>
+
+          <label class="split-full">
+            <span>微信 API 自定义 base（留空 = 走官方 <code>https://api.weixin.qq.com</code>）</span>
+            <input
+              id="wechatApiBase"
+              type="url"
+              placeholder="https://your-fc-domain.com"
+              autocomplete="off"
+            />
+            <small class="field-hint">
+              填代理域名后，扩展会把所有 <code>/cgi-bin/*</code> 请求都打到这个域名。
+              代理实现要做的事很简单：<strong>原样转发到 api.weixin.qq.com，保留 query / body / headers</strong>。
+            </small>
+          </label>
+        </div>
+
+        <!-- P1.2 · 群发策略（让认证服务号文章进公众号列表） -->
+        <div class="wechat-subblock split-full" data-advanced="true">
+          <h3 class="wechat-subblock-title">公众号群发策略<small>（仅认证服务号 / 高级）</small></h3>
+          <p class="wechat-subblock-desc">
+            走 <code>freepublish/submit</code> 发完的文章<strong>不会进公众号文章列表</strong>，关注者也不会收到推送。
+            想让文章真正进入用户的公众号会话框，必须额外调 <code>message/mass/sendall</code> 群发。
+            <strong>仅认证服务号可用</strong>，订阅号和未认证号会报 48001/53400。
+          </p>
+
+          <label>
+            <span>默认群发模式</span>
+            <select id="wechatSendStrategy">
+              <option value="none">不群发，仅 freepublish/submit（默认）</option>
+              <option value="all">群发全员（is_to_all=true，每月最多 4 次）</option>
+              <option value="tag">群发指定标签（is_to_all=false + tag_id，不计入月配额）</option>
+            </select>
+            <small class="field-hint">这是默认值，每次发布前还能在工作台发布面板单独调。</small>
+          </label>
+
+          <label>
+            <span>默认 tag_id（仅群发到标签时用）</span>
+            <input id="wechatSendTagId" type="number" min="0" placeholder="0" />
+            <small class="field-hint">
+              到公众号后台「用户管理 → 标签管理」可以看到 ID。
+              <button id="fetchWechatTagsBtn" type="button" class="link-button" style="padding:0;">点这里在线拉取本号所有标签 ↓</button>
+            </small>
+          </label>
+
+          <div class="split-full">
+            <p id="wechatTagsResult" class="test-result" aria-live="polite"></p>
+          </div>
+
+          <label class="checkbox-row split-full">
+            <input id="wechatSendIgnoreReprint" type="checkbox" />
+            <span>群发时忽略原创校验失败（send_ignore_reprint=1）</span>
+          </label>
+
+          <p class="wechat-subblock-desc muted split-full" id="wechatSendAllUsageHint">
+            本月已使用 <strong id="wechatSendAllUsageCountLabel">0</strong> / 4 次「群发全员」配额（自维护估算，新月自动归零）。
+          </p>
         </div>
       </section>
 
@@ -372,7 +458,10 @@
 
         <label class="split-full">
           <span>helper 地址（如 <code>http://127.0.0.1:7788/</code>）</span>
-          <input id="drissionHelperUrl" type="url" placeholder="http://127.0.0.1:7788/" autocomplete="off" />
+          <input id="drissionHelperUrl" type="url" placeholder="http://127.0.0.1:7788/?token=…" autocomplete="off" />
+          <small id="drissionHelperTokenStatus" class="field-hint" aria-live="polite">
+            建议在桌面助手 GUI 点「复制 helper 地址」并粘贴到这里。token 会被自动拆出并加密保存，不会显示在地址栏。
+          </small>
         </label>
 
         <label class="split-full">
@@ -580,153 +669,8 @@
         </div>
       </div>
 
-      <!-- AI 模板生成器 · Pro 专享 -->
-      <div id="aiGenBackdrop" class="prompt-preview-backdrop ai-gen-backdrop" hidden>
-        <div class="prompt-preview-dialog ai-gen-dialog" role="dialog" aria-modal="true" aria-labelledby="aiGenTitle">
-          <div class="prompt-preview-head">
-            <h3 id="aiGenTitle">
-              <span class="ai-gen-title-spark" aria-hidden="true">✨</span>
-              AI 生成专属改写模板
-            </h3>
-            <button id="aiGenCloseBtn" type="button" class="ghost">关闭</button>
-          </div>
-
-          <p class="prompt-preview-meta ai-gen-tagline">
-            7 道选择题，AI 帮你写出一份**有编辑判断 + 有杂志气质**的改写模板。视觉主题来自 The New Yorker / Wired / Monocle / Vogue 等杂志的手工母版，AI 不写一行 CSS——下限就是杂志级。
-          </p>
-
-          <!-- 步骤 1：问卷 -->
-          <div id="aiGenStepInput" class="ai-gen-step">
-            <!-- Q1 内容定位 -->
-            <div class="ai-gen-quiz-block">
-              <div class="ai-gen-quiz-q">
-                <span class="ai-gen-quiz-num">01</span>
-                <span class="ai-gen-quiz-title">你的公众号在写什么？</span>
-                <span class="ai-gen-quiz-hint">决定 AI 给你设定的"编辑身份"</span>
-              </div>
-              <div class="ai-gen-quiz-options" data-quiz="contentPillar"></div>
-              <input id="aiGenContentPillarOther" class="ai-gen-quiz-other" type="text" placeholder="如果选了「其他」，请用一句话告诉我们" hidden />
-            </div>
-
-            <!-- Q2 写作语气 -->
-            <div class="ai-gen-quiz-block">
-              <div class="ai-gen-quiz-q">
-                <span class="ai-gen-quiz-num">02</span>
-                <span class="ai-gen-quiz-title">你想要的写作语气？</span>
-                <span class="ai-gen-quiz-hint">决定整篇文章的"温度"和"立场感"</span>
-              </div>
-              <div class="ai-gen-quiz-options" data-quiz="tone"></div>
-            </div>
-
-            <!-- Q3 开头方式 -->
-            <div class="ai-gen-quiz-block">
-              <div class="ai-gen-quiz-q">
-                <span class="ai-gen-quiz-num">03</span>
-                <span class="ai-gen-quiz-title">文章开头你偏好哪种方式？</span>
-                <span class="ai-gen-quiz-hint">前三秒决定读者是不是滑走</span>
-              </div>
-              <div class="ai-gen-quiz-options" data-quiz="opening"></div>
-            </div>
-
-            <!-- Q4 段落节奏 -->
-            <div class="ai-gen-quiz-block">
-              <div class="ai-gen-quiz-q">
-                <span class="ai-gen-quiz-num">04</span>
-                <span class="ai-gen-quiz-title">段落节奏的偏好？</span>
-                <span class="ai-gen-quiz-hint">决定文章的"呼吸感"</span>
-              </div>
-              <div class="ai-gen-quiz-options" data-quiz="rhythm"></div>
-            </div>
-
-            <!-- Q5 结尾方式 -->
-            <div class="ai-gen-quiz-block">
-              <div class="ai-gen-quiz-q">
-                <span class="ai-gen-quiz-num">05</span>
-                <span class="ai-gen-quiz-title">文章怎么收尾？</span>
-                <span class="ai-gen-quiz-hint">决定读者读完做什么</span>
-              </div>
-              <div class="ai-gen-quiz-options" data-quiz="cta"></div>
-            </div>
-
-            <!-- Q6 视觉主题 -->
-            <div class="ai-gen-quiz-block ai-gen-quiz-theme">
-              <div class="ai-gen-quiz-q">
-                <span class="ai-gen-quiz-num">06</span>
-                <span class="ai-gen-quiz-title">视觉排版风（杂志级母版）</span>
-                <span class="ai-gen-quiz-hint">每一套都是参照真实高级杂志手工调的，AI 不写 CSS，下限就是杂志级</span>
-              </div>
-              <div class="ai-gen-quiz-options ai-gen-theme-grid" data-quiz="visualTheme"></div>
-            </div>
-
-            <!-- Q7 选填补充 -->
-            <div class="ai-gen-quiz-block ai-gen-quiz-extra">
-              <div class="ai-gen-quiz-q">
-                <span class="ai-gen-quiz-num">07</span>
-                <span class="ai-gen-quiz-title">补充信息（选填，但写了效果更好）</span>
-              </div>
-              <label class="ai-gen-field-inline grow">
-                <span class="ai-gen-label-sm">目标读者画像</span>
-                <input id="aiGenAudience" type="text" placeholder="例：25–35 岁、有判断力的科技产品决策者" />
-              </label>
-              <label class="ai-gen-field-inline grow">
-                <span class="ai-gen-label-sm">特别想要的风格细节</span>
-                <textarea id="aiGenExtraNotes" rows="3" placeholder="例：少用形容词，多用具体数字；不要出现「赋能」「拥抱变革」这种词；如果用反讽，要克制不油腻"></textarea>
-              </label>
-            </div>
-
-            <div class="ai-gen-actions">
-              <span id="aiGenError" class="ai-gen-error" hidden></span>
-              <button id="aiGenSubmit" type="button" class="primary ai-generate-button">
-                <span class="ai-generate-spark" aria-hidden="true">✨</span>
-                <span id="aiGenSubmitLabel">生成模板</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- 步骤 2：生成中 -->
-          <div id="aiGenStepLoading" class="ai-gen-step ai-gen-loading" hidden>
-            <div class="ai-gen-loading-orb" aria-hidden="true"></div>
-            <p class="ai-gen-loading-title">正在让 AI 揣摩你的风格…</p>
-            <p class="ai-gen-loading-hint">这一步通常 5-15 秒。AI 会先想角色、再想写作纪律，最后排默认偏好。</p>
-          </div>
-
-          <!-- 步骤 3：预览 + 保存 -->
-          <div id="aiGenStepPreview" class="ai-gen-step" hidden>
-            <div class="ai-gen-preview-head">
-              <span id="aiGenPreviewIcon" class="ai-gen-preview-icon">✨</span>
-              <div class="ai-gen-preview-title-wrap">
-                <h4 id="aiGenPreviewName" class="ai-gen-preview-name">模板名</h4>
-                <p id="aiGenPreviewMeta" class="ai-gen-preview-meta">温度 0.7 · 长度 medium</p>
-              </div>
-            </div>
-
-            <div id="aiGenPreviewTheme" class="ai-gen-preview-theme" hidden>
-              <span class="ai-gen-preview-theme-tag">视觉主题</span>
-              <strong id="aiGenPreviewThemeName"></strong>
-              <span id="aiGenPreviewThemeSummary"></span>
-            </div>
-
-            <details class="ai-gen-preview-block-wrap" open>
-              <summary>角色 + 风格指令（system prompt 主体）</summary>
-              <pre id="aiGenPreviewStyle" class="prompt-preview-block"></pre>
-            </details>
-
-            <details class="ai-gen-preview-block-wrap">
-              <summary>默认偏好（受众 / 调性 / 角度 / CTA）</summary>
-              <div id="aiGenPreviewDefaults" class="ai-gen-preview-defaults"></div>
-            </details>
-
-            <p class="ai-gen-preview-note">
-              输出格式 contract（必须返回 JSON、保留来源图片、字段不可省略等）会被系统自动追加到模板末尾，AI 改不了。保存后请到「编辑台」把排版样式切换到上方建议的主题，杂志感才完整。
-            </p>
-
-            <div class="ai-gen-actions">
-              <button id="aiGenRetryBtn" type="button" class="ghost">重新生成</button>
-              <button id="aiGenSaveBtn" type="button" class="primary">保存到我的模板</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- AI 模板生成器对话框：HTML/CSS/JS 已迁出至 src/shared/ai-template-dialog.js
+           （options 与 workspace 共用同一个对话框，由共享模块 lazy-mount 到 document.body） -->
 
       <section class="card license-card" id="licenseSection" data-section-key="license">
         <div class="section-heading">

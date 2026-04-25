@@ -110,6 +110,46 @@ const CSS = `
 .license-upgrade-feature strong {
   color: #14532d;
 }
+/* P0：闸门拦截统一文案 — 用 row 把「本次被拦」「升级后获得」分两行 */
+.license-upgrade-rows {
+  display: grid;
+  gap: 10px;
+  margin: 4px 0 16px;
+}
+.license-upgrade-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #334155;
+}
+.license-upgrade-row[data-tone="blocked"] {
+  background: #fef3f2;
+  border-color: #fecaca;
+}
+.license-upgrade-row[data-tone="gain"] {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+}
+.license-upgrade-row .license-upgrade-row-label {
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+}
+.license-upgrade-row[data-tone="blocked"] .license-upgrade-row-label {
+  color: #b91c1c;
+}
+.license-upgrade-row[data-tone="gain"] .license-upgrade-row-label {
+  color: #14532d;
+}
+.license-upgrade-row .license-upgrade-row-text {
+  color: #334155;
+}
 .license-upgrade-list {
   margin: 8px 0 0;
   padding-left: 18px;
@@ -200,9 +240,18 @@ function close() {
  *   featureName    - string  必填：被拦截的功能名（"多公众号管理"）
  *   hint           - string  必填：解释为什么被拦截 / Pro 能解锁什么
  *   bullets        - string[] 选填：底部要点列表
+ *   blocked        - string  选填：覆盖默认「本次被拦的是…」文案
+ *   gain           - string  选填：覆盖默认「升级 Pro 后立即获得…」文案
+ *                              （不传则把 hint 当成「升级后获得什么」展示）
  *   primaryAction  - { label, url? , onClick? } 选填：默认 "查看 Pro 套餐"
  *   secondaryLabel - string 选填：默认 "我先用免费版"
  *   onClose        - () => void 选填
+ *
+ *  P0 上架前体验统一：原来一个 hint 把「拦了什么」和「升级后能干嘛」混在一起，
+ *  用户看完一脸懵。新版把弹窗 body 拆成两行：
+ *    🚫 本次被拦的是「<featureName>」
+ *    🌱 升级 Pro 后立即获得：<gain || hint>
+ *  这样无论是免费额度耗尽、还是模板锁、还是多账号超限，所有 Pro 闸门都呈现一致结构。
  */
 export function showUpgradeModal(options = {}) {
   if (typeof document === "undefined" || typeof window === "undefined") {
@@ -221,6 +270,10 @@ export function showUpgradeModal(options = {}) {
   };
   const secondaryLabel = options.secondaryLabel || "我先用免费版";
 
+  // P0：「本次被拦 / 升级后获得」结构化文案
+  const blockedLine = String(options.blocked || `本次被拦的是「${featureName}」`);
+  const gainLine = String(options.gain || hint);
+
   root.replaceChildren();
 
   const backdrop = document.createElement("div");
@@ -237,7 +290,16 @@ export function showUpgradeModal(options = {}) {
         <p class="license-upgrade-subtitle">免费版可继续使用全部基础功能，升级仅解锁该高级能力。</p>
       </div>
       <div class="license-upgrade-body">
-        <p class="license-upgrade-feature">${escape(hint)}</p>
+        <div class="license-upgrade-rows">
+          <div class="license-upgrade-row" data-tone="blocked">
+            <span class="license-upgrade-row-label">本次被拦</span>
+            <span class="license-upgrade-row-text">${escape(blockedLine)}</span>
+          </div>
+          <div class="license-upgrade-row" data-tone="gain">
+            <span class="license-upgrade-row-label">升级后获得</span>
+            <span class="license-upgrade-row-text">${escape(gainLine)}</span>
+          </div>
+        </div>
         ${
           bullets.length
             ? `<ul class="license-upgrade-list">${bullets

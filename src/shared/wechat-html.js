@@ -145,14 +145,29 @@ const ALLOWED_DATA_ATTRS = new Set([
 
 // 给关键标签补默认 inline style，已有的 style 优先级更高（详见 mergeStyle）。
 // 这里的样式都是公众号编辑器默认能稳定渲染的，不依赖 @media / @font-face。
+// P1.4 · 暗色模式 fallback color。
+// 微信公众号的暗色模式会自动给 body/容器加 class="js_darkmode__"，
+// 然后**只对没有显式 color 的节点**做反色处理（白底变深灰底，黑字变浅灰字）；
+// 但如果用户给 p/h* 设置了 color，微信侧通常**会原样保留**——
+// 这就是为什么很多带渐变背景的 AI 模板在暗色下变成"白底白字"或"黑底黑字"：
+// 因为只声明了背景色没声明前景色，反色逻辑两边都不动。
+//
+// 对策：所有 block-level 文本元素都强制带一个深灰前景色（#1f2228 / #2d3036），
+// 再用一个浅灰 blockquote/code 背景做配套。这样即便微信在暗色模式下不反色，
+// 文字仍能在浅色背景上保持可读对比度（WCAG ≥ 4.5）。
+//
+// 注意：这里不能直接用 #000，否则深色背景模板会被强行压成黑底黑字。
+const FALLBACK_TEXT_COLOR = "#2d3036";
+const FALLBACK_HEADING_COLOR = "#1f2228";
+
 const DEFAULT_STYLES = {
-  p: "margin:0 0 16px;line-height:1.85;font-size:16px;color:inherit;word-wrap:break-word;",
-  h1: "margin:24px 0 16px;font-size:24px;font-weight:700;line-height:1.35;",
-  h2: "margin:24px 0 12px;font-size:20px;font-weight:700;line-height:1.4;",
-  h3: "margin:20px 0 10px;font-size:18px;font-weight:700;line-height:1.5;",
-  h4: "margin:18px 0 10px;font-size:16px;font-weight:700;line-height:1.5;",
-  h5: "margin:16px 0 10px;font-size:15px;font-weight:700;line-height:1.5;",
-  h6: "margin:14px 0 10px;font-size:14px;font-weight:700;line-height:1.5;",
+  p: `margin:0 0 16px;line-height:1.85;font-size:16px;color:${FALLBACK_TEXT_COLOR};word-wrap:break-word;`,
+  h1: `margin:24px 0 16px;font-size:24px;font-weight:700;line-height:1.35;color:${FALLBACK_HEADING_COLOR};`,
+  h2: `margin:24px 0 12px;font-size:20px;font-weight:700;line-height:1.4;color:${FALLBACK_HEADING_COLOR};`,
+  h3: `margin:20px 0 10px;font-size:18px;font-weight:700;line-height:1.5;color:${FALLBACK_HEADING_COLOR};`,
+  h4: `margin:18px 0 10px;font-size:16px;font-weight:700;line-height:1.5;color:${FALLBACK_HEADING_COLOR};`,
+  h5: `margin:16px 0 10px;font-size:15px;font-weight:700;line-height:1.5;color:${FALLBACK_HEADING_COLOR};`,
+  h6: `margin:14px 0 10px;font-size:14px;font-weight:700;line-height:1.5;color:${FALLBACK_HEADING_COLOR};`,
   blockquote:
     "margin:16px 0;padding:12px 16px;border-left:4px solid #cfd8dc;background:#f7f7f7;color:#37474f;border-radius:4px;line-height:1.85;",
   pre:
@@ -161,9 +176,9 @@ const DEFAULT_STYLES = {
     "padding:1px 5px;background:#f4f5f7;border-radius:4px;font-family:Menlo,Consolas,'Courier New',monospace;font-size:0.92em;color:#c7254e;",
   kbd:
     "padding:1px 5px;background:#f4f5f7;border:1px solid #d0d0d0;border-radius:3px;font-family:Menlo,Consolas,monospace;font-size:0.9em;",
-  ul: "margin:0 0 16px;padding-left:1.4em;line-height:1.85;",
-  ol: "margin:0 0 16px;padding-left:1.4em;line-height:1.85;",
-  li: "margin:0 0 6px;line-height:1.85;",
+  ul: `margin:0 0 16px;padding-left:1.4em;line-height:1.85;color:${FALLBACK_TEXT_COLOR};`,
+  ol: `margin:0 0 16px;padding-left:1.4em;line-height:1.85;color:${FALLBACK_TEXT_COLOR};`,
+  li: `margin:0 0 6px;line-height:1.85;color:${FALLBACK_TEXT_COLOR};`,
   table:
     "width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;line-height:1.6;",
   thead: "background:#f5f5f5;",
@@ -240,6 +255,15 @@ export function sanitizeInlineStyle(style) {
     if (key === "color" && /^transparent$/i.test(value)) {
       textColorIsTransparent = true;
     }
+    // P1.4 · 暗色模式 fallback：检测到「近白色文字」（白底白字、浅灰文字）就回退到深灰。
+    // 微信暗色模式只反转那些**没显式指定 color**的元素；如果用户写了 color:#fff，
+    // 微信会原样保留，叠在公众号自动加的暗色背景上反而是"暗底白字 OK"，
+    // 但叠在浅色读者侧（例如关闭暗色或夜间模式不一致的客户端）会变成"白底白字" → 不可读。
+    // 这里把任何近白色（亮度 >= 235）替换成项目统一的深灰前景色，确保两个主题都至少能看清。
+    // 注意：只动 `color`，不动 `background`/`border-color`，避免破坏装饰图层。
+    if (key === "color" && _isNearWhiteColor(value)) {
+      value = FALLBACK_TEXT_COLOR;
+    }
     if (STYLE_DROP_KEYS.has(key)) {
       const dropPattern = STYLE_DROP_VALUES[key];
       if (dropPattern && dropPattern.test(value)) continue;
@@ -260,6 +284,46 @@ export function sanitizeInlineStyle(style) {
   return Array.from(map.entries())
     .map(([k, v]) => `${k}:${v}`)
     .join(";");
+}
+
+/**
+ * P1.4 · 判断一段 CSS color 字符串是否是「近白色」（亮度 ≥ 235，会在浅色背景上消失）。
+ * 支持：#fff / #ffffff / rgb(r,g,b) / rgba(r,g,b,a) / 关键字 white、ivory、snow、whitesmoke。
+ * 其他写法（hsl、color() 等）保守判定为非白，避免误改用户精心调过的色板。
+ */
+function _isNearWhiteColor(rawValue) {
+  if (!rawValue || typeof rawValue !== "string") return false;
+  const value = rawValue.trim().toLowerCase();
+  // CSS 关键字
+  if (/^(white|ivory|snow|whitesmoke|floralwhite|ghostwhite|seashell|linen|oldlace|honeydew|mintcream|azure|aliceblue|lavenderblush|lightyellow|lightgoldenrodyellow|cornsilk|beige)$/.test(value)) {
+    return true;
+  }
+  // #rgb / #rrggbb
+  let r = -1;
+  let g = -1;
+  let b = -1;
+  const hexShort = value.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/);
+  const hexFull = value.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})(?:[0-9a-f]{2})?$/);
+  if (hexShort) {
+    r = parseInt(hexShort[1] + hexShort[1], 16);
+    g = parseInt(hexShort[2] + hexShort[2], 16);
+    b = parseInt(hexShort[3] + hexShort[3], 16);
+  } else if (hexFull) {
+    r = parseInt(hexFull[1], 16);
+    g = parseInt(hexFull[2], 16);
+    b = parseInt(hexFull[3], 16);
+  } else {
+    const rgb = value.match(/^rgba?\(\s*(\d{1,3})[,\s]+(\d{1,3})[,\s]+(\d{1,3})/);
+    if (rgb) {
+      r = Number(rgb[1]);
+      g = Number(rgb[2]);
+      b = Number(rgb[3]);
+    }
+  }
+  if (r < 0 || g < 0 || b < 0) return false;
+  // ITU-R BT.601 亮度近似
+  const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+  return luminance >= 235;
 }
 
 /**

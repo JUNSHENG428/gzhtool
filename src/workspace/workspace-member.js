@@ -23,7 +23,8 @@ import {
   verifyLicenseRemote,
   PAID_FEATURES,
   subscribeLicenseChanges,
-  LICENSE_CONSTANTS
+  LICENSE_CONSTANTS,
+  getLicenseSummaryText
 } from "../shared/license.js";
 import { getUsageSnapshot } from "../shared/usage-stats.js";
 
@@ -108,7 +109,7 @@ async function renderMember() {
     return;
   }
 
-  renderHero(state, auth, device);
+  renderHero(state, auth, device, usage);
   renderQuotaRewrite(state, usage);
   renderQuotaAccount(state, accountInfo);
   renderFeatureList(state);
@@ -119,12 +120,35 @@ async function renderMember() {
 // 顶部状态卡
 // =============================================================
 
-function renderHero(state, auth, device) {
+function renderHero(state, auth, device, usage) {
   const root = document.getElementById("memberHeroSection");
   if (!root) return;
 
-  const status = pickHeroStatus(state, auth);
-  root.dataset.status = status.tone; // pro / free / expired / stale / guest
+  // P0：统一会员状态文案 — popup/workspace pill/member hero/options 现在都走 getLicenseSummaryText。
+  // 旧的 pickHeroStatus 留作 fallback（state 异常/字段缺失时仍能渲染）。
+  let status;
+  try {
+    const todayRewrite = Number(usage?.today?.rewrite) || 0;
+    const summary = getLicenseSummaryText(state, {
+      auth,
+      usage: { today: { rewrite: todayRewrite } }
+    });
+    status = {
+      tone: summary.tone === "pro" ? "pro"
+        : summary.tone === "expiring" ? "expiring"
+        : summary.tone === "expired" || summary.tone === "invalid" ? "expired"
+        : summary.tone === "stale" ? "stale"
+        : summary.tone === "free" ? "free"
+        : summary.tone === "guest" ? "guest"
+        : "loading",
+      label: summary.label,
+      hint: summary.sub
+    };
+  } catch (err) {
+    console.warn("[member] getLicenseSummaryText failed, fallback", err);
+    status = pickHeroStatus(state, auth);
+  }
+  root.dataset.status = status.tone;
 
   setText("memberHeroLabel", status.label);
   setText("memberHeroHint", status.hint);
@@ -169,6 +193,16 @@ function pickHeroStatus(state, auth) {
       tone: "pro",
       label: "Pro 会员",
       hint: state.hint || "感谢支持，所有 Pro 功能已解锁"
+    };
+  }
+  if (state.status === "expiring") {
+    const days = Number(state.daysLeft) || 1;
+    return {
+      tone: "expiring",
+      label: `Pro 还剩 ${days} 天到期`,
+      hint:
+        state.hint ||
+        `建议提前续费，避免到期当天 Pro 功能突然停用；可随时续 1 个月或 1 年。`
     };
   }
   if (state.status === "expired") {
@@ -381,13 +415,19 @@ function renderFeatureList(state) {
 
 function renderActionButtons(state) {
   const isPro = state?.plan === "pro";
+  const expiring = state?.status === "expiring";
   const expired = state?.status === "expired" || state?.status === "invalid";
   const stale = state?.status === "stale";
 
   let primary;
   let secondary;
 
-  if (isPro) {
+  if (expiring) {
+    // 临近到期：把"续费"提到主按钮位置，避免用户误以为还远；
+    // 仍走 pricing 而不是 settings，方便直接走支付。
+    primary = { label: "立即续费 Pro", action: "pricing" };
+    secondary = { label: "管理会员 / 设备", action: "settings" };
+  } else if (isPro) {
     primary = { label: "管理会员 / 续费", action: "settings" };
     secondary = { label: "查看 Pro 会员", action: "pricing" };
   } else if (expired) {

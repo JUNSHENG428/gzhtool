@@ -143,10 +143,86 @@ function expectNotIncludes(actual, needle, label) {
   expectIncludes(out, "font-weight:700", "override 应保留");
 }
 
+// P1.4 · 暗色模式 fallback：近白色文字应被改写为深灰，避免在浅色背景上"白底白字"
+{
+  const out = sanitizeInlineStyle("color:#fff;font-size:18px");
+  expectNotIncludes(out, "#fff", "color:#fff 不应原样保留");
+  expectNotIncludes(out, "color:#ffffff", "color:#fff 应改写到 fallback");
+  expectIncludes(out, "color:#2d3036", "近白色 color 应回落到 fallback 深灰");
+}
+{
+  const out = sanitizeInlineStyle("color: rgb(255,255,255)");
+  expectIncludes(out, "color:#2d3036", "rgb(255,255,255) 应回落到 fallback 深灰");
+}
+{
+  const out = sanitizeInlineStyle("color:white;font-weight:700");
+  expectIncludes(out, "color:#2d3036", "color:white 关键字应回落到 fallback 深灰");
+  expectIncludes(out, "font-weight:700", "其余声明应保留");
+}
+{
+  // 临界值：rgb(220,220,220) 亮度约 220，应保留（不算"近白"）
+  const out = sanitizeInlineStyle("color: rgb(220,220,220)");
+  expectIncludes(out, "color:rgb(220,220,220)", "亮度 < 235 的浅灰不应被改写");
+}
+
 // 字符级清理仍然正确
 {
   const out = cleanInvisibleChars("a\u200Bb\uFEFFc\u200D");
   assert(out === "abc", `cleanInvisibleChars 期望 "abc"，实际 "${out}"`);
+}
+
+// 5.5) wechat.js · buildWechatApiUrl 路径拼接（P1.3 IP 白名单代理）
+console.log("\n运行 wechat.js buildWechatApiUrl 单测 …");
+const { buildWechatApiUrl } = await import("../src/shared/wechat.js");
+
+// 默认空 base → 走官方 https://api.weixin.qq.com
+{
+  const u = buildWechatApiUrl({}, "/cgi-bin/token");
+  assert(
+    u.toString() === "https://api.weixin.qq.com/cgi-bin/token",
+    `空 base 应回落官方，实际 ${u.toString()}`
+  );
+}
+// 自定义代理 base 不带 /cgi-bin
+{
+  const u = buildWechatApiUrl(
+    { wechatApiBase: "https://my-proxy.example.com" },
+    "/cgi-bin/material/add_material"
+  );
+  assert(
+    u.toString() === "https://my-proxy.example.com/cgi-bin/material/add_material",
+    `代理 base 拼接错，实际 ${u.toString()}`
+  );
+}
+// 自定义 base 末尾带 /
+{
+  const u = buildWechatApiUrl(
+    { wechatApiBase: "https://my-proxy.example.com/" },
+    "/cgi-bin/token"
+  );
+  assert(
+    u.toString() === "https://my-proxy.example.com/cgi-bin/token",
+    `代理 base 末尾 / 应被吃掉，实际 ${u.toString()}`
+  );
+}
+// 用户已经把 /cgi-bin 写进 base：避免重复 /cgi-bin/cgi-bin/...
+{
+  const u = buildWechatApiUrl(
+    { wechatApiBase: "https://my-proxy.example.com/cgi-bin" },
+    "/cgi-bin/draft/add"
+  );
+  assert(
+    u.toString() === "https://my-proxy.example.com/cgi-bin/draft/add",
+    `重复 /cgi-bin 应被去重，实际 ${u.toString()}`
+  );
+}
+// 非法 base → 回落官方而不是抛错
+{
+  const u = buildWechatApiUrl({ wechatApiBase: "not a url" }, "/cgi-bin/token");
+  assert(
+    u.toString() === "https://api.weixin.qq.com/cgi-bin/token",
+    `非法 base 应回落官方，实际 ${u.toString()}`
+  );
 }
 
 // 6) AI 改写后的字数估算/校验（参考 AIWriteX min/max_article_len 思路）
@@ -227,7 +303,9 @@ const {
   LICENSE_CONSTANTS,
   validateLicenseKeyOffline,
   normalizeKey,
-  evaluateLicense
+  evaluateLicense,
+  getLicenseSummaryText,
+  getUpgradePrompt
 } = await import("../src/shared/license.js");
 
 // 一个 demo 用的合法格式 key（仅检查格式，不再做 checksum）
@@ -367,6 +445,418 @@ const DEMO_KEY = "GZHT-ABCD-EFGH-JKLM";
   });
   assert(state.status === "stale", `> 7 天未验证应评 stale，实际 ${state.status}`);
   assert(state.effectivePlan === "free", "stale 时 effectivePlan 应降级到 free");
+}
+
+// evaluateLicense：剩余 ≤ 7 天 → expiring（功能不降级，仅 UI 提示）
+{
+  const threeDaysLater = Date.now() + 3 * 24 * 60 * 60 * 1000;
+  const state = evaluateLicense({
+    key: DEMO_KEY,
+    plan: "pro",
+    status: "active",
+    expiresAt: threeDaysLater,
+    verifiedAt: Date.now()
+  });
+  assert(state.status === "expiring", `剩 3 天应评 expiring，实际 ${state.status}`);
+  assert(
+    state.effectivePlan === "pro",
+    "expiring 必须保留 effectivePlan=pro，不能误关付费功能"
+  );
+  assert(
+    state.daysLeft >= 1 && state.daysLeft <= 4,
+    `daysLeft 应在 1~4 之间（向上取整），实际 ${state.daysLeft}`
+  );
+  assert(
+    state.features?.["ai.unlimitedDaily"] === true,
+    "expiring 时 ai.unlimitedDaily 仍应为 true（功能不能因为临近到期被关掉）"
+  );
+}
+
+// evaluateLicense：剩余 > 7 天 → 仍走 pro 分支（不进 expiring）
+{
+  const fortyDaysLater = Date.now() + 40 * 24 * 60 * 60 * 1000;
+  const state = evaluateLicense({
+    key: DEMO_KEY,
+    plan: "pro",
+    status: "active",
+    expiresAt: fortyDaysLater,
+    verifiedAt: Date.now()
+  });
+  assert(state.status === "pro", `剩 40 天应评 pro，实际 ${state.status}`);
+  assert(state.daysLeft == null, "未进 expiring 窗口的 state 不应附 daysLeft");
+}
+
+// evaluateLicense：临近窗口边界（剩 8 天，刚好不进 expiring）
+{
+  const eightDaysLater = Date.now() + 8 * 24 * 60 * 60 * 1000;
+  const state = evaluateLicense({
+    key: DEMO_KEY,
+    plan: "pro",
+    status: "active",
+    expiresAt: eightDaysLater,
+    verifiedAt: Date.now()
+  });
+  assert(
+    state.status === "pro",
+    `剩 8 天应评 pro（不进 expiring 窗口），实际 ${state.status}`
+  );
+}
+
+// =====================================================================
+// P0：getLicenseSummaryText 统一会员状态文案 — 5 个核心 tone 必须有 label/sub/cta
+// =====================================================================
+console.log("\n运行 getLicenseSummaryText 统一会员状态单测 …");
+{
+  // free / 已登录：sub 必须包含「今日剩余」并体现配额
+  const stateFree = evaluateLicense(null);
+  const sumFreeLogged = getLicenseSummaryText(stateFree, {
+    auth: { token: "x", user: { email: "u@example.com" } },
+    usage: { today: { rewrite: 1 } }
+  });
+  assert(sumFreeLogged.tone === "free", `登录免费版 tone 应为 free，实际 ${sumFreeLogged.tone}`);
+  assert(/u@example\.com/.test(sumFreeLogged.sub), "登录免费版 sub 应带邮箱");
+  assert(/剩余/.test(sumFreeLogged.sub), "免费版 sub 必须显示剩余次数");
+  assert(sumFreeLogged.primaryCta?.action === "upgrade", "免费版 cta 应是 upgrade");
+
+  // free / 未登录：tone=guest，cta=login
+  const sumGuest = getLicenseSummaryText(stateFree, {
+    usage: { today: { rewrite: 0 } }
+  });
+  assert(sumGuest.tone === "guest", `未登录应是 guest，实际 ${sumGuest.tone}`);
+  assert(sumGuest.primaryCta?.action === "login", "未登录 cta 应是 login");
+
+  // pro：tone=pro，sub 含到期或"按订阅周期"
+  const statePro = evaluateLicense({
+    key: DEMO_KEY,
+    plan: "pro",
+    status: "active",
+    expiresAt: Date.now() + 30 * 86400000,
+    verifiedAt: Date.now()
+  });
+  const sumPro = getLicenseSummaryText(statePro, {});
+  assert(sumPro.tone === "pro", `pro 应是 pro，实际 ${sumPro.tone}`);
+  assert(/Pro|续费|有效/.test(sumPro.label + sumPro.sub), "Pro 文案应含到期/续费/有效字样");
+
+  // expiring：tone=expiring，cta=renew
+  const stateExpiring = evaluateLicense({
+    key: DEMO_KEY,
+    plan: "pro",
+    status: "active",
+    expiresAt: Date.now() + 3 * 86400000,
+    verifiedAt: Date.now()
+  });
+  const sumExpiring = getLicenseSummaryText(stateExpiring, {});
+  assert(
+    sumExpiring.tone === "expiring",
+    `剩 3 天应是 expiring，实际 ${sumExpiring.tone}`
+  );
+  assert(sumExpiring.primaryCta?.action === "renew", "expiring cta 应是 renew");
+
+  // expired：tone=expired，cta=renew
+  const stateExpired = evaluateLicense({
+    key: DEMO_KEY,
+    plan: "pro",
+    status: "active",
+    expiresAt: Date.now() - 86400000,
+    verifiedAt: Date.now()
+  });
+  const sumExpired = getLicenseSummaryText(stateExpired, {});
+  assert(sumExpired.tone === "expired", `已过期应是 expired，实际 ${sumExpired.tone}`);
+
+  // invalid：tone=invalid
+  const stateInvalid = evaluateLicense({
+    key: DEMO_KEY,
+    plan: "pro",
+    status: "revoked",
+    expiresAt: 0,
+    verifiedAt: Date.now()
+  });
+  const sumInvalid = getLicenseSummaryText(stateInvalid, {});
+  assert(sumInvalid.tone === "invalid", `revoked 应是 invalid，实际 ${sumInvalid.tone}`);
+
+  // 所有 tone 都必须有 label / sub / primaryCta
+  for (const sum of [sumFreeLogged, sumGuest, sumPro, sumExpiring, sumExpired, sumInvalid]) {
+    assert(typeof sum.label === "string" && sum.label.length > 0, "label 必须非空");
+    assert(typeof sum.sub === "string" && sum.sub.length > 0, "sub 必须非空");
+    assert(sum.primaryCta?.label && sum.primaryCta?.action, "primaryCta 必须含 label+action");
+  }
+}
+
+// =====================================================================
+// P0：getUpgradePrompt — 任意 Pro 闸门点都能给出「被拦/获得」结构化文案
+// =====================================================================
+console.log("\n运行 getUpgradePrompt Pro 闸门文案单测 …");
+{
+  const prompt = getUpgradePrompt("ai.unlimitedDaily");
+  assert(prompt && prompt.featureName === "无限 AI 改写次数", "featureName 应来自 PAID_FEATURES");
+  assert(/本次被拦/.test(prompt.blocked), "blocked 行必须包含「本次被拦」");
+  assert(/无限 AI 改写次数/.test(prompt.blocked), "blocked 行必须点出具体功能名");
+  assert(prompt.gain && prompt.gain.length > 0, "gain 行必须非空");
+  assert(prompt.ctaHref?.startsWith("http"), "ctaHref 应是合法 URL");
+  assert(prompt.primaryAction?.url === prompt.ctaHref, "primaryAction.url 应同步 ctaHref");
+
+  // free 类不返回 prompt（因为本身就没付费墙）
+  const free = getUpgradePrompt("wechat.publish");
+  assert(free === null, "tier=free 的 feature 不应有 upgrade prompt");
+
+  // 未知 key 走 null
+  const unknown = getUpgradePrompt("not.exist");
+  assert(unknown === null, "未知 featureKey 应返回 null");
+
+  // runtimeHint 优先级高于静态 hint：方便闸门带上「今天 0/3」这类实时数据
+  const dyn = getUpgradePrompt("ai.unlimitedDaily", {
+    runtimeHint: "你今天的 5 次免费改写已经用完，明天 0 点重置；Pro 不限"
+  });
+  assert(/今天的 5 次/.test(dyn.gain), "runtimeHint 应覆盖默认 hint 写入 gain");
+}
+
+// =====================================================================
+// 共享 AI 模板生成对话框 (src/shared/ai-template-dialog.js)
+//   - Free 用户调用 → 返回 false（被 license 闸门拦截），onSaved 不执行
+//   - 模块对外 API 形状稳定（openAiTemplateDialog 是 async function，
+//     __INTERNAL.createEmptyQuizAnswers 返回 9 个字段）
+//   - 这一层是 options 与 workspace 三处入口的共同后端，必须 100% 稳定。
+// =====================================================================
+console.log("\n运行 ai-template-dialog 共享模块单测 …");
+{
+  const mem = new Map();
+  globalThis.chrome = {
+    storage: {
+      local: {
+        get(keys, cb) {
+          const result = {};
+          const arr = Array.isArray(keys) ? keys : keys ? [keys] : [...mem.keys()];
+          arr.forEach((k) => {
+            if (mem.has(k)) result[k] = mem.get(k);
+          });
+          cb(result);
+        },
+        set(values, cb) {
+          Object.entries(values).forEach(([k, v]) => mem.set(k, v));
+          if (cb) cb();
+        },
+        remove(keys, cb) {
+          (Array.isArray(keys) ? keys : [keys]).forEach((k) => mem.delete(k));
+          if (cb) cb();
+        }
+      },
+      onChanged: {
+        addListener() {},
+        removeListener() {}
+      }
+    }
+  };
+
+  // 没有 license record → free 用户。模块内 ensureMounted() 不会被调用
+  // （openAiTemplateDialog 在 license 闸门处提前 return false）；
+  // showUpgradeModal 内部检测 typeof document === "undefined" 也会安全短路。
+  const { openAiTemplateDialog, __INTERNAL } = await import(
+    "../src/shared/ai-template-dialog.js"
+  );
+
+  // ---- API 形状 ----
+  assert(
+    typeof openAiTemplateDialog === "function",
+    "openAiTemplateDialog 必须是函数"
+  );
+  assert(
+    openAiTemplateDialog.constructor.name === "AsyncFunction",
+    "openAiTemplateDialog 必须是 async function"
+  );
+  assert(
+    typeof __INTERNAL?.createEmptyQuizAnswers === "function",
+    "__INTERNAL 必须暴露 createEmptyQuizAnswers 用于测试"
+  );
+
+  const empty = __INTERNAL.createEmptyQuizAnswers();
+  const expectedFields = [
+    "contentPillar",
+    "contentPillarOther",
+    "tone",
+    "opening",
+    "rhythm",
+    "cta",
+    "visualTheme",
+    "audience",
+    "extraNotes"
+  ];
+  for (const k of expectedFields) {
+    assert(k in empty, `createEmptyQuizAnswers 必须包含字段 ${k}`);
+  }
+  assert(
+    empty.rhythm === "standard",
+    `rhythm 必须默认 standard（小白友好），实际 ${empty.rhythm}`
+  );
+
+  // ---- Free 用户走 license 闸门 ----
+  let onSavedCalled = false;
+  const result = await openAiTemplateDialog({
+    pricingUrl: "https://example.com/pricing",
+    onSaved: () => {
+      onSavedCalled = true;
+    }
+  });
+  assert(
+    result === false,
+    `Free 用户调用 openAiTemplateDialog 应返回 false（被闸门拦），实际 ${result}`
+  );
+  assert(
+    onSavedCalled === false,
+    "Free 用户被闸门拦时绝不能触发 onSaved 回调"
+  );
+
+  // ---- 校验 ROOT_ID 常量稳定（check-features.mjs 与文档都依赖它）----
+  assert(
+    __INTERNAL.ROOT_ID === "ai-template-dialog-root",
+    "ROOT_ID 常量必须保持 ai-template-dialog-root（check-features.mjs 依赖）"
+  );
+
+  delete globalThis.chrome;
+}
+
+// =====================================================================
+// P0：onboarding 4 步任务清单 — 状态评估 + skip 持久化 + 重置
+// =====================================================================
+console.log("\n运行 onboarding 任务清单单测 …");
+{
+  // mock chrome.storage.local
+  const mem = new Map();
+  globalThis.chrome = {
+    storage: {
+      local: {
+        get(keys, cb) {
+          const result = {};
+          const arr = Array.isArray(keys) ? keys : keys ? [keys] : [...mem.keys()];
+          arr.forEach((k) => {
+            if (mem.has(k)) result[k] = mem.get(k);
+          });
+          cb(result);
+        },
+        set(values, cb) {
+          Object.entries(values).forEach(([k, v]) => mem.set(k, v));
+          if (cb) cb();
+        },
+        remove(keys, cb) {
+          (Array.isArray(keys) ? keys : [keys]).forEach((k) => mem.delete(k));
+          if (cb) cb();
+        }
+      },
+      onChanged: {
+        addListener() {},
+        removeListener() {}
+      }
+    }
+  };
+
+  const {
+    getOnboardingSnapshot,
+    markStepSkipped,
+    resetSkips,
+    STEP_IDS
+  } = await import("../src/shared/onboarding.js");
+
+  // STEP_IDS 必须严格四步且顺序固定（welcome.html / workspace.html 直接渲染，顺序不能乱）
+  assert(
+    Array.isArray(STEP_IDS) && STEP_IDS.length === 4,
+    `STEP_IDS 应有 4 个，实际 ${STEP_IDS?.length}`
+  );
+  assert(
+    STEP_IDS[0] === "configureAi" &&
+      STEP_IDS[1] === "captureOne" &&
+      STEP_IDS[2] === "rewriteOne" &&
+      STEP_IDS[3] === "publishOrCopy",
+    `STEP_IDS 顺序错：${STEP_IDS.join(",")}`
+  );
+
+  // 全空白：4 步都 pending，已完成 0
+  let snap = await getOnboardingSnapshot();
+  assert(snap.steps.length === 4, `steps 应有 4 条，实际 ${snap.steps.length}`);
+  assert(snap.completedCount === 0, `初始 completedCount 应为 0，实际 ${snap.completedCount}`);
+  assert(snap.pendingCount === 4, `初始 pendingCount 应为 4，实际 ${snap.pendingCount}`);
+  assert(snap.allDone === false, "初始 allDone 应为 false");
+  assert(snap.nextStep?.id === "configureAi", "初始 nextStep 应是 configureAi");
+  assert(
+    snap.steps.every((s) => s.status === "pending"),
+    "初始所有 step 应是 pending"
+  );
+
+  // 配置 AI Key（使用真实 storage key + DEFAULT_SETTINGS 中的 apiKey 字段）
+  mem.set("wechatWriterSettings", { apiKey: "sk-test-123" });
+  snap = await getOnboardingSnapshot();
+  const cfg = snap.steps.find((s) => s.id === "configureAi");
+  assert(cfg.status === "completed", `配置后 configureAi 应 completed，实际 ${cfg.status}`);
+  assert(snap.completedCount === 1, "completedCount 应升到 1");
+
+  // 跳过 publishOrCopy（设计中只有 publishOrCopy 可跳过；configureAi/captureOne/rewriteOne 是核心步骤不允许 skip）
+  await markStepSkipped("publishOrCopy");
+  snap = await getOnboardingSnapshot();
+  const pub = snap.steps.find((s) => s.id === "publishOrCopy");
+  assert(pub.status === "skipped", `publishOrCopy 应是 skipped，实际 ${pub.status}`);
+  assert(snap.skippedCount === 1, "skippedCount 应为 1");
+
+  // 不可跳过步骤的 markStepSkipped 必须静默 no-op
+  await markStepSkipped("captureOne");
+  snap = await getOnboardingSnapshot();
+  assert(
+    snap.steps.find((s) => s.id === "captureOne").status === "pending",
+    "不可跳过的 captureOne 不应被 skip"
+  );
+
+  // 写入 usageStats：累计 1 次 capture → captureOne 完成
+  mem.set("usageStats", {
+    byDay: {},
+    total: { capture: 1 }
+  });
+  snap = await getOnboardingSnapshot();
+  assert(
+    snap.steps.find((s) => s.id === "captureOne").status === "completed",
+    "有真实 capture usage 后 captureOne 应 completed"
+  );
+
+  // 写入 rewrite usage → rewriteOne 完成
+  mem.set("usageStats", {
+    byDay: {},
+    total: { capture: 1, rewrite: 1 }
+  });
+  snap = await getOnboardingSnapshot();
+  assert(
+    snap.steps.find((s) => s.id === "rewriteOne").status === "completed",
+    "rewrite=1 后 rewriteOne 应 completed"
+  );
+
+  // 此时 4 步：completed (configureAi/captureOne/rewriteOne) + skipped (publishOrCopy) → allDone=true
+  assert(snap.allDone === true, `3 完成 + 1 跳过 应 allDone=true，实际 ${snap.allDone}`);
+  assert(snap.nextStep === null, "全部完成时 nextStep 应为 null");
+
+  // resetSkips：清掉 skipped 标记后 publishOrCopy 应回 pending
+  await resetSkips();
+  snap = await getOnboardingSnapshot();
+  assert(
+    snap.steps.find((s) => s.id === "publishOrCopy").status === "pending",
+    "resetSkips 后 publishOrCopy 应回 pending"
+  );
+  assert(
+    snap.steps.find((s) => s.id === "captureOne").status === "completed",
+    "resetSkips 不应影响真实完成的步骤"
+  );
+
+  // optionalChecks: 公众号绑定 — 没填 AppID/AppSecret 时 pending
+  assert(
+    snap.optionalChecks.wechatBound.status === "pending",
+    "未填公众号配置时 wechatBound 应 pending"
+  );
+  mem.set("wechatWriterSettings", {
+    apiKey: "sk-test-123",
+    wechatAppId: "wx123",
+    wechatAppSecret: "secret"
+  });
+  snap = await getOnboardingSnapshot();
+  assert(
+    snap.optionalChecks.wechatBound.status === "completed",
+    "填了 AppID+AppSecret 后 wechatBound 应 completed"
+  );
+
+  delete globalThis.chrome;
 }
 
 // 8) agent-runner relevance 评分 / 综合排序
@@ -945,6 +1435,231 @@ console.log("\n运行 drission 模块绑定 / canUseDrissionCapture 单测 …")
   assert(r3 === false, "drissionEnabled=false 应直接返回 false");
   const r4 = drission.canUseDrissionCapture({ drissionEnabled: true, drissionHelperUrl: "" }, "readable");
   assert(r4 === false, "helperUrl 为空应直接返回 false");
+
+  // —— parseDrissionHelperInput：拆 token 并返回干净 URL —— //
+  // 历史背景：从 0.4.x 开始 helper 默认开 token 鉴权，GUI 复制按钮会输出
+  // 形如 http://127.0.0.1:7788/?token=abc 的整段地址。这里要保证：
+  //   1. URL 字段在 settings 里只保留 base，不含 token，避免 token 被泄到 DOM/HTML
+  //   2. token 单独拆出来，由调用方走 X-Runbi-Helper-Token header 传输
+  assert(typeof drission.parseDrissionHelperInput === "function", "必须导出 parseDrissionHelperInput");
+  assert(typeof drission.normalizeDrissionHelperToken === "function", "必须导出 normalizeDrissionHelperToken");
+  assert(typeof drission.HELPER_TOKEN_HEADER === "string" && drission.HELPER_TOKEN_HEADER, "必须导出 HELPER_TOKEN_HEADER 常量");
+
+  const p1 = drission.parseDrissionHelperInput("http://127.0.0.1:7788/?token=abcdef123456");
+  assert(p1.url === "http://127.0.0.1:7788/", `拆完后 URL 应不含 token，实际 ${p1.url}`);
+  assert(p1.token === "abcdef123456", `应拆出 token=abcdef123456，实际 ${p1.token}`);
+
+  const p2 = drission.parseDrissionHelperInput("127.0.0.1:7788/?auth_token=xyz789&extra=1");
+  assert(p2.url === "http://127.0.0.1:7788/?extra=1", "auth_token 也应被拆掉，但其它 query 必须保留");
+  assert(p2.token === "xyz789", "应兼容 auth_token 名");
+
+  const p3 = drission.parseDrissionHelperInput("http://127.0.0.1:7788");
+  assert(p3.url === "http://127.0.0.1:7788/", "无 token 路径应正常补 trailing slash");
+  assert(p3.token === "", "无 token 时应返回空串而不是 undefined");
+
+  // token 必须是 [A-Za-z0-9._-]，过滤可疑字符
+  assert(drission.normalizeDrissionHelperToken("  abc-XYZ_123.45  ") === "abc-XYZ_123.45", "合法 token 去空白即可");
+  assert(drission.normalizeDrissionHelperToken("ab cd") === "", "含空格的 token 应被拒绝");
+  assert(drission.normalizeDrissionHelperToken("ab中文") === "", "含中文的 token 应被拒绝");
+  assert(drission.normalizeDrissionHelperToken('ab"cd') === "", "含引号的 token 应被拒绝");
+}
+
+console.log("\n运行 desktop helper 安全特性单测 …");
+{
+  // server.py 必须实现 token 鉴权 / CORS 收窄 / 私网拦截，否则 helper 会成为
+  // 本机其它程序的 SSRF 跳板（任意 http(s) → DrissionPage 真实浏览器抓取）。
+  const serverSrc = fs.readFileSync(
+    path.join(root, "desktop/helper_app/server.py"),
+    "utf8"
+  );
+
+  // 1) token header 名必须与扩展端一致
+  assert(
+    /HELPER_TOKEN_HEADER\s*=\s*["']X-Runbi-Helper-Token["']/.test(serverSrc),
+    "server.py 的 HELPER_TOKEN_HEADER 必须等于扩展端 src/shared/drission.js 的 X-Runbi-Helper-Token"
+  );
+
+  // 2) /scrape 必须强制鉴权（_enforce_token 出现在 do_POST 路径里）
+  assert(
+    /_enforce_token/.test(serverSrc),
+    "server.py 必须在 /scrape 走 _enforce_token，不能裸跑"
+  );
+
+  // 3) 用 hmac.compare_digest 防时序攻击，而不是 ==
+  assert(
+    /hmac\.compare_digest/.test(serverSrc),
+    "token 比对必须用 hmac.compare_digest，避免时序侧信道"
+  );
+
+  // 4) CORS 不再无脑回 *
+  assert(
+    !/Access-Control-Allow-Origin["']?\s*,\s*["']\*/.test(serverSrc),
+    "server.py 不应再把 Access-Control-Allow-Origin 设为 *（已收窄到扩展协议 + 本机调试）"
+  );
+  assert(
+    /is_origin_allowed/.test(serverSrc),
+    "server.py 必须有 is_origin_allowed 白名单逻辑"
+  );
+
+  // 5) 私网/loopback 默认拦截
+  assert(
+    /is_target_host_allowed/.test(serverSrc),
+    "server.py 必须有 is_target_host_allowed 防 SSRF 函数"
+  );
+  assert(
+    /allow_private_hosts/.test(serverSrc),
+    "RuntimeOptions 必须暴露 allow_private_hosts 开关，让用户在确认场景下显式开启"
+  );
+
+  // 6) 错误码字段
+  assert(
+    /errorCode/.test(serverSrc) && /PRIVATE_HOST_BLOCKED/.test(serverSrc),
+    "server.py 必须返回结构化 errorCode（含 PRIVATE_HOST_BLOCKED 等），扩展端才能精准映射文案"
+  );
+
+  // —— cli + 兼容 script 必须暴露 --auth-token / --allow-private-hosts —— //
+  const cliSrc = fs.readFileSync(path.join(root, "desktop/helper_app/cli.py"), "utf8");
+  assert(/--auth-token/.test(cliSrc), "desktop/helper_app/cli.py 必须支持 --auth-token");
+  assert(/--allow-private-hosts/.test(cliSrc), "desktop/helper_app/cli.py 必须支持 --allow-private-hosts");
+
+  const scriptSrc2 = fs.readFileSync(path.join(root, "scripts/drissionpage_helper.py"), "utf8");
+  assert(/--auth-token/.test(scriptSrc2), "scripts/drissionpage_helper.py 必须保持 CLI 兼容，加 --auth-token");
+  assert(/--allow-private-hosts/.test(scriptSrc2), "scripts/drissionpage_helper.py 必须支持 --allow-private-hosts");
+
+  // —— config.py 必须能落盘并读 helper_token —— //
+  const configSrc2 = fs.readFileSync(path.join(root, "desktop/helper_app/config.py"), "utf8");
+  assert(
+    /load_or_create_helper_token/.test(configSrc2) && /helper_token_path/.test(configSrc2),
+    "config.py 必须暴露 load_or_create_helper_token / helper_token_path，用于持久化 token"
+  );
+  assert(
+    /secrets/.test(configSrc2),
+    "token 生成必须用 secrets 模块，不能用 random.* 这类弱熵"
+  );
+
+  // —— defaults.js 必须新增 drissionHelperToken 字段 —— //
+  const defaultsSrc = fs.readFileSync(path.join(root, "src/shared/defaults.js"), "utf8");
+  assert(
+    /drissionHelperToken\s*:/.test(defaultsSrc),
+    "DEFAULT_SETTINGS 必须包含 drissionHelperToken 字段，否则 storage.get 时拿不到默认值会让 token 在保存后丢"
+  );
+
+  // —— server.py 必须暴露 SUPPORTED_ERROR_CODES 与运行时分类器 —— //
+  // 历史：很多 helper 异常以前直接以 "Internal Server Error" 抛给扩展端，用户拿到
+  // 一句没有任何 actionable 信息的英文，根本无法定位是 "Chrome 没装" 还是 "登录态没了"。
+  // 现在所有 raise 必须经过 _classify_runtime_error 落到 SUPPORTED_ERROR_CODES 里的稳定 code。
+  assert(
+    /SUPPORTED_ERROR_CODES\s*:\s*tuple/.test(serverSrc),
+    "server.py 必须导出 SUPPORTED_ERROR_CODES，扩展端 health 探针会基于它做能力嗅探"
+  );
+  for (const code of [
+    "MISSING_TOKEN",
+    "INVALID_TOKEN",
+    "PRIVATE_HOST_BLOCKED",
+    "DRISSION_NOT_AVAILABLE",
+    "BROWSER_LAUNCH_FAILED",
+    "SCRAPE_EMPTY",
+    "SCRAPE_TIMEOUT",
+    "LOGIN_REQUIRED"
+  ]) {
+    assert(
+      new RegExp(`["']${code}["']`).test(serverSrc),
+      `server.py 的 SUPPORTED_ERROR_CODES 必须包含 ${code}，否则扩展端的 HELPER_ERROR_HINTS 映射会失效`
+    );
+  }
+  assert(
+    /_classify_runtime_error\s*\(/.test(serverSrc),
+    "server.py 必须有 _classify_runtime_error 把任意异常映射到稳定 errorCode"
+  );
+  // /health 必须把 errorCodes/allowPrivateHosts 暴露给扩展，扩展才能在 GUI 提示用户当前 helper 是否放开了内网
+  assert(
+    /errorCodes/.test(serverSrc) && /allowPrivateHosts/.test(serverSrc),
+    "/health 响应必须带 errorCodes 与 allowPrivateHosts，扩展端才能做能力提示"
+  );
+}
+
+console.log("\n运行 drission helper errorCode 映射单测 …");
+{
+  const drission = await import("../src/shared/drission.js");
+  // —— HELPER_ERROR_HINTS 必须覆盖关键 errorCode —— //
+  // 出问题时 server.py 一旦 message 为空，扩展端的 fallback 文案就完全靠这张表。
+  // 因此这里要锁死「关键 code 必须有面向用户的文案」，不允许悄悄漏一个。
+  assert(typeof drission.HELPER_ERROR_HINTS === "object" && drission.HELPER_ERROR_HINTS, "drission.js 必须导出 HELPER_ERROR_HINTS");
+  for (const code of [
+    "MISSING_TOKEN",
+    "INVALID_TOKEN",
+    "PRIVATE_HOST_BLOCKED",
+    "DRISSION_NOT_AVAILABLE",
+    "BROWSER_LAUNCH_FAILED",
+    "SCRAPE_EMPTY",
+    "SCRAPE_TIMEOUT",
+    "LOGIN_REQUIRED"
+  ]) {
+    const hint = drission.HELPER_ERROR_HINTS[code];
+    assert(typeof hint === "string" && hint.length > 0, `HELPER_ERROR_HINTS 必须为 ${code} 提供面向用户的中文文案`);
+  }
+
+  // —— testDrissionConnection 在 401/403 都能附带 errorCode —— //
+  const originalFetch = globalThis.fetch;
+  // case A: helper 缺 token
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 401,
+    json: async () => ({ ok: false, error: "missing token", errorCode: "MISSING_TOKEN" })
+  });
+  const a = await drission.testDrissionConnection({ helperUrl: "http://127.0.0.1:7788/" });
+  assert(a.ok === false, "401 应返回 ok=false");
+  assert(a.errorCode === "MISSING_TOKEN", `401 应回传 errorCode=MISSING_TOKEN，实际 ${a.errorCode}`);
+  assert(/token/.test(a.error), "401 错误文案应明确告诉用户问题在 token");
+
+  // case B: 私网拦截
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 403,
+    json: async () => ({ ok: false, error: "blocked", errorCode: "PRIVATE_HOST_BLOCKED" })
+  });
+  const b = await drission.testDrissionConnection({ helperUrl: "http://127.0.0.1:7788/", helperToken: "tk" });
+  assert(b.errorCode === "PRIVATE_HOST_BLOCKED", "403 应回传 errorCode=PRIVATE_HOST_BLOCKED");
+
+  // case C: 正常 health 响应必须把 errorCodes / allowPrivateHosts 透出来
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      ok: true,
+      helperVersion: "1.2.3",
+      drissionVersion: "4.0",
+      browserMode: "chromium",
+      requireToken: true,
+      allowPrivateHosts: false,
+      errorCodes: ["MISSING_TOKEN", "PRIVATE_HOST_BLOCKED"]
+    })
+  });
+  const c = await drission.testDrissionConnection({ helperUrl: "http://127.0.0.1:7788/", helperToken: "tk" });
+  assert(c.ok === true, "正常 helper 应返回 ok=true");
+  assert(c.allowPrivateHosts === false, "allowPrivateHosts 必须透传");
+  assert(Array.isArray(c.supportedErrorCodes) && c.supportedErrorCodes.length === 2, "supportedErrorCodes 必须透传");
+
+  // —— requestDrissionCapture 抛错时必须挂 helperErrorCode，方便上层做差异化 UX —— //
+  globalThis.fetch = async () => ({
+    ok: false,
+    status: 401,
+    json: async () => ({ ok: false, error: "需要 token", errorCode: "INVALID_TOKEN" })
+  });
+  let caught = null;
+  try {
+    await drission.requestDrissionCapture(
+      { drissionEnabled: true, drissionHelperUrl: "http://127.0.0.1:7788/", drissionHelperToken: "x" },
+      { url: "https://example.com/foo", captureMode: "readable" }
+    );
+  } catch (err) {
+    caught = err;
+  }
+  assert(caught, "requestDrissionCapture 在 401 时必须抛错");
+  assert(caught.helperErrorCode === "INVALID_TOKEN", `抛出的 Error 必须挂 helperErrorCode，实际 ${caught.helperErrorCode}`);
+  assert(caught.helperHttpStatus === 401, "应挂 helperHttpStatus，便于排查");
+
+  globalThis.fetch = originalFetch;
 }
 
 console.log("\n运行 classifyError 错误分类单测 …");
@@ -989,6 +1704,196 @@ console.log("\n运行 classifyError 错误分类单测 …");
   // —— 抓取无内容 —— //
   const c7 = classifyError(new Error("抓取失败或正文为空，请确认目标站点支持免登录公开访问。"));
   assert(c7.code === ErrorCode.SCRAPE_NO_CONTENT, "抓取空内容关键字应触发 SCRAPE_NO_CONTENT");
+
+  // —— 微信 IP 白名单（errcode 40164）：必须把出口 IP 透出来，否则用户根本不知道要把哪个 IP 加白 —— //
+  // case A：error 对象自带 detectedIp（wechat.js buildWechatError 已经提取过，最常见路径）
+  const ipErr = new Error("IP 白名单未通过（40164）：当前出口 IP 是 1.2.3.4...\nerrcode=40164 · errmsg=invalid ip 1.2.3.4, not in whitelist");
+  ipErr.detectedIp = "1.2.3.4";
+  const c8 = classifyError(ipErr);
+  assert(c8.code === ErrorCode.WECHAT_IP_NOT_WHITELISTED, "40164 应分类为 WECHAT_IP_NOT_WHITELISTED");
+  assert(c8.message.includes("1.2.3.4"), "40164 message 必须含具体出口 IP，不能再吞掉这条关键信息");
+  assert(c8.detectedIp === "1.2.3.4", "40164 返回结构应带 detectedIp 字段，给上层 UI 一键复制用");
+
+  // case B：error 没挂 detectedIp，但 raw message 含 errmsg 字符串 → 兜底提取
+  const c9 = classifyError(
+    new Error("公众号发布失败：errcode=40164 · errmsg=invalid ip 240e:abcd:1234::1, not in whitelist")
+  );
+  assert(c9.code === ErrorCode.WECHAT_IP_NOT_WHITELISTED, "兜底路径仍应分类为 WECHAT_IP_NOT_WHITELISTED");
+  assert(c9.detectedIp === "240e:abcd:1234::1", `兜底应能从 raw message 里抽出 ipv6，实际拿到：${c9.detectedIp}`);
+  assert(c9.message.includes("240e:abcd:1234::1"), "兜底路径也必须把 IP 拼进 message");
+
+  // case C：完全没 errmsg / detectedIp（极端 fallback）→ 走原来的通用文案，不能崩
+  const c10 = classifyError(new Error("ip 白名单 拒绝"));
+  assert(c10.code === ErrorCode.WECHAT_IP_NOT_WHITELISTED, "中文关键字也能识别 40164");
+  assert(!c10.detectedIp, "无 IP 时不应返回 detectedIp 字段");
+  assert(
+    c10.message.includes("公众号后台开启了 IP 白名单限制"),
+    "无 IP 时回落到原通用文案，保持兼容"
+  );
+  assert(
+    !/\d+\.\d+\.\d+\.\d+/.test(c10.message),
+    "无 IP 时 message 不应该出现任何 IP 残留"
+  );
+}
+
+// 测 wechat.js 的 buildWechatError + extractWechatIpFromErrmsg：root 处的 IP 提取逻辑
+console.log("\n运行 wechat.js buildWechatError IP 提取单测 …");
+{
+  const { buildWechatError, extractWechatIpFromErrmsg } = await import("../src/shared/wechat.js");
+
+  // 工具函数：3 种真实 errmsg 形态都能抽出 ipv4
+  assert(
+    extractWechatIpFromErrmsg("invalid ip 1.2.3.4, not in whitelist") === "1.2.3.4",
+    "extractWechatIpFromErrmsg 应能解析 ipv4"
+  );
+  assert(
+    extractWechatIpFromErrmsg("invalid ip 240e:abcd::1, not in whitelist") === "240e:abcd::1",
+    "extractWechatIpFromErrmsg 应能解析 ipv6"
+  );
+  // 双栈机器：微信会同时给 ipv4 + ::ffff:ipv4，应优先返回 ipv4（更易复制粘贴）
+  assert(
+    extractWechatIpFromErrmsg("invalid ip 1.2.3.4 ipv6 ::ffff:1.2.3.4, not in whitelist") === "1.2.3.4",
+    "双栈 errmsg 应优先返回 ipv4"
+  );
+  // 无 IP / 空 errmsg → 空字符串，不能抛错
+  assert(extractWechatIpFromErrmsg("invalid ip xxx, not in whitelist") === "", "无效 IP 应返回空字符串");
+  assert(extractWechatIpFromErrmsg("") === "", "空 errmsg 应返回空字符串");
+  assert(extractWechatIpFromErrmsg(null) === "", "null errmsg 应返回空字符串");
+
+  // buildWechatError(40164, ipv4): err.detectedIp 正确 + userMessage 含 IP
+  const e1 = buildWechatError(
+    { errcode: 40164, errmsg: "invalid ip 1.2.3.4, not in whitelist" },
+    { status: 200, headers: { get: () => null } },
+    "草稿推送失败"
+  );
+  assert(e1.errcode === 40164, "errcode 透传");
+  assert(e1.detectedIp === "1.2.3.4", "buildWechatError 应把 IP 挂到 err.detectedIp");
+  assert(e1.userMessage.includes("1.2.3.4"), "userMessage 必须含具体 IP，不能只用 catalog 静态文案");
+  assert(e1.message.includes("1.2.3.4"), "Error.message 也必须含 IP（避免下游 classifyError 拿不到）");
+
+  // buildWechatError(40164, ipv6)
+  const e2 = buildWechatError(
+    { errcode: 40164, errmsg: "invalid ip 240e:abcd:1234::1, not in whitelist" },
+    { status: 200, headers: { get: () => null } },
+    "草稿推送失败"
+  );
+  assert(e2.detectedIp === "240e:abcd:1234::1", "ipv6 也应被正确提取");
+  assert(e2.userMessage.includes("240e:abcd:1234::1"), "ipv6 也必须出现在 userMessage 里");
+
+  // buildWechatError(其他 errcode)：不应带 detectedIp（仅 40164 专用）
+  const e3 = buildWechatError(
+    { errcode: 40125, errmsg: "invalid appsecret" },
+    { status: 200, headers: { get: () => null } },
+    "测试失败"
+  );
+  assert(!e3.detectedIp, "非 40164 错误不应有 detectedIp 字段");
+
+  // buildWechatError(40164 但 errmsg 缺 IP)：detectedIp 为空、不抛错、message 回落到 catalog 文案
+  const e4 = buildWechatError(
+    { errcode: 40164, errmsg: "ip not allowed" },
+    { status: 200, headers: { get: () => null } },
+    "草稿推送失败"
+  );
+  assert(e4.errcode === 40164, "errcode 仍透传");
+  assert(!e4.detectedIp, "无可解析 IP 时 detectedIp 为空");
+  assert(e4.userMessage.includes("白名单"), "无 IP 时仍回落到 catalog 静态文案，不能崩");
+}
+
+// —— P1.3 · 封面救济：HTML / state / publish / wechat 四处的兜底链 —— //
+console.log("\n运行 封面救济链路 单测 …");
+{
+  // 1) workspace.html 必须把上传/生成按钮和文件 input 暴露出来
+  const workspaceHtml = fs.readFileSync(path.join(root, "src/workspace/workspace.html"), "utf8");
+  assert(
+    workspaceHtml.includes('id="coverUploadInput"'),
+    "workspace.html 必须有隐藏 file input #coverUploadInput，否则上传按钮没法触发"
+  );
+  assert(
+    workspaceHtml.includes('id="uploadCoverButton"'),
+    "workspace.html 必须有「上传本地图片做封面」按钮 #uploadCoverButton"
+  );
+  assert(
+    workspaceHtml.includes('id="generateCoverButton"'),
+    "workspace.html 必须有「一键生成占位封面」按钮 #generateCoverButton"
+  );
+  assert(
+    workspaceHtml.includes('class="image-source-toolbar"'),
+    "工具栏样式钩子 image-source-toolbar 缺失，CSS 改了 HTML 也得跟"
+  );
+
+  // 2) workspace-state.js 必须导出三个新的封面救济函数
+  const stateJs = fs.readFileSync(path.join(root, "src/workspace/workspace-state.js"), "utf8");
+  assert(
+    stateJs.includes("export async function addCustomImageFromFile"),
+    "workspace-state 必须导出 addCustomImageFromFile，否则 ctx 拿不到"
+  );
+  assert(
+    stateJs.includes("export async function generatePlaceholderCoverDataUrl"),
+    "workspace-state 必须导出 generatePlaceholderCoverDataUrl"
+  );
+  assert(
+    stateJs.includes("export async function useGeneratedPlaceholderCover"),
+    "workspace-state 必须导出 useGeneratedPlaceholderCover"
+  );
+  assert(
+    stateJs.includes("export async function ensureFallbackCoverImage"),
+    "workspace-state 必须导出 ensureFallbackCoverImage（publishBundle 兜底）"
+  );
+  assert(
+    /MAX_LOCAL_COVER_BYTES\s*=\s*5\s*\*\s*1024\s*\*\s*1024/.test(stateJs),
+    "本地上传封面体积上限必须明确为 5MB（wechat.js 内部还会再压到 2MB）"
+  );
+
+  // 3) workspace-publish.js 必须自动兜底而不是硬抛
+  const publishJs = fs.readFileSync(path.join(root, "src/workspace/workspace-publish.js"), "utf8");
+  assert(
+    !publishJs.includes("throw new Error(`第 ${index + 1} 篇还没有选择封面图。`)"),
+    "publish 不能再硬抛旧的「还没有选择封面图」，必须走 ensureFallbackCoverImage 兜底"
+  );
+  assert(
+    publishJs.includes("ensureFallbackCoverImage(article)"),
+    "publish 必须调用 ensureFallbackCoverImage 给没封面的文章自动补图"
+  );
+  assert(
+    publishJs.includes("await _buildWechatPublishPayload(mode)"),
+    "_buildWechatPublishPayload 必须 await，因为里面要 await 封面生成"
+  );
+
+  // 4) wechat.js 防御 null 封面 + 错误信息要可操作
+  const wechatJs = fs.readFileSync(path.join(root, "src/shared/wechat.js"), "utf8");
+  assert(
+    wechatJs.includes("article?.cover?.filename"),
+    "wechat.js 必须用可选链读 cover.filename，避免 undefined.filename 崩"
+  );
+  assert(
+    wechatJs.includes('article?.cover?.src || ""'),
+    "wechat.js 失败 fallback 里必须用可选链读 cover.src，避免崩"
+  );
+  assert(
+    /上传本地封面|一键生成占位封面/.test(wechatJs),
+    "wechat.js 缺图错误必须给出可操作指引（点哪里、做什么）"
+  );
+
+  // 5) workspace-render.js 空态文案要给出按钮入口，不是只让用户去对面找
+  const renderJs = fs.readFileSync(path.join(root, "src/workspace/workspace-render.js"), "utf8");
+  assert(
+    renderJs.includes('data-cover-action="upload"') &&
+      renderJs.includes('data-cover-action="generate"'),
+    "renderCoverPreview 空态必须给出 data-cover-action='upload'/'generate' 按钮，事件代理才能接到"
+  );
+
+  // 6) workspace.js 必须把新函数挂进 ctx，否则其他模块拿不到
+  const wsJs = fs.readFileSync(path.join(root, "src/workspace/workspace.js"), "utf8");
+  assert(
+    wsJs.includes("addCustomImageFromFile") &&
+      wsJs.includes("useGeneratedPlaceholderCover") &&
+      wsJs.includes("ensureFallbackCoverImage"),
+    "workspace.js 必须 import + 挂载新增的封面救济函数到 ctx"
+  );
+  assert(
+    wsJs.includes('coverUploadInput: document.querySelector("#coverUploadInput")'),
+    "workspace.js controls 必须缓存 coverUploadInput 引用"
+  );
 }
 
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

@@ -605,6 +605,173 @@ h3 {
   font-weight: 500;
 }
 
+/* ===== Onboarding 4-step task list（welcome 页 / 与 workspace firstRun 共用风格） ===== */
+
+.onboarding-section {
+  display: grid;
+  gap: 14px;
+  margin: var(--space-6) 0;
+  padding: 24px 28px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.onboarding-section .section-head {
+  display: grid;
+  gap: 4px;
+}
+
+.onboarding-section .section-head h2 {
+  margin: 0;
+}
+
+.onboarding-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.onboarding-step {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: #fff;
+  transition: border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+}
+
+.onboarding-step[data-status="completed"] {
+  background: rgba(107, 143, 113, 0.08);
+  border-color: rgba(107, 143, 113, 0.45);
+}
+
+.onboarding-step[data-status="skipped"] {
+  background: rgba(0, 0, 0, 0.025);
+  border-style: dashed;
+}
+
+.onboarding-step.is-skeleton {
+  opacity: 0.6;
+}
+
+.onboarding-step-num {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--ink-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.onboarding-step[data-status="completed"] .onboarding-step-num {
+  background: var(--brand, #6b8f71);
+  color: #fff;
+}
+
+.onboarding-step-body {
+  display: grid;
+  gap: 4px;
+}
+
+.onboarding-step-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.onboarding-step-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.onboarding-step-desc {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: var(--leading-relaxed);
+}
+
+.onboarding-step-badge {
+  font-size: 0.75rem;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--ink-secondary);
+}
+
+.onboarding-step-badge[data-status="completed"] {
+  background: rgba(107, 143, 113, 0.15);
+  color: #2f5a37;
+}
+
+.onboarding-step-badge[data-status="skipped"] {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--ink-secondary);
+  font-style: italic;
+}
+
+.onboarding-step-badge[data-status="pending"] {
+  background: rgba(225, 175, 60, 0.15);
+  color: #8a6300;
+}
+
+.onboarding-step-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.onboarding-all-done {
+  text-align: center;
+  padding: 18px;
+  border: 1px dashed rgba(107, 143, 113, 0.45);
+  border-radius: var(--radius-md);
+  background: rgba(107, 143, 113, 0.06);
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.onboarding-optional {
+  margin-top: 4px;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: var(--radius-md);
+}
+
+.onboarding-optional summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.onboarding-optional p {
+  margin: 8px 0 12px;
+}
+
+.chip[data-tone="success"] {
+  background: rgba(107, 143, 113, 0.12);
+  color: #2f5a37;
+  border-color: rgba(107, 143, 113, 0.45);
+}
+
+.chip[data-tone="info"] {
+  background: rgba(60, 120, 200, 0.1);
+  color: #1f4f8a;
+  border-color: rgba(60, 120, 200, 0.35);
+}
+
 @media (max-width: 900px) {
   .grid.two,
   .grid.three,

@@ -19,61 +19,60 @@
         <p class="eyebrow">欢迎使用</p>
         <h1>把任意网页整理成可发布的公众号稿件。</h1>
         <p class="hero-lead">
-          <span data-product-name>润笔</span> 会帮你抓取网页的正文和配图，用 AI 改写后整理成公众号风格的稿件，并支持推送到草稿箱或直接发布。
-          第一次使用，只需要先完成接口配置，再抓一篇真实的文章体验一下。
+          先完成下面 4 步，5 分钟内就能拿到第一篇 AI 改写好的稿件。
+          公众号绑定不是必须的，没绑也可以「复制 HTML 手动粘贴到公众号后台」。
         </p>
 
         <div class="hero-actions">
-          <button class="primary" data-action="open-options" data-runtime-only>去设置</button>
-          <button class="ghost" data-action="open-workspace" data-runtime-only>打开编辑台</button>
+          <button class="primary" data-action="start-trial" data-runtime-only>
+            免费试一次抓取改写
+          </button>
+          <button class="ghost" data-action="open-options" data-runtime-only>
+            稍后配置
+          </button>
           <a class="button" href="./help.html">查看帮助中心</a>
         </div>
 
         <div class="meta-bar">
+          <span class="chip" id="onboardingProgressChip">完成 0 / 4 · 还差 4 步</span>
           <a class="chip chip-link" href="./hot-topics.html">热点捕捉 →</a>
-          <span class="chip">抓取正文与配图</span>
-          <span class="chip">AI 改写与排版</span>
-          <span class="chip">多图文草稿与发布</span>
         </div>
       </section>
 
-      <section class="grid three">
-        <article class="panel">
-          <div class="panel-head">
-            <p class="eyebrow">第一步</p>
-            <h2>先完成基本设置</h2>
-            <p>填写 AI 改写接口信息；如果要直接发布到公众号，把公众号绑定信息也填一下。</p>
-          </div>
-          <div class="action-row">
-            <button class="primary" data-action="open-options" data-runtime-only>去设置</button>
-          </div>
-        </article>
+      <section class="onboarding-section" aria-labelledby="onboardingHeading">
+        <header class="section-head">
+          <p class="eyebrow">上手清单</p>
+          <h2 id="onboardingHeading">4 步完成第一篇稿件</h2>
+          <p class="muted">
+            每完成一步会自动打勾，不需要手动确认。觉得某步暂时不需要，可以点「稍后再说」跳过。
+          </p>
+        </header>
 
-        <article class="panel">
-          <div class="panel-head">
-            <p class="eyebrow">第二步</p>
-            <h2>抓取一篇网页试试</h2>
-            <p>打开你想改写的网页，一键抓取正文和图片，在编辑台里继续完善标题、摘要和导语。</p>
-          </div>
-          <div class="action-row">
-            <button class="ghost" data-action="open-workspace" data-runtime-only>打开编辑台</button>
-          </div>
-        </article>
+        <ol class="onboarding-steps" id="onboardingSteps" aria-live="polite">
+          <li class="onboarding-step is-skeleton" data-step-id="placeholder">
+            <span class="onboarding-step-num">…</span>
+            <div class="onboarding-step-body">
+              <p class="onboarding-step-title">读取本地状态…</p>
+              <p class="onboarding-step-desc muted">正在检查 AI 配置 / 抓取记录 / 改写历史</p>
+            </div>
+          </li>
+        </ol>
 
-        <article class="panel">
-          <div class="panel-head">
-            <p class="eyebrow">第三步</p>
-            <h2>改好后一键发布</h2>
-            <p>可以直接推送到公众号草稿箱或立即发布；如有需要，也可以导出 HTML 或 Markdown。</p>
-          </div>
-          <div class="action-row">
-            <a class="button" href="./help.html">查看使用说明</a>
-          </div>
-        </article>
+        <details class="onboarding-optional">
+          <summary>（可选）想直接发到公众号？</summary>
+          <p class="muted" id="onboardingWechatHint">
+            需要在设置里填公众号 AppID / AppSecret，并把扩展出口 IP 加进白名单。
+            只想复制 HTML 手动粘贴的话，这一步可以跳过，不影响 AI 改写功能。
+          </p>
+          <button class="button" data-action="open-options-wechat" data-runtime-only>
+            去设置公众号
+          </button>
+        </details>
       </section>
 
       <footer class="page-footer" data-page-footer></footer>
     </main>
+    <script type="module" src="./welcome.js"></script>
     <script type="module" src="./page.js"></script>
   </body>
 </html>

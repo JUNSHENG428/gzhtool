@@ -133,6 +133,57 @@ function _bindStateEvents() {
     _ctx.controls.bundleImport.click();
   });
   _ctx.controls.bundleImport.addEventListener("change", importBundleFromFile);
+
+  // P1.3 · 封面救济：上传本地图片做封面 / 一键生成占位封面
+  // 这两个按钮放在「采集信息」面板顶部，无图也能补图，直接复用现有图片管线。
+  const uploadCoverButton = document.querySelector("#uploadCoverButton");
+  const generateCoverButton = document.querySelector("#generateCoverButton");
+  if (uploadCoverButton && _ctx.controls.coverUploadInput) {
+    uploadCoverButton.addEventListener("click", () => {
+      _ctx.controls.coverUploadInput.value = "";
+      _ctx.controls.coverUploadInput.click();
+    });
+    _ctx.controls.coverUploadInput.addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      try {
+        await addCustomImageFromFile(file);
+        _ctx.setStatus(`已上传「${file.name}」并设为当前文章封面。`, "success");
+      } catch (error) {
+        _ctx.setStatus(error?.message || "上传图片失败。", "error");
+      } finally {
+        _ctx.controls.coverUploadInput.value = "";
+      }
+    });
+  }
+  if (generateCoverButton) {
+    generateCoverButton.addEventListener("click", async () => {
+      try {
+        await useGeneratedPlaceholderCover();
+        _ctx.setStatus("已生成简洁占位封面并设为当前文章封面。", "success");
+      } catch (error) {
+        _ctx.setStatus(error?.message || "生成占位封面失败。", "error");
+      }
+    });
+  }
+
+  // 「发布」面板里 #coverPreview 空态也提供同样两个按钮，不用切回编辑页
+  _ctx.view.coverPreview.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-cover-action]");
+    if (!button) return;
+    const action = button.dataset.coverAction;
+    if (action === "upload" && _ctx.controls.coverUploadInput) {
+      _ctx.controls.coverUploadInput.value = "";
+      _ctx.controls.coverUploadInput.click();
+    } else if (action === "generate") {
+      try {
+        await useGeneratedPlaceholderCover();
+        _ctx.setStatus("已生成简洁占位封面并设为当前文章封面。", "success");
+      } catch (error) {
+        _ctx.setStatus(error?.message || "生成占位封面失败。", "error");
+      }
+    }
+  });
 }
 
 // ── 初始化 ──
@@ -529,6 +580,245 @@ export function deriveDigestFromArticle(article) {
 
 export function getCoverImageForArticle(article) {
   return state.source?.images?.[Number(article.meta.coverImageIndex || 0) - 1] || null;
+}
+
+// ── 封面救济（P1.3）────────────────────────────────────────────────
+// 三套自助补图工具：
+//   - addCustomImageFromFile(file)：用户上传本地图，转 data URL 后 push 进 source.images
+//   - generatePlaceholderCoverDataUrl(title)：纯函数，用 OffscreenCanvas/Canvas 画一张 900x500 渐变 + 标题封面
+//   - useGeneratedPlaceholderCover()：高层 helper，给当前文章一键生成并设为封面
+//   - ensureFallbackCoverImage(article)：发布兜底，用于 publishBundle 在用户没选时自动补
+//
+// 为什么要走 source.images 这条线：
+//   微信 add_draft 必填 thumb_media_id，且现有 wechat.js 上传管线只认 cover.src。
+//   把"补的图"也作为 source.images 的一员，复用现有 cover preview / cover select / 上传管线，
+//   避免对 wechat.js 做"虚拟封面源"的特殊分支，最少侵入。
+
+const MAX_LOCAL_COVER_BYTES = 5 * 1024 * 1024; // 5MB；wechat.js 内部还会再压到 2MB
+const ALLOWED_COVER_MIME = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/bmp"
+]);
+
+function _ensureSourceShell() {
+  if (!state.source) {
+    state.source = {
+      title: "",
+      url: "",
+      description: "",
+      author: "",
+      siteName: "",
+      wordCount: 0,
+      images: [],
+      blocks: []
+    };
+  }
+  if (!Array.isArray(state.source.images)) state.source.images = [];
+  if (!Array.isArray(state.source.blocks)) state.source.blocks = [];
+}
+
+function _readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("读取本地图片失败，请换一张试试。"));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function addCustomImageFromFile(file) {
+  if (!file || typeof file !== "object") {
+    throw new Error("没有选择文件。");
+  }
+  const mime = String(file.type || "").toLowerCase();
+  if (!mime.startsWith("image/") || !ALLOWED_COVER_MIME.has(mime)) {
+    throw new Error("只能上传 JPG / PNG / GIF / WEBP / BMP 格式的图片。");
+  }
+  if (Number(file.size) > MAX_LOCAL_COVER_BYTES) {
+    throw new Error(
+      `图片体积 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 5MB 上限，请压缩后再上传（公众号封面最终会进一步压到 ≤ 2MB）。`
+    );
+  }
+  const dataUrl = await _readFileAsDataUrl(file);
+  if (!dataUrl.startsWith("data:image/")) {
+    throw new Error("文件内容不是有效图片。");
+  }
+
+  _ensureSourceShell();
+  const newImage = {
+    src: dataUrl,
+    alt: file.name || "本地上传图片",
+    caption: "本地上传"
+  };
+  state.source.images.push(newImage);
+  const newIndex = state.source.images.length;
+
+  const article = getCurrentArticle();
+  article.meta.coverImageIndex = newIndex;
+  state.selectedImageIndex = newIndex;
+  if (_ctx.controls.coverImageIndex) {
+    _ctx.controls.coverImageIndex.value = String(newIndex);
+  }
+  _ctx.syncWorkspace();
+  schedulePersist();
+  return newImage;
+}
+
+export async function generatePlaceholderCoverDataUrl(title) {
+  const W = 900;
+  const H = 500;
+  const text = String(title || "公众号文章").trim().slice(0, 60) || "公众号文章";
+
+  // 优先 OffscreenCanvas（service worker 可复用），不可用就回落 DOM canvas
+  let canvas;
+  if (typeof OffscreenCanvas !== "undefined") {
+    canvas = new OffscreenCanvas(W, H);
+  } else {
+    canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+  }
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("当前环境不支持 canvas，无法生成占位封面。");
+
+  // 渐变背景 + 一个微妙的高光圆，避免纯色发黑或廉价
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, "#1f3a5f");
+  grad.addColorStop(1, "#3d6b8f");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.globalAlpha = 0.18;
+  const radial = ctx.createRadialGradient(W * 0.78, H * 0.25, 20, W * 0.78, H * 0.25, 380);
+  radial.addColorStop(0, "#ffffff");
+  radial.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = radial;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // 顶部标签
+  ctx.fillStyle = "rgba(255,255,255,0.65)";
+  ctx.font = "500 22px -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+  ctx.textBaseline = "top";
+  ctx.fillText("DocuEarn · 占位封面", 48, 44);
+
+  // 标题（自动换行，最多 3 行）
+  ctx.fillStyle = "#ffffff";
+  ctx.textBaseline = "middle";
+  ctx.font = "700 56px -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+  _drawWrappedText(ctx, text, 48, H / 2, W - 96, 70, 3);
+
+  // 底部辅助线 + 副标题
+  ctx.strokeStyle = "rgba(255,255,255,0.45)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(48, H - 80);
+  ctx.lineTo(160, H - 80);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.font = "500 20px -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif";
+  ctx.textBaseline = "top";
+  ctx.fillText("自动生成 · 建议替换为更合适的图片", 48, H - 60);
+
+  if (typeof canvas.convertToBlob === "function") {
+    const blob = await canvas.convertToBlob({ type: "image/png" });
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("生成的封面无法序列化。"));
+      reader.readAsDataURL(blob);
+    });
+  }
+  return canvas.toDataURL("image/png");
+}
+
+function _drawWrappedText(ctx, text, x, centerY, maxWidth, lineHeight, maxLines) {
+  // 中文逐字测；英文按空格切再保底逐字
+  const chars = Array.from(text);
+  const lines = [];
+  let buffer = "";
+  for (const ch of chars) {
+    const test = buffer + ch;
+    if (ctx.measureText(test).width > maxWidth && buffer) {
+      lines.push(buffer);
+      buffer = ch;
+      if (lines.length >= maxLines - 1) break;
+    } else {
+      buffer = test;
+    }
+  }
+  if (buffer && lines.length < maxLines) {
+    if (chars.length > Array.from(lines.join("")).length + Array.from(buffer).length) {
+      buffer = buffer.slice(0, Math.max(0, buffer.length - 1)) + "…";
+    }
+    lines.push(buffer);
+  }
+
+  const totalHeight = lines.length * lineHeight;
+  let y = centerY - totalHeight / 2 + lineHeight / 2;
+  for (const line of lines) {
+    ctx.fillText(line, x, y);
+    y += lineHeight;
+  }
+}
+
+export async function useGeneratedPlaceholderCover() {
+  const article = getCurrentArticle();
+  const title =
+    article?.meta?.title?.trim() ||
+    state.source?.title ||
+    _ctx.controls?.title?.value?.trim() ||
+    "公众号文章";
+  const dataUrl = await generatePlaceholderCoverDataUrl(title);
+  if (!dataUrl) throw new Error("生成占位封面失败。");
+
+  _ensureSourceShell();
+  const newImage = {
+    src: dataUrl,
+    alt: `自动生成的占位封面 · ${title}`,
+    caption: "自动生成的占位封面"
+  };
+  state.source.images.push(newImage);
+  const newIndex = state.source.images.length;
+
+  article.meta.coverImageIndex = newIndex;
+  state.selectedImageIndex = newIndex;
+  if (_ctx.controls.coverImageIndex) {
+    _ctx.controls.coverImageIndex.value = String(newIndex);
+  }
+  _ctx.syncWorkspace();
+  schedulePersist();
+  return newImage;
+}
+
+/**
+ * 发布兜底：当 publishBundle 发现某篇没封面时，悄悄给它补一张占位封面，
+ * 让"无封面图也能推"对用户感知就是"一键就能推"。
+ * 返回新封面对象（含 src / alt / caption）。
+ */
+export async function ensureFallbackCoverImage(article) {
+  if (!article) throw new Error("缺少文章引用。");
+  const existing = getCoverImageForArticle(article);
+  if (existing?.src) return existing;
+  const title =
+    article.meta?.title?.trim() ||
+    state.source?.title ||
+    "公众号文章";
+  const dataUrl = await generatePlaceholderCoverDataUrl(title);
+  _ensureSourceShell();
+  const newImage = {
+    src: dataUrl,
+    alt: `自动生成的占位封面 · ${title}`,
+    caption: "自动生成的占位封面"
+  };
+  state.source.images.push(newImage);
+  article.meta.coverImageIndex = state.source.images.length;
+  return newImage;
 }
 
 export function getSelectedImage() {

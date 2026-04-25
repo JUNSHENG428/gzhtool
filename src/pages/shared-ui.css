@@ -543,6 +543,91 @@
   margin: 0;
 }
 
+/* P0：empty state 多入口按钮组 */
+.ui-empty-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.ui-empty-actions button {
+  font-size: 12.5px;
+  padding: 6px 14px;
+}
+
+/* ===== Next-step "下一步工作台" 横幅（dashboard 顶部） ===== */
+.next-step-card {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 18px 22px;
+  margin-bottom: 18px;
+  background: linear-gradient(135deg, rgba(107, 143, 113, 0.12), rgba(107, 143, 113, 0.04));
+  border: 1px solid rgba(107, 143, 113, 0.35);
+  border-radius: 16px;
+}
+
+.next-step-card[hidden] {
+  display: none;
+}
+
+.next-step-card-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(107, 143, 113, 0.2);
+  color: #2f5a37;
+  display: grid;
+  place-items: center;
+}
+
+.next-step-card-body {
+  display: grid;
+  gap: 4px;
+}
+
+.next-step-card-body .eyebrow {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  color: #2f5a37;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.next-step-card-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.next-step-card-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.next-step-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.next-step-card-actions button {
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .next-step-card {
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+  .next-step-card-icon { display: none; }
+}
+
 /* ===================== 8. Tab Bar（popup 用） ===================== */
 .ui-tabbar {
   display: flex;
@@ -643,6 +728,13 @@
 .ui-member-pill[data-status="expired"] {
   background: var(--state-warning-soft);
   color: var(--state-warning);
+}
+
+/* 即将到期：用 amber 警告色，比 expired 弱、比 pro 抢眼，
+   提示用户该续费但功能依然解锁 */
+.ui-member-pill[data-status="expiring"] {
+  background: rgba(245, 158, 11, 0.16);
+  color: #92400e;
 }
 
 .ui-member-pill[data-status="invalid"] {

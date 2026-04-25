@@ -12,6 +12,10 @@ export const ErrorCode = Object.freeze({
   WECHAT_IP_NOT_WHITELISTED: "WECHAT_IP_NOT_WHITELISTED",
   WECHAT_MEDIA_TOO_LARGE: "WECHAT_MEDIA_TOO_LARGE",
   WECHAT_INVALID_SECRET: "WECHAT_INVALID_SECRET",
+  // P1.1 · 2025-07 起未认证账号失去 draft/add / 群发等接口权限。
+  // 由 wechat.js buildWechatError 在 errcode=48001/53400 时附带 requiresVerifiedAccount=true，
+  // service-worker 把这个 code 透传给 UI，UI 据此弹"复制 HTML 手动粘贴"的兜底 modal。
+  WECHAT_NEEDS_VERIFIED_ACCOUNT: "WECHAT_NEEDS_VERIFIED_ACCOUNT",
   IMAGE_DOWNLOAD_FAILED: "IMAGE_DOWNLOAD_FAILED",
   IMAGE_UPLOAD_FAILED: "IMAGE_UPLOAD_FAILED",
   SCRAPE_NO_CONTENT: "SCRAPE_NO_CONTENT",
@@ -39,6 +43,10 @@ const USER_MESSAGES = {
     "素材文件超过公众号大小限制，请压缩图片后再试。",
   [ErrorCode.WECHAT_INVALID_SECRET]:
     "公众号 AppID 或 AppSecret 无效，请检查设置页的凭证信息。",
+  [ErrorCode.WECHAT_NEEDS_VERIFIED_ACCOUNT]:
+    "当前账号没有这个接口权限（48001/53400）。\n" +
+    "通常是因为：① 账号未认证；② 订阅号本身就没有此接口；③ 2025-07 后微信收紧了未认证号的草稿/发布权限。\n" +
+    "兜底姿势：在「发布」面板用『复制 HTML 手动粘贴』，把排好版的 HTML 复制到剪贴板，再到公众号后台「素材管理 → 新建图文」粘贴。",
   [ErrorCode.IMAGE_DOWNLOAD_FAILED]:
     "图片下载失败，原站可能设置了防盗链或图片链接已失效。",
   [ErrorCode.IMAGE_UPLOAD_FAILED]:
@@ -107,8 +115,40 @@ export function classifyError(error, context) {
   }
 
   // ── 微信 IP 白名单（errcode 40164）──
+  // 微信 errmsg 形如 "invalid ip 1.2.3.4, not in whitelist"，里面带了具体出口 IP。
+  // wechat.js buildWechatError 已经把 IP 提取并挂到 error.detectedIp 上；
+  // 这里再做一层兜底（如果是非 wechat.js 抛上来的同类错误，从 raw message 里再抽一次），
+  // 然后把这个 IP 拼进最终展示给用户的 message——不然用户只看到通用文案，根本不知道要把哪个 IP 加白。
   if (/40164|ip\s*白名单|ip\s*whitelist|not\s*in\s*whitelist/i.test(msg)) {
-    return make(ErrorCode.WECHAT_IP_NOT_WHITELISTED, false);
+    const detectedIp = String(error?.detectedIp || extractIpFromText(rawMessage) || "").trim();
+    const baseMessage = USER_MESSAGES[ErrorCode.WECHAT_IP_NOT_WHITELISTED];
+    const message = detectedIp
+      ? `${baseMessage}\n\n当前出口 IP：${detectedIp}（请把这个 IP 复制后添加到白名单；动态 IP 用户建议改用「微信 API 代理地址」一次性破白名单）。`
+      : baseMessage;
+    return {
+      code: ErrorCode.WECHAT_IP_NOT_WHITELISTED,
+      message,
+      retryable: false,
+      ...(detectedIp ? { detectedIp } : {})
+    };
+  }
+
+  // ── 微信需要认证账号才能调用（errcode 48001 / 53400）──
+  // 由 wechat.js buildWechatError 直接在 Error 上挂 requiresVerifiedAccount，
+  // 这里做双重兜底（既看 flag 也看错误码字符串），让 wechat.js 之外抛的同类错误也能被识别。
+  if (
+    error?.requiresVerifiedAccount ||
+    /\b(48001|53400)\b/.test(msg) ||
+    /api unauthorized|unauthorized api/i.test(msg)
+  ) {
+    const baseMessage = USER_MESSAGES[ErrorCode.WECHAT_NEEDS_VERIFIED_ACCOUNT];
+    const detail = truncate(rawMessage, 200);
+    return {
+      code: ErrorCode.WECHAT_NEEDS_VERIFIED_ACCOUNT,
+      message: detail && !hasChinese(detail) ? `${baseMessage}\n\n[原始报错] ${detail}` : baseMessage,
+      retryable: false,
+      requiresVerifiedAccount: true
+    };
   }
 
   // ── 微信 AppID/AppSecret 无效（errcode 40013 / 40125）──
@@ -214,4 +254,27 @@ function truncate(text, max) {
 
 function hasChinese(text) {
   return typeof text === "string" && /[\u4e00-\u9fa5]/.test(text);
+}
+
+/**
+ * 从任意文本中提取第一个 IPv4 / IPv6 地址。仅用于 40164 兜底：
+ * 当 error 对象没有 detectedIp 字段（比如错误是从字符串重新构造出来的）时，
+ * 从 rawMessage 里再抽一次 IP，避免丢信息。
+ *
+ * 主提取路径在 wechat.js extractWechatIpFromErrmsg，那里的 regex 是同一份逻辑。
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function extractIpFromText(text) {
+  const s = String(text || "");
+  if (!s) return "";
+  const ipv4 = s.match(
+    /\b(?:25[0-5]|2[0-4]\d|[01]?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d?\d)){3}\b/
+  );
+  if (ipv4) return ipv4[0];
+  // 同 wechat.js extractWechatIpFromErrmsg：不能用 \b 边界，否则 :: 缩写会被切断
+  const ipv6 = s.match(/[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7}/);
+  if (ipv6) return ipv6[0].replace(/^::ffff:/i, "");
+  return "";
 }
