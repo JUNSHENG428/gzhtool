@@ -27,7 +27,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from desktop.helper_app.config import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TIMEOUT_MS
+from desktop.helper_app.config import (
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    DEFAULT_TIMEOUT_MS,
+    load_or_create_helper_token,
+)
 from desktop.helper_app.server import RuntimeOptions, run_cli
 
 
@@ -80,11 +85,31 @@ def parse_args() -> argparse.Namespace:
         default=os.environ.get("LOG_LEVEL", "INFO"),
         help="日志级别，默认 INFO",
     )
+    parser.add_argument(
+        "--auth-token",
+        default=None,
+        help=(
+            "本地 helper 的 token；不传 = 从持久化文件读取/自动生成；"
+            '传空字符串 "" = 显式关闭鉴权（仅推荐内网无人值守场景）。'
+        ),
+    )
+    parser.add_argument(
+        "--allow-private-hosts",
+        action="store_true",
+        help=(
+            "允许 helper 抓取 127.0.0.1 / 10.0.0.0/8 等私网地址。"
+            "默认禁止以阻断 SSRF；只在你确认要抓本地服务时再开。"
+        ),
+    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    if args.auth_token is None:
+        token = load_or_create_helper_token()
+    else:
+        token = args.auth_token.strip()
     opts = RuntimeOptions(
         host=args.host,
         port=args.port,
@@ -96,6 +121,8 @@ def main() -> int:
         user_data_path=args.user_data_path,
         system_user_path=args.system_user_path,
         log_level=args.log_level,
+        auth_token=token,
+        allow_private_hosts=bool(args.allow_private_hosts),
     )
     return run_cli(opts)
 

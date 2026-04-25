@@ -18,7 +18,7 @@ import argparse
 import sys
 from typing import List, Optional
 
-from .config import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TIMEOUT_MS
+from .config import DEFAULT_HOST, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, load_or_create_helper_token
 from .server import RuntimeOptions, run_cli
 
 
@@ -47,10 +47,31 @@ def _parse_cli_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--user-data-path", default="")
     parser.add_argument("--system-user-path", action="store_true")
     parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--auth-token",
+        default=None,
+        help=(
+            "本地 helper 的 token；不传 = 从持久化文件读取/自动生成；"
+            '传空字符串 "" = 显式关闭鉴权（仅推荐内网无人值守场景）。'
+        ),
+    )
+    parser.add_argument(
+        "--allow-private-hosts",
+        action="store_true",
+        help=(
+            "允许 helper 抓取 127.0.0.1 / 10.0.0.0/8 等私网地址。"
+            "默认禁止以阻断 SSRF；只在你确认要抓本地服务时再开。"
+        ),
+    )
     return parser.parse_args(argv)
 
 
 def _opts_from_args(args: argparse.Namespace) -> RuntimeOptions:
+    if args.auth_token is None:
+        token = load_or_create_helper_token()
+    else:
+        # 显式传 "" 表示关闭鉴权
+        token = args.auth_token.strip()
     return RuntimeOptions(
         host=args.host,
         port=args.port,
@@ -62,6 +83,8 @@ def _opts_from_args(args: argparse.Namespace) -> RuntimeOptions:
         user_data_path=args.user_data_path,
         system_user_path=args.system_user_path,
         log_level=args.log_level,
+        auth_token=token,
+        allow_private_hosts=bool(args.allow_private_hosts),
     )
 
 

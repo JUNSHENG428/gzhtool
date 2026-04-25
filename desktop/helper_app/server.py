@@ -14,16 +14,20 @@
 from __future__ import annotations
 
 import contextlib
+import hmac
+import ipaddress
 import json
 import logging
 import os
+import re
+import socket
 import threading
 import time
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Callable, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 # DrissionPage 是重依赖（拉起 Chromium）。GUI 启动期不需要它，所以延迟在
 # DrissionRuntime.ensure_browser() 真正用到时才 import，避免 GUI 出错前
@@ -36,6 +40,27 @@ from .config import (
     scrape_script_path,
 )
 from .version import __version__ as HELPER_VERSION
+
+# —————————————————————————————————————————————————————————————————————————————
+#  HTTP 安全策略常量
+# —————————————————————————————————————————————————————————————————————————————
+# 自定义 token header 名（与扩展端 src/shared/drission.js 保持一致）
+HELPER_TOKEN_HEADER = "X-Runbi-Helper-Token"
+
+# 允许的 CORS Origin 协议+主机模式：
+# - chrome-extension://...  扩展弹出页/options 直接 fetch
+# - http(s)://localhost / 127.0.0.1[:port]  本地 web 调试
+# - 同源（无 Origin header）也允许，便于 GUI 内置的 /health 自检
+_ALLOWED_ORIGIN_PATTERNS = (
+    # chrome-extension ID 实际是 32 字符 a-p；放宽到 a-z0-9 + 16~64 长度，
+    # 顺便兼容 Edge / Brave / Chromium 衍生浏览器的 ID 风格
+    re.compile(r"^chrome-extension://[a-z0-9]{16,64}/?$", re.IGNORECASE),
+    re.compile(r"^moz-extension://[a-f0-9-]+/?$", re.IGNORECASE),
+    re.compile(
+        r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/?$",
+        re.IGNORECASE,
+    ),
+)
 
 
 # —————————————————————————————————————————————————————————————————————————————
@@ -130,6 +155,114 @@ def is_http_url(url: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+def is_origin_allowed(origin: str) -> bool:
+    """判断 Origin 是否在允许的 CORS 名单。空值视为同源/本地探活，放行。"""
+    if not origin:
+        return True
+    candidate = origin.strip()
+    if not candidate:
+        return True
+    return any(pattern.match(candidate) for pattern in _ALLOWED_ORIGIN_PATTERNS)
+
+
+def is_target_host_allowed(url: str, allow_private: bool = False) -> tuple[bool, str]:
+    """阻断 SSRF：默认禁止抓取私网/loopback/链路本地/保留段。
+
+    - 解析 URL 的 hostname。
+    - 如果是 IP，直接走 ipaddress 判断 is_loopback/is_private/is_link_local/is_reserved。
+    - 如果是域名，先做一次 socket.gethostbyname 解析，再判断是否落到上述区间。
+      解析失败不直接放行（防止伪造），但允许在 allow_private=True 时跳过本检查。
+    - allow_private=True 时全部放行（兼容内网爬虫场景，由 CLI 显式开启）。
+
+    返回 (allowed, reason)；reason 仅在 allowed=False 时有意义。
+    """
+    if allow_private:
+        return True, ""
+
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").strip()
+    if not host:
+        return False, "目标地址缺少主机名。"
+
+    # 字符串级先拦明显的 loopback / metadata
+    lowered = host.lower()
+    if lowered in {"localhost", "ip6-localhost", "ip6-loopback", "metadata.google.internal"}:
+        return False, f"出于安全考虑，helper 默认不抓取 {host}。如需放开请用 --allow-private-hosts 启动。"
+
+    # 尝试解析 IP；如果是 IPv6 字面量，urlparse 会去掉方括号
+    candidate_ips: list[str] = []
+    try:
+        ipaddress.ip_address(lowered)
+        candidate_ips.append(lowered)
+    except ValueError:
+        # 域名 → 解析一次。这里的解析失败不阻断（也许是 DNS 故障），
+        # 但要避免被「域名解析为 127.0.0.1」绕过：能解析就严格判，解析不到再走宽松路径。
+        try:
+            infos = socket.getaddrinfo(lowered, None)
+            candidate_ips = list({info[4][0] for info in infos if info and info[4]})
+        except socket.gaierror:
+            return True, ""
+
+    for ip in candidate_ips:
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+        except ValueError:
+            continue
+        if (
+            ip_obj.is_loopback
+            or ip_obj.is_private
+            or ip_obj.is_link_local
+            or ip_obj.is_reserved
+            or ip_obj.is_multicast
+            or ip_obj.is_unspecified
+        ):
+            return False, (
+                f"目标地址 {host}（解析为 {ip}）属于本机/内网/保留段。"
+                "出于安全考虑，helper 默认不允许抓取这类地址。"
+                "如需放开，请用 --allow-private-hosts 启动 helper。"
+            )
+
+    return True, ""
+
+
+SUPPORTED_ERROR_CODES: tuple[str, ...] = (
+    "MISSING_TOKEN",
+    "INVALID_TOKEN",
+    "PRIVATE_HOST_BLOCKED",
+    "INVALID_REQUEST",
+    "INVALID_JSON",
+    "NOT_FOUND",
+    "INTERNAL_ERROR",
+    "DRISSION_NOT_AVAILABLE",
+    "BROWSER_LAUNCH_FAILED",
+    "SCRAPE_FAILED",
+    "SCRAPE_EMPTY",
+    "SCRAPE_TIMEOUT",
+    "LOGIN_REQUIRED",
+)
+
+
+_RUNTIME_ERROR_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("超时", "timeout", "timed out"), "SCRAPE_TIMEOUT"),
+    (("无法加载 DrissionPage", "DrissionPage not", "ModuleNotFoundError"), "DRISSION_NOT_AVAILABLE"),
+    (("浏览器", "Chromium", "Chrome", "browser", "executable", "找不到", "no such"), "BROWSER_LAUNCH_FAILED"),
+    (("脚本注入", "evaluate", "execute_script"), "SCRAPE_FAILED"),
+    (("没有返回可解析", "没有拿到正文", "empty", "为空"), "SCRAPE_EMPTY"),
+    (("登录", "login", "需要登录", "权限不足"), "LOGIN_REQUIRED"),
+)
+
+
+def _classify_runtime_error(exc: BaseException) -> str:
+    """根据异常文本/类型猜一个稳定 errorCode，便于扩展端做差异化提示。"""
+
+    text = f"{exc.__class__.__name__}: {exc}".lower()
+    for keywords, code in _RUNTIME_ERROR_RULES:
+        for keyword in keywords:
+            if keyword.lower() in text:
+                return code
+    return "INTERNAL_ERROR"
+
+
 def normalize_mode(mode: str) -> str:
     lowered = str(mode or "").strip().lower()
     if lowered == "raw":
@@ -156,6 +289,14 @@ class RuntimeOptions:
     log_level: str = field(
         default_factory=lambda: os.environ.get("LOG_LEVEL", "INFO")
     )
+    # —— 安全相关 —— #
+    # 当 auth_token 非空时，所有「敏感接口」（/scrape）必须携带匹配的
+    # X-Runbi-Helper-Token header（或 ?token=… query 参数）才会被处理。
+    # 留空 = 关闭鉴权（只在用户显式 --auth-token "" 时使用，向后兼容老用户）。
+    auth_token: str = ""
+    # 默认 False：拒绝抓取 127.0.0.1/10.0.0.0/8 等私网地址，避免被扩展端
+    # 误用为内网探测器（SSRF）。需要内网爬虫场景的高级用户用 --allow-private-hosts 显式打开。
+    allow_private_hosts: bool = False
 
 
 # —————————————————————————————————————————————————————————————————————————————
@@ -258,6 +399,10 @@ class DrissionRuntime:
     def scrape(self, url: str, capture_mode: str, timeout_ms: int) -> dict:
         if not is_http_url(url):
             raise ValueError("只支持抓取 http / https 页面。")
+
+        ok, reason = is_target_host_allowed(url, allow_private=self.opts.allow_private_hosts)
+        if not ok:
+            raise PermissionError(reason)
 
         mode = normalize_mode(capture_mode)
         if mode == "selection":
@@ -366,46 +511,129 @@ class DrissionRuntime:
 # —————————————————————————————————————————————————————————————————————————————
 class HelperHandler(BaseHTTPRequestHandler):
     runtime: Optional[DrissionRuntime] = None
+    # 由 ServerController 在 start() 时注入；为空字符串 = 不强制鉴权（兼容老用户）
+    auth_token: str = ""
+    allow_private_hosts: bool = False
+
+    # —— 公共：解析 path / query —— #
+    def _split_path(self) -> tuple[str, dict]:
+        parsed = urlparse(self.path)
+        clean = (parsed.path or "/").rstrip("/") or "/"
+        query = parse_qs(parsed.query or "", keep_blank_values=False)
+        return clean, query
+
+    # —— 鉴权 —— #
+    def _request_token(self, query: dict) -> str:
+        """优先取 header；fetch 不能在某些场景设 header 时，允许 ?token=... 兜底。"""
+        header = self.headers.get(HELPER_TOKEN_HEADER) or self.headers.get(
+            HELPER_TOKEN_HEADER.lower()
+        )
+        if header:
+            return header.strip()
+        params = query.get("token") or query.get("auth_token") or []
+        if params:
+            return str(params[0]).strip()
+        return ""
+
+    def _enforce_token(self, query: dict) -> bool:
+        """要求 token 时校验；缺失 / 错误统一返回 401。返回 True = 通过。"""
+        expected = (self.auth_token or "").strip()
+        if not expected:
+            return True
+        provided = self._request_token(query)
+        if not provided:
+            self._write_json(
+                401,
+                {
+                    "ok": False,
+                    "error": (
+                        "缺少 helper token。请在 GUI 点「复制 helper 地址」"
+                        "把含 token 的地址粘到扩展设置页。"
+                    ),
+                    "errorCode": "MISSING_TOKEN",
+                },
+            )
+            return False
+        # hmac.compare_digest 防止时序攻击
+        if not hmac.compare_digest(provided, expected):
+            self._write_json(
+                401,
+                {
+                    "ok": False,
+                    "error": "helper token 不匹配，请在扩展设置页重新粘贴新 token。",
+                    "errorCode": "INVALID_TOKEN",
+                },
+            )
+            return False
+        return True
 
     def do_OPTIONS(self) -> None:  # noqa: N802
+        # CORS 预检永远不需要鉴权
         self.send_response(204)
         self._send_cors_headers()
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
-        path = self.path.rstrip("/") or "/"
-        if path in {"", "/", "/health"}:
-            try:
-                payload = self.runtime.probe()
-                self._write_json(200, payload)
-            except Exception as exc:
-                logging.exception("health failed")
-                self._write_json(500, {"ok": False, "error": str(exc)})
-            return
+        path, query = self._split_path()
 
+        # /version 走"不暴露任何运行时信息"的轻量返回，供扩展端轮询新版本号；
+        # 即便配置了 token 也不强制（用户没装 helper 时也要能拉到一个 401-free 的响应）。
         if path == "/version":
-            # 不拉浏览器，纯返回版本，给扩展端轻量轮询用
             self._write_json(
                 200,
                 {
                     "ok": True,
                     "appName": APP_NAME_EN,
                     "helperVersion": HELPER_VERSION,
+                    "requireToken": bool((self.auth_token or "").strip()),
                 },
             )
             return
 
-        self._write_json(404, {"ok": False, "error": "接口不存在。"})
+        if path in {"", "/", "/health"}:
+            # /health 不强制 token：扩展端首次连接需要先 ping /health 判断 helper 是否在跑，
+            # 此时还没机会拿到 token。返回的内容也只暴露版本/模式，没有用户数据。
+            try:
+                payload = self.runtime.probe()
+                payload["requireToken"] = bool((self.auth_token or "").strip())
+                payload["allowPrivateHosts"] = bool(self.allow_private_hosts)
+                # 公布稳定的 errorCode 列表，扩展端可据此判断是否需要兼容/升级。
+                payload["errorCodes"] = list(SUPPORTED_ERROR_CODES)
+                self._write_json(200, payload)
+            except Exception as exc:
+                logging.exception("health failed")
+                code = _classify_runtime_error(exc)
+                self._write_json(
+                    500,
+                    {"ok": False, "error": str(exc), "errorCode": code},
+                )
+            return
+
+        self._write_json(
+            404,
+            {"ok": False, "error": "接口不存在。", "errorCode": "NOT_FOUND"},
+        )
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path.rstrip("/") != "/scrape":
-            self._write_json(404, {"ok": False, "error": "接口不存在。"})
+        path, query = self._split_path()
+        if path != "/scrape":
+            self._write_json(
+                404,
+                {"ok": False, "error": "接口不存在。", "errorCode": "NOT_FOUND"},
+            )
+            return
+
+        # /scrape 是高权限接口（会拉浏览器去访问任意 http(s) 页面），强制鉴权
+        if not self._enforce_token(query):
             return
 
         try:
             data = self._read_json()
         except ValueError as exc:
-            self._write_json(400, {"ok": False, "error": str(exc)})
+            self._write_json(
+                400,
+                {"ok": False, "error": str(exc), "errorCode": "INVALID_JSON"},
+            )
             return
 
         url = str(data.get("url") or "").strip()
@@ -425,11 +653,29 @@ class HelperHandler(BaseHTTPRequestHandler):
                     "data": capture,
                 },
             )
+        except PermissionError as exc:
+            # 私网/本机地址被拦截
+            self._write_json(
+                403,
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "errorCode": "PRIVATE_HOST_BLOCKED",
+                },
+            )
         except ValueError as exc:
-            self._write_json(400, {"ok": False, "error": str(exc)})
+            self._write_json(
+                400,
+                {"ok": False, "error": str(exc), "errorCode": "INVALID_REQUEST"},
+            )
         except Exception as exc:
             logging.exception("scrape failed: %s", url)
-            self._write_json(500, {"ok": False, "error": str(exc)})
+            code = _classify_runtime_error(exc)
+            status = 504 if code == "SCRAPE_TIMEOUT" else 500
+            self._write_json(
+                status,
+                {"ok": False, "error": str(exc), "errorCode": code},
+            )
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         logging.info("%s - %s", self.address_string(), format % args)
@@ -455,9 +701,23 @@ class HelperHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_cors_headers(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # 把 Origin 反射回去，但只允许扩展协议 + 本机调试地址。
+        # 不再走 "*"，否则任意网页都能 fetch 我们的 helper（即便没鉴权也能探测端口）。
+        origin = self.headers.get("Origin", "")
+        if is_origin_allowed(origin):
+            # 同源/无 Origin 时回 "null" 没必要，让浏览器走 same-origin 策略即可
+            if origin:
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
+        else:
+            # 不在白名单：仍然回 204，但不带 ACAO header → 浏览器自然拦截
+            logging.info("CORS rejected origin=%s", origin)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            f"Content-Type, {HELPER_TOKEN_HEADER}",
+        )
+        self.send_header("Access-Control-Max-Age", "600")
 
 
 # —————————————————————————————————————————————————————————————————————————————
@@ -488,6 +748,8 @@ class ServerController:
 
         self._runtime = DrissionRuntime(self.opts)
         HelperHandler.runtime = self._runtime
+        HelperHandler.auth_token = (self.opts.auth_token or "").strip()
+        HelperHandler.allow_private_hosts = bool(self.opts.allow_private_hosts)
 
         try:
             self._server = ThreadingHTTPServer(
@@ -496,6 +758,8 @@ class ServerController:
         except OSError as exc:
             self._runtime = None
             HelperHandler.runtime = None
+            HelperHandler.auth_token = ""
+            HelperHandler.allow_private_hosts = False
             raise RuntimeError(
                 f"端口 {self.opts.port} 已被占用，请换一个或先关掉占用程序。\n原始错误：{exc}"
             ) from exc
@@ -507,9 +771,12 @@ class ServerController:
             name="helper-http",
         )
         self._serve_thread.start()
+        token_status = "已开启" if HelperHandler.auth_token else "未开启"
+        private_status = "允许" if HelperHandler.allow_private_hosts else "禁止"
         self._log(
             f"helper 已启动: http://{self.opts.host}:{self.opts.port}  "
-            f"模式={self._runtime.browser_mode_label()}"
+            f"模式={self._runtime.browser_mode_label()}  "
+            f"鉴权={token_status}  内网抓取={private_status}"
         )
 
     def stop(self) -> None:
@@ -517,6 +784,8 @@ class ServerController:
         self._server = None
         self._runtime = None
         HelperHandler.runtime = None
+        HelperHandler.auth_token = ""
+        HelperHandler.allow_private_hosts = False
 
         if server is not None:
             with contextlib.suppress(Exception):
