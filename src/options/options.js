@@ -55,7 +55,7 @@ const HELPER_DOWNLOAD = {
     "https://github.com/JUNSHENG428/gzhtool/releases?q=helper-v&expanded=true",
   guideUrl:
     "https://github.com/JUNSHENG428/gzhtool/blob/main/docs/USER_DOWNLOAD_HELPER.md",
-  latestVersion: "0.1.0"
+  latestVersion: "0.2.0"
 };
 
 const fields = {

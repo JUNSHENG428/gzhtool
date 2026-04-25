@@ -9,4 +9,4 @@
 - 不同于浏览器扩展的 manifest.json version；两者解耦，独立发版
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
