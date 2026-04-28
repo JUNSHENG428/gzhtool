@@ -1,4 +1,10 @@
-import { evaluateArticleLength, requestRewrite, testAiConnection, extractChatContent } from "../shared/ai.js";
+import {
+  evaluateArticleLength,
+  requestRewrite,
+  testAiConnection,
+  extractChatContent,
+  postChatCompletionWithReasoningFallback
+} from "../shared/ai.js";
 import {
   getActivePromptTemplate,
   getPromptTemplates,
@@ -1202,21 +1208,20 @@ async function runTopicPlanning(payload = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TOPIC_PLANNER_AI_TIMEOUT_MS);
   try {
-    const aiResp = await fetch(settings.apiBaseUrl.trim(), {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${settings.apiKey.trim()}`
-      },
-      body: JSON.stringify({
-        model: String(settings.model || "").trim(),
-        // 选题总监需要稳定输出 JSON，温度调低一些（比 rewrite 默认 0.8 低）
-        temperature: 0.4,
-        messages
-      })
-    });
-    const respJson = await aiResp.json().catch(() => ({}));
+    // 推理模型（Kimi k2.x / o1 / R1）拒绝 temperature —— helper 命中 400 关键词时
+    // 自动剥参重试，避免选题总监因为温度被服务端拒掉。
+    const { response: aiResp, payload: respJson } =
+      await postChatCompletionWithReasoningFallback(
+        settings.apiBaseUrl.trim(),
+        settings.apiKey,
+        {
+          model: String(settings.model || "").trim(),
+          // 选题总监需要稳定输出 JSON，温度调低一些（比 rewrite 默认 0.8 低）
+          temperature: 0.4,
+          messages
+        },
+        { signal: controller.signal }
+      );
     if (!aiResp.ok) {
       const m = respJson?.error?.message || respJson?.message || `状态码 ${aiResp.status}`;
       return {
