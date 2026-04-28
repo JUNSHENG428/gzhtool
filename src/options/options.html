@@ -230,29 +230,29 @@
         </label>
 
         <label>
-          <span>接口地址 <small class="field-meta">API Base URL</small></span>
+          <span>AI 接口地址 <small class="field-meta">API Base URL</small></span>
           <input id="apiBaseUrl" type="url" required placeholder="https://api.openai.com/v1/chat/completions" />
-          <small class="field-hint">必须是 chat completions 接口完整地址。手动改这里会自动切到「自定义 / OpenAI 兼容」。</small>
+          <small class="field-hint">选了上面的服务商之后会自动填好，不用动。<strong>什么时候改</strong>：用了非默认服务商或自部署网关。<strong>填错的后果</strong>：测试连接会报 404 / 网络错。手动改会自动切到「自定义 / OpenAI 兼容」。</small>
         </label>
 
         <div class="split-grid">
           <label>
-            <span>密钥 <small class="field-meta">API Key</small></span>
+            <span>API 密钥 <small class="field-meta">API Key</small></span>
             <input id="apiKey" type="password" required placeholder="sk-..." minlength="8" autocomplete="off" />
-            <small class="field-hint" id="apiKeyHint">只保存在你本机浏览器，不会上传。</small>
+            <small class="field-hint" id="apiKeyHint">点上面服务商旁的「申请 API Key」直达官网生成。<strong>填错的后果</strong>：测试连接报 401 (key 错) 或 402 (余额不足)。只保存在你本机浏览器，不会上传。</small>
           </label>
           <label>
-            <span>模型名称 <small class="field-meta">Model</small></span>
+            <span>用哪个模型 <small class="field-meta">Model</small></span>
             <input id="model" type="text" required placeholder="gpt-4.1-mini" list="commonModelList" />
             <datalist id="commonModelList"></datalist>
-            <small class="field-hint">从下拉里选当前服务商推荐的型号；不在列表里的也可以手填。</small>
+            <small class="field-hint">从下拉里选当前服务商推荐的型号；不在列表里的也可以手填。<strong>什么时候改</strong>：想换更便宜/更强的模型。<strong>填错的后果</strong>：报 model not found 或乱回答。</small>
           </label>
         </div>
 
         <label class="field-narrow">
-          <span>采样温度 <small class="field-meta">Temperature · 0~2</small></span>
+          <span>创造力档位 <small class="field-meta">Temperature · 0~2</small></span>
           <input id="temperature" type="number" required min="0" max="2" step="0.1" />
-          <small class="field-hint">越接近 0 越严谨稳定，越接近 1 越有创意；改写公众号文章一般填 <code>0.7</code>。想去 AI 味建议 <code>0.85</code>。</small>
+          <small class="field-hint"><strong>什么时候改</strong>：觉得 AI 改写太死板（调高）或太放飞（调低）。<strong>填错的后果</strong>：0 偏抄原文，1+ 偏胡编乱造。改写公众号文章一般填 <code>0.7</code>，想去 AI 味建议 <code>0.85</code>。</small>
         </label>
 
         <details class="advanced-params">
@@ -589,14 +589,14 @@
         </div>
 
         <label>
-          <span>公众号 AppID <small class="field-meta">开发者 ID</small></span>
+          <span>公众号 AppID <small class="field-meta">仅 API 模式 · 开发者 ID</small></span>
           <input id="wechatAppId" type="text" placeholder="wx..." pattern="^wx[a-f0-9]{16}$" title="微信 AppID 格式为 wx 开头，后跟 16 位小写字母或数字" />
-          <small class="field-hint">格式：<code>wx</code> 开头 + 16 位小写字母或数字。</small>
+          <small class="field-hint">格式：<code>wx</code> 开头 + 16 位小写字母或数字。<strong>什么时候改</strong>：想用 API 模式直发草稿。<strong>填错的后果</strong>：报 40013 / 41001。</small>
         </label>
         <label>
-          <span>公众号 AppSecret <small class="field-meta">开发者密码</small></span>
+          <span>公众号 AppSecret <small class="field-meta">仅 API 模式 · 开发者密码</small></span>
           <input id="wechatAppSecret" type="password" placeholder="填写公众号密钥" minlength="8" autocomplete="off" />
-          <small class="field-hint">同样在开发接口管理页里查看；只保存在本机浏览器。</small>
+          <small class="field-hint">同样在「开发接口管理」页查看，第一次生成后微信不再展示，记得本地存好。<strong>填错的后果</strong>：报 40125（key 错）或 40164（IP 不在白名单）。只保存在本机浏览器。</small>
         </label>
         <label>
           <span>默认作者</span>
@@ -609,12 +609,12 @@
           <small class="field-hint">文章底部「阅读原文」会跳到这个链接，可留空。</small>
         </label>
         <label>
-          <span>默认发布模式</span>
+          <span>默认发到哪 <small class="field-meta">默认发布模式</small></span>
           <select id="wechatDefaultPublishMode">
             <option value="draft">推草稿箱（推荐，再到手机审核后发）</option>
             <option value="publish">直接发布（需要服务号权限）</option>
           </select>
-          <small class="field-hint">不确定就选「推草稿箱」，最安全；直接发布对个人订阅号是无效的。</small>
+          <small class="field-hint">这只是默认值，每次发布前还能在编辑台改。<strong>什么时候改</strong>：想自动群发而不是只存草稿。<strong>个人订阅号</strong>：直接发布无效，必须走草稿箱。</small>
         </label>
         <div class="checkbox-stack">
           <label class="checkbox-row">
@@ -647,7 +647,7 @@
           </p>
 
           <label class="split-full">
-            <span>微信 API 自定义 base（留空 = 走官方 <code>https://api.weixin.qq.com</code>）</span>
+            <span>微信 API 代理地址 <small class="field-meta">留空 = 走官方 <code>https://api.weixin.qq.com</code></small></span>
             <input
               id="wechatApiBase"
               type="url"
@@ -655,8 +655,7 @@
               autocomplete="off"
             />
             <small class="field-hint">
-              填代理域名后，扩展会把所有 <code>/cgi-bin/*</code> 请求都打到这个域名。
-              代理实现要做的事很简单：<strong>原样转发到 api.weixin.qq.com，保留 query / body / headers</strong>。
+              <strong>什么时候改</strong>：家用动态 IP 进不了白名单要走 FC 反代。<strong>留空</strong>就走官方域名（最常见）。填了之后扩展会把所有 <code>/cgi-bin/*</code> 请求打到这个域名；代理只需<strong>原样转发到 api.weixin.qq.com，保留 query / body / headers</strong>。
             </small>
           </label>
         </div>
@@ -786,14 +785,17 @@
 
         <label class="checkbox-row">
           <input id="drissionEnabled" type="checkbox" />
-          <span>启用 DrissionPage 优先抓取</span>
+          <span>真实浏览器抓取 <small class="field-meta">DrissionPage · Pro</small></span>
         </label>
+        <small class="field-hint" style="margin-top:-4px;display:block;">
+          <strong>什么时候开</strong>：反爬严的网站抓不到时（要登录、有 Cloudflare 拦截等）。<strong>填错的后果</strong>：没装桌面助手会失败回退到内置抓取，不会卡死。
+        </small>
 
         <label class="split-full">
-          <span>helper 地址（如 <code>http://127.0.0.1:7788/</code>）</span>
+          <span>桌面助手地址 <small class="field-meta">helper URL</small></span>
           <input id="drissionHelperUrl" type="url" placeholder="http://127.0.0.1:7788/?token=…" autocomplete="off" />
           <small id="drissionHelperTokenStatus" class="field-hint" aria-live="polite">
-            建议在桌面助手 GUI 点「复制 helper 地址」并粘贴到这里。token 会被自动拆出并加密保存，不会显示在地址栏。
+            建议在桌面助手 GUI 点「复制 helper 地址」并粘贴到这里。token 会被自动拆出并加密保存，不会显示在地址栏。<strong>填错的后果</strong>：测试报 ECONNREFUSED 说明助手没跑起来。
           </small>
         </label>
 
@@ -825,8 +827,9 @@
         </div>
 
         <label class="split-full">
-          <span>NewsNow 地址（留空使用公共地址）</span>
+          <span>自部署热点接口 <small class="field-meta">NewsNow Base · 留空走官方源</small></span>
           <input id="hotTopicsNewsnowBase" type="url" placeholder="https://hot.inkgold.info/" />
+          <small class="field-hint"><strong>什么时候改</strong>：自己搭了 NewsNow / RSSHub 实例。<strong>留空走官方源</strong>，新手不用管。</small>
         </label>
         <div class="row" style="margin: -6px 0 12px; gap: 8px;">
           <button type="button" class="btn btn-secondary btn-sm" id="testHotTopicsNewsnow">
