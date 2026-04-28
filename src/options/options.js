@@ -254,6 +254,91 @@ async function hydrateForm() {
   refreshHelperTokenStatus();
   currentProfiles = Array.isArray(settings.wechatProfiles) ? settings.wechatProfiles : [];
   renderProfiles();
+  renderHealthSummary(settings.lastTestResult || {});
+}
+
+/**
+ * 渲染顶部「配置健康度」摘要 —— 复用 lastTestResult 里最近一次"测试连接"结果，
+ * 三条链路（AI / 公众号 / 桌面助手）一行一行展示。点行尾的「重新测试」按钮就调
+ * 对应的 testXxxConnection() 重新跑。
+ */
+function renderHealthSummary(lastTestResult = {}) {
+  const container = document.querySelector("#healthSummary");
+  if (!container) return;
+
+  const channels = [
+    {
+      key: "ai",
+      label: "AI 改写",
+      result: lastTestResult.ai,
+      retest: testAiConnection,
+      successDetail: (r) =>
+        `${r.model || "-"} · 延迟 ${Number(r.latencyMs || 0)} ms · ${formatRelativeTime(r.ts)}`
+    },
+    {
+      key: "wechat",
+      label: "公众号发布",
+      result: lastTestResult.wechat,
+      retest: testWechatConnection,
+      successDetail: (r) => `已拿到 token · ${formatRelativeTime(r.ts)}`
+    },
+    {
+      key: "drission",
+      label: "桌面助手",
+      result: lastTestResult.drission,
+      retest: testDrissionConnection,
+      successDetail: (r) => `helper 可达 · ${formatRelativeTime(r.ts)}`
+    }
+  ];
+
+  container.innerHTML = "";
+  for (const ch of channels) {
+    const row = document.createElement("div");
+    row.className = "health-row";
+    const r = ch.result;
+    let state, icon, detail;
+    if (!r) {
+      state = "muted";
+      icon = "—";
+      detail = "未测试";
+    } else if (r.ok) {
+      state = "success";
+      icon = "✓";
+      detail = `可用 · ${ch.successDetail(r)}`;
+    } else {
+      state = "error";
+      icon = "✗";
+      detail = `失败 · ${String(r.error || "").slice(0, 60) || "未知错误"} · ${formatRelativeTime(r.ts)}`;
+    }
+    row.dataset.state = state;
+    row.innerHTML = `
+      <span class="health-row-icon" aria-hidden="true">${icon}</span>
+      <strong class="health-row-label">${escapeHtml(ch.label)}</strong>
+      <span class="health-row-detail">${escapeHtml(detail)}</span>
+      <button type="button" class="ghost health-row-retest" data-channel="${ch.key}">重新测试</button>
+    `;
+    row.querySelector(".health-row-retest").addEventListener("click", () => ch.retest());
+    container.appendChild(row);
+  }
+}
+
+/**
+ * 把时间戳转成「N 分钟前 / N 小时前 / 昨天」之类的相对描述，
+ * 摘要面板用 —— 用户不关心绝对时间，关心"上次测过没多久"。
+ */
+function formatRelativeTime(ts) {
+  if (!ts || !Number.isFinite(ts)) return "时间未知";
+  const diffMs = Date.now() - Number(ts);
+  if (diffMs < 0) return "刚刚";
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return `${sec} 秒前测试`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} 分钟前测试`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} 小时前测试`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day} 天前测试`;
+  return new Date(ts).toLocaleDateString("zh-CN");
 }
 
 /**
@@ -548,6 +633,25 @@ async function ensureHostPermissionFromUserGesture(targetUrl) {
   return chrome.permissions.request({ origins: [origin] });
 }
 
+/**
+ * 把"测试连接"结果写进 settings.lastTestResult，让健康度摘要面板能复用。
+ * 用 fire-and-forget 风格 —— persist 失败不影响 UI 流程；renderHealthSummary
+ * 在 saveSettings 完成后再触发一次刷新摘要。
+ */
+async function persistTestResult(channel, result) {
+  try {
+    const settings = await getSettings();
+    const next = {
+      ...(settings.lastTestResult || {}),
+      [channel]: { ts: Date.now(), ...result }
+    };
+    await saveSettings({ lastTestResult: next });
+    renderHealthSummary(next);
+  } catch (err) {
+    console.warn("[options] persistTestResult failed:", err);
+  }
+}
+
 async function testAiConnection() {
   testConnectionButton.disabled = true;
   setTestResult(testConnectionResult, "loading", "正在测试...");
@@ -585,6 +689,12 @@ async function testAiConnection() {
         "success",
         `连接成功，延迟 ${Number(response.latencyMs || 0)} ms，模型 ${response.model || fields.model.value.trim() || "-"}`
       );
+      void persistTestResult("ai", {
+        ok: true,
+        model: response.model || model,
+        latencyMs: Number(response.latencyMs || 0),
+        error: ""
+      });
       return;
     }
 
@@ -593,8 +703,20 @@ async function testAiConnection() {
       "error",
       formatRuntimeError(response?.error, "连接失败，请检查配置。")
     );
+    void persistTestResult("ai", {
+      ok: false,
+      model,
+      latencyMs: Number(response?.latencyMs || 0),
+      error: response?.error || "连接失败"
+    });
   } catch (error) {
     setTestResult(testConnectionResult, "error", error.message || "连接失败，请稍后再试。");
+    void persistTestResult("ai", {
+      ok: false,
+      model,
+      latencyMs: 0,
+      error: error.message || "连接失败"
+    });
   } finally {
     testConnectionButton.disabled = false;
   }
@@ -622,6 +744,7 @@ async function testWechatConnection() {
         response.note ||
         "已拿到 access_token。但本测试只能验证 AppID/AppSecret + IP 白名单，无法验证草稿/发布接口权限（如 48001 需要在真实发布时才能暴露）。";
       setTestResult(testWechatConnectionResult, "success", note);
+      void persistTestResult("wechat", { ok: true, errcode: null, error: "" });
       return;
     }
 
@@ -635,12 +758,22 @@ async function testWechatConnection() {
       : baseError;
 
     setTestResult(testWechatConnectionResult, "error", message);
+    void persistTestResult("wechat", {
+      ok: false,
+      errcode: response?.errcode || null,
+      error: response?.error || "验证失败"
+    });
   } catch (error) {
     setTestResult(
       testWechatConnectionResult,
       "error",
       error.message || "验证失败，请稍后再试。"
     );
+    void persistTestResult("wechat", {
+      ok: false,
+      errcode: null,
+      error: error.message || "验证失败"
+    });
   } finally {
     testWechatConnectionButton.disabled = false;
   }
@@ -804,6 +937,7 @@ async function testDrissionConnection() {
         "success",
         detail ? `helper 可用：${detail}` : "helper 可用。"
       );
+      void persistTestResult("drission", { ok: true, error: "" });
       return;
     }
 
@@ -812,12 +946,20 @@ async function testDrissionConnection() {
       "error",
       formatRuntimeError(response?.error, "helper 不可达，请检查地址和端口。")
     );
+    void persistTestResult("drission", {
+      ok: false,
+      error: response?.error || "helper 不可达"
+    });
   } catch (error) {
     setTestResult(
       testDrissionConnectionResult,
       "error",
       error.message || "测试失败，请稍后再试。"
     );
+    void persistTestResult("drission", {
+      ok: false,
+      error: error.message || "测试失败"
+    });
   } finally {
     testDrissionConnectionButton.disabled = false;
   }
