@@ -2537,4 +2537,110 @@ console.log("\n运行 AI 选题规划（topic-planner）纯函数 + UI 钩子防
   );
 }
 
+// =====================================================================
+// 浏览器登录模式 · profile.mode 向后兼容契约 + classifyError 专属分支
+// =====================================================================
+console.log("\n运行 浏览器登录模式 profile/error 契约单测 …");
+{
+  const { normalizeWechatProfile, WECHAT_PROFILE_MODES } = await import(
+    "../src/shared/defaults.js"
+  );
+  const { classifyError, ErrorCode } = await import("../src/shared/errors.js");
+
+  // —— normalizeWechatProfile 契约 —— //
+  // 历史 profile（无 mode 字段）必须默认为 "api"，否则会把已有 API 用户突然推到浏览器模式
+  const legacy = normalizeWechatProfile({
+    name: "主号",
+    appId: "wx1234",
+    appSecret: "secret",
+    author: "Alice"
+  });
+  assert(legacy.mode === "api", `历史 profile 缺 mode 字段必须 fallback 到 api，实际：${legacy.mode}`);
+  assert(legacy.name === "主号", "name 必须保留");
+  assert(legacy.appId === "wx1234", "appId 必须保留");
+
+  // 显式 "browser" 必须保留
+  const browser = normalizeWechatProfile({ name: "浏览器号", mode: "browser" });
+  assert(browser.mode === "browser", "显式 browser 必须保留");
+  assert(browser.appId === "" && browser.appSecret === "", "browser 模式无 appId/AppSecret 时应回空字符串而非 undefined");
+
+  // 未知 mode 字符串必须被夹紧到 "api"，不能给攻击 payload 留口子
+  const malicious = normalizeWechatProfile({ name: "x", mode: "DROP TABLE users" });
+  assert(malicious.mode === "api", `未知 mode 必须 fallback 到 api，实际：${malicious.mode}`);
+
+  // null / undefined / 数字 输入不能崩
+  for (const bad of [null, undefined, 0, "string", []]) {
+    const out = normalizeWechatProfile(bad);
+    assert(out.mode === "api", `非法输入 ${JSON.stringify(bad)} 应 fallback`);
+    assert(out.name === "" && out.author === "", `非法输入 ${JSON.stringify(bad)} 应返回空字符串字段`);
+  }
+
+  // WECHAT_PROFILE_MODES 必须刚好这两项
+  assert(
+    Array.isArray(WECHAT_PROFILE_MODES) &&
+      WECHAT_PROFILE_MODES.length === 2 &&
+      WECHAT_PROFILE_MODES.includes("api") &&
+      WECHAT_PROFILE_MODES.includes("browser"),
+    "WECHAT_PROFILE_MODES 必须是 ['api', 'browser']"
+  );
+
+  // —— classifyError 浏览器模式专属分支 —— //
+  // browserModeCode flag 必须直通对应错误码，不被通用 chrome.tabs / fetch fail 规则误吞
+  for (const code of [
+    ErrorCode.WECHAT_BROWSER_NOT_LOGGED_IN,
+    ErrorCode.WECHAT_BROWSER_EDITOR_NOT_OPEN,
+    ErrorCode.WECHAT_BROWSER_INJECT_FAILED
+  ]) {
+    const err = new Error("No tab with id 9999"); // 故意造一条会触发 SCRAPE_TAB_FAILED 的 message
+    err.browserModeCode = code;
+    const c = classifyError(err);
+    assert(c.code === code, `browserModeCode=${code} 必须直通，不能被通用规则吞成 ${c.code}`);
+    assert(typeof c.message === "string" && c.message.length > 0, `${code} 应有用户提示文案`);
+  }
+
+  // EDITOR_NOT_OPEN 应 retryable=true（重试通常能成）
+  const editorErr = new Error("timeout");
+  editorErr.browserModeCode = ErrorCode.WECHAT_BROWSER_EDITOR_NOT_OPEN;
+  const ec = classifyError(editorErr);
+  assert(ec.retryable === true, "EDITOR_NOT_OPEN 应允许重试");
+
+  // NOT_LOGGED_IN 应 retryable=false（要先登录）
+  const loginErr = new Error("login required");
+  loginErr.browserModeCode = ErrorCode.WECHAT_BROWSER_NOT_LOGGED_IN;
+  const lc = classifyError(loginErr);
+  assert(lc.retryable === false, "NOT_LOGGED_IN 应禁止盲目重试");
+
+  // —— service-worker.js dispatch 静态校验 —— //
+  // 确保 PUBLISH_TO_WECHAT 短路条件存在，避免有人 refactor 时不小心把
+  // browser 模式 fallthrough 到 publishToWechat（会导致 cgi-bin 调用失败）
+  const swJs = fs.readFileSync(
+    path.join(root, "src/background/service-worker.js"),
+    "utf8"
+  );
+  assert(
+    swJs.includes('publishMode === "browser"') &&
+      swJs.includes("wechat-browser-bridge.js"),
+    "service-worker PUBLISH_TO_WECHAT 必须存在 browser 模式短路 + 动态 import bridge"
+  );
+
+  // —— wechat-browser-bridge.js 静态保护：合规红线 —— //
+  // 禁止任何 mp 内部 API 调用；禁止自动点击「保存草稿」按钮
+  const bridgeJs = fs.readFileSync(
+    path.join(root, "src/background/wechat-browser-bridge.js"),
+    "utf8"
+  );
+  assert(
+    !/cgi-bin\/(?:operate_appmsg|appmsg_create|appmsg_save)/i.test(bridgeJs),
+    "wechat-browser-bridge.js 禁止调 mp 内部草稿写接口（合规红线）"
+  );
+  assert(
+    !/click\(\)|clickElement|dispatchEvent.*click/i.test(bridgeJs),
+    "wechat-browser-bridge.js 禁止任何按钮自动点击操作（保存草稿必须用户手动点）"
+  );
+  assert(
+    bridgeJs.includes("publishMode") && bridgeJs.includes("browser"),
+    "wechat-browser-bridge.js 必须给 helper payload 带上 meta.publishMode=browser，否则 dock 文案区分不了模式"
+  );
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

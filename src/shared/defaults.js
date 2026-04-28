@@ -226,6 +226,33 @@ export const DEFAULT_ARTICLE_META = {
 export const MAX_WECHAT_ARTICLES = 8;
 export const WECHAT_WEB_EDITOR_URL = "https://mp.weixin.qq.com/cgi-bin/appmsg";
 
+// 公众号发布通道（profile.mode）：
+//   "api"     → 走官方 cgi-bin/draft/add，需要 appId+AppSecret，要求出口 IP 加白名单
+//   "browser" → 浏览器登录模式：复用用户已登录的 mp 后台，DOM 注入编辑器；不调 cgi-bin，
+//               不需要 IP 白名单。最后一步「保存草稿」由用户在 mp 后台手动点（合规底线）。
+// 缺失字段视为 "api"（向后兼容历史 profile）。
+export const WECHAT_PROFILE_MODES = Object.freeze(["api", "browser"]);
+export const DEFAULT_WECHAT_PROFILE_MODE_NEW = "browser";
+
+/**
+ * 把任意来源的 profile 标准化成 { name, appId, appSecret, author, mode } 形态。
+ * 关键约束：缺失 mode 默认 "api"（保护历史 profile），未知 mode 也回落 "api"。
+ *
+ * @param {object|null|undefined} profile
+ * @returns {{ name: string, appId: string, appSecret: string, author: string, mode: "api"|"browser" }}
+ */
+export function normalizeWechatProfile(profile) {
+  const raw = profile && typeof profile === "object" ? profile : {};
+  const mode = WECHAT_PROFILE_MODES.includes(raw.mode) ? raw.mode : "api";
+  return {
+    name: typeof raw.name === "string" ? raw.name : "",
+    appId: typeof raw.appId === "string" ? raw.appId : "",
+    appSecret: typeof raw.appSecret === "string" ? raw.appSecret : "",
+    author: typeof raw.author === "string" ? raw.author : "",
+    mode
+  };
+}
+
 export const DEFAULT_SESSION = {
   lastSourceTabId: null,
   lastSourceTitle: "",

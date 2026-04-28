@@ -142,6 +142,27 @@ const profilesContainer = document.querySelector("#wechatProfilesContainer");
 let currentProfiles = [];
 
 document.querySelector("#addProfileButton")?.addEventListener("click", addProfile);
+
+// 发布通道单选切换：实时更新 hint 文案 + 切灰 appId/AppSecret 输入框，
+// 让用户一眼看到「当前选中模式需不需要凭证」。
+document.querySelectorAll('input[name="profileMode"]').forEach((radio) => {
+  radio.addEventListener("change", refreshProfileModeUi);
+});
+// 初次渲染（DOMContentLoaded 后立即同步）
+queueMicrotask(refreshProfileModeUi);
+
+function refreshProfileModeUi() {
+  const mode = readSelectedProfileMode();
+  const isApi = mode === "api";
+  if (profileFields.appId) profileFields.appId.disabled = !isApi;
+  if (profileFields.appSecret) profileFields.appSecret.disabled = !isApi;
+  const hint = document.querySelector("#profileModeHint");
+  if (hint) {
+    hint.textContent = isApi
+      ? "API 模式：必须填写 AppID + AppSecret，且把当前出口 IP 加进公众号后台「IP 白名单」。失败常见原因是 40164（IP 不在白名单）。"
+      : "浏览器登录模式：填好账号名称即可，发布时会自动打开 mp 后台编辑页并把内容写入；最后一步保存草稿由你在 mp 后台手动点（合规底线）。";
+  }
+}
 document.querySelector("#openWelcomePage").addEventListener("click", () =>
   openInternalPage("src/pages/welcome.html")
 );
@@ -969,20 +990,30 @@ function renderProfiles() {
     return;
   }
 
-  profilesContainer.innerHTML = currentProfiles.map((profile, index) => `
-    <div class="profile-card">
-      <div class="profile-info">
-        <strong>${escapeHtml(profile.name || `账号 ${index + 1}`)}</strong>
-        <span>AppID: ${escapeHtml(profile.appId)}</span>
-        <span>作者: ${escapeHtml(profile.author || "-")}</span>
-        <span class="profile-test-result" data-test-result="${index}" aria-live="polite"></span>
+  profilesContainer.innerHTML = currentProfiles.map((profile, index) => {
+    const profileMode = profile.mode === "browser" ? "browser" : "api";
+    const modeBadge = profileMode === "browser"
+      ? '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#e8f4cf;color:#2f4d10;font-size:11px;font-weight:600;">浏览器登录</span>'
+      : '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#e6effd;color:#143a73;font-size:11px;font-weight:600;">API 模式</span>';
+    const credLine = profileMode === "api"
+      ? `<span>AppID: ${escapeHtml(profile.appId || "-")}</span>`
+      : '<span style="color:var(--muted-color, #777);">无需 appId / AppSecret</span>';
+    return `
+      <div class="profile-card">
+        <div class="profile-info">
+          <strong>${escapeHtml(profile.name || `账号 ${index + 1}`)} ${modeBadge}</strong>
+          ${credLine}
+          <span>作者: ${escapeHtml(profile.author || "-")}</span>
+          <span class="profile-test-result" data-test-result="${index}" aria-live="polite"></span>
+        </div>
+        <div class="profile-actions">
+          <button type="button" class="ghost" data-toggle-mode="${index}">切到${profileMode === "browser" ? "API" : "浏览器登录"}</button>
+          ${profileMode === "api" ? `<button type="button" class="ghost" data-test-profile="${index}">测试此账号</button>` : ""}
+          <button type="button" class="ghost" data-delete-profile="${index}">删除</button>
+        </div>
       </div>
-      <div class="profile-actions">
-        <button type="button" class="ghost" data-test-profile="${index}">测试此账号</button>
-        <button type="button" class="ghost" data-delete-profile="${index}">删除</button>
-      </div>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 
   profilesContainer.querySelectorAll("[data-delete-profile]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -990,6 +1021,28 @@ function renderProfiles() {
       currentProfiles.splice(idx, 1);
       renderProfiles();
       setStatus("账号已删除，记得点「保存设置」才会生效。");
+    });
+  });
+
+  // 双向切换：browser ↔ api。appId/AppSecret 字段保留不丢，方便用户来回切。
+  profilesContainer.querySelectorAll("[data-toggle-mode]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.dataset.toggleMode);
+      const profile = currentProfiles[idx];
+      if (!profile) return;
+      const nextMode = profile.mode === "browser" ? "api" : "browser";
+      if (nextMode === "api" && (!profile.appId || !profile.appSecret)) {
+        setStatus(
+          `账号「${profile.name}」缺少 AppID/AppSecret，无法切到 API 模式。请先在上方表单补齐后重新创建。`
+        );
+        return;
+      }
+      currentProfiles[idx] = { ...profile, mode: nextMode };
+      renderProfiles();
+      await saveSettings({ wechatProfiles: currentProfiles });
+      setStatus(
+        `账号「${profile.name}」已切到${nextMode === "browser" ? "浏览器登录" : "API"}模式。`
+      );
     });
   });
 
@@ -1038,9 +1091,15 @@ async function addProfile() {
   const appId = profileFields.appId?.value.trim();
   const appSecret = profileFields.appSecret?.value.trim();
   const author = profileFields.author?.value.trim();
+  const mode = readSelectedProfileMode();
 
-  if (!name || !appId || !appSecret) {
-    setStatus("请填写账号名称、AppID 和 AppSecret。");
+  if (!name) {
+    setStatus("请填写账号名称。");
+    return;
+  }
+  // API 模式才校验 appId/AppSecret；浏览器登录模式不需要
+  if (mode === "api" && (!appId || !appSecret)) {
+    setStatus("API 模式需要同时填写 AppID 和 AppSecret。");
     return;
   }
 
@@ -1060,7 +1119,8 @@ async function addProfile() {
     return;
   }
 
-  currentProfiles.push({ name, appId, appSecret, author });
+  // 浏览器登录模式不依赖 appId/AppSecret，但保留用户填的值（方便日后切回 API 模式）
+  currentProfiles.push({ name, appId, appSecret, author, mode });
 
   profileFields.name.value = "";
   profileFields.appId.value = "";
@@ -1069,7 +1129,16 @@ async function addProfile() {
 
   renderProfiles();
   await saveSettings({ wechatProfiles: currentProfiles });
-  setStatus(`账号「${name}」已添加并保存。`);
+  setStatus(`账号「${name}」（${mode === "browser" ? "浏览器登录" : "API"} 模式）已添加并保存。`);
+}
+
+/**
+ * 读取「发布通道」单选当前值。缺省（无元素）回落 "browser"——这是 C 端默认推荐。
+ */
+function readSelectedProfileMode() {
+  const checked = document.querySelector('input[name="profileMode"]:checked');
+  const value = checked?.value;
+  return value === "api" ? "api" : "browser";
 }
 
 /* ──────────────────────────────────────────────────────────────

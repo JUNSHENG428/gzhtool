@@ -25,6 +25,13 @@ export const ErrorCode = Object.freeze({
   SCRAPE_NO_CONTENT: "SCRAPE_NO_CONTENT",
   SCRAPE_HOST_BLOCKED: "SCRAPE_HOST_BLOCKED",
   SCRAPE_TAB_FAILED: "SCRAPE_TAB_FAILED",
+  // 浏览器登录模式（mode==="browser"）专属错误码：
+  //   - NOT_LOGGED_IN：mp 后台 cookie 失效或未登录，开编辑页直接被踢回登录页
+  //   - EDITOR_NOT_OPEN：tab 已开但 10s 内 status 仍未 complete，或被反爬挂在中间态
+  //   - INJECT_FAILED：编辑页选择器全部命中失败（mp 改版概率事件）
+  WECHAT_BROWSER_NOT_LOGGED_IN: "WECHAT_BROWSER_NOT_LOGGED_IN",
+  WECHAT_BROWSER_EDITOR_NOT_OPEN: "WECHAT_BROWSER_EDITOR_NOT_OPEN",
+  WECHAT_BROWSER_INJECT_FAILED: "WECHAT_BROWSER_INJECT_FAILED",
   UNKNOWN: "UNKNOWN"
 });
 
@@ -66,6 +73,12 @@ const USER_MESSAGES = {
     "扩展无法访问该网站（可能是浏览器内部页、扩展页，或站点用了 file://、chrome:// 协议）。请换一条原文链接试试。",
   [ErrorCode.SCRAPE_TAB_FAILED]:
     "后台抓取标签页时出错，可能是页面跳转被中断或被反爬关闭。请打开原文后用扩展面板手动抓取。",
+  [ErrorCode.WECHAT_BROWSER_NOT_LOGGED_IN]:
+    "浏览器登录模式：未检测到公众号后台登录态。\n请先到 https://mp.weixin.qq.com/ 用账号密码或扫码登录，然后回到扩展点「发布到草稿」重试。",
+  [ErrorCode.WECHAT_BROWSER_EDITOR_NOT_OPEN]:
+    "浏览器登录模式：公众号编辑页没能在 10 秒内打开。\n可能是网络较慢或 mp 后台被反爬拦了一下；可以手动到公众号后台「素材管理 → 新建图文」打开编辑页，然后回扩展重试。",
+  [ErrorCode.WECHAT_BROWSER_INJECT_FAILED]:
+    "浏览器登录模式：编辑页结构识别失败，可能是公众号后台改版了。\n临时兜底：在编辑页右下角的助手 dock 上点「复制正文 HTML」，然后到公众号后台正文区右上角『&lt;&gt; HTML 源码』粘贴。",
   [ErrorCode.UNKNOWN]:
     "操作失败，请稍后再试。"
 };
@@ -81,6 +94,21 @@ export function classifyError(error, context) {
   const rawMessage = String(error?.message || "").trim();
   const msg = rawMessage.toLowerCase();
   const name = String(error?.name || "");
+
+  // ── 浏览器登录模式（mode === "browser"）专属错误码 ──
+  // wechat-browser-bridge.js throw 的 Error 上挂 browserModeCode 字段，
+  // 这里直接读 flag 走专属分支，避免被下面通用规则误判（比如 chrome.tabs 报错被
+  // 当成 SCRAPE_TAB_FAILED）。无 flag 时再 fallback 到通用规则。
+  const browserModeCode = String(error?.browserModeCode || "");
+  if (browserModeCode === ErrorCode.WECHAT_BROWSER_NOT_LOGGED_IN) {
+    return make(ErrorCode.WECHAT_BROWSER_NOT_LOGGED_IN, false);
+  }
+  if (browserModeCode === ErrorCode.WECHAT_BROWSER_EDITOR_NOT_OPEN) {
+    return make(ErrorCode.WECHAT_BROWSER_EDITOR_NOT_OPEN, true);
+  }
+  if (browserModeCode === ErrorCode.WECHAT_BROWSER_INJECT_FAILED) {
+    return make(ErrorCode.WECHAT_BROWSER_INJECT_FAILED, true);
+  }
 
   // ── Chrome 扩展系统报错（host 权限不够 / 不能在内部页执行脚本）──
   // 典型："Cannot access contents of url 'chrome://...'. Extension manifest must request permission..."

@@ -9,6 +9,9 @@
 - 任何异常都通过日志窗 + messagebox 暴露给用户
 
 等以后想加系统托盘/开机自启再单独引入 pystray 等依赖，目前不做。
+
+视觉：主题常量与 ttk 样式见 `ui_theme.py`（与扩展 design-tokens 气质对齐；故意不用 WebView，
+避免 PyInstaller 体积与跨平台调试成本）。
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from logging.handlers import RotatingFileHandler
 from tkinter import messagebox, scrolledtext, ttk
 from typing import Optional
 
+from . import ui_theme as theme
 from .config import (
     APP_NAME_EN,
     APP_NAME_ZH,
@@ -86,7 +90,18 @@ class HelperApp:
         self.root = tk.Tk()
         self.root.title(f"{APP_NAME_ZH} · {APP_NAME_EN} v{__version__}")
         self.root.geometry("640x460")
-        self.root.minsize(560, 400)
+        self.root.minsize(580, 400)
+        self.root.configure(background=theme.BG_WINDOW)
+        self._ttk_style = theme.apply_ttk_style(self.root)
+        try:
+            self._ttk_style.configure("Main.TFrame", background=theme.BG_WINDOW)
+            self._ttk_style.configure(
+                "Main.TLabel",
+                background=theme.BG_WINDOW,
+                foreground=theme.TEXT_PRIMARY,
+            )
+        except Exception:
+            pass
 
         # —— 跨平台菜单栏键 —— #
         try:
@@ -108,7 +123,6 @@ class HelperApp:
 
         # —— Tk 变量 —— #
         self.var_status = tk.StringVar(value="未启动")
-        self.var_status_color = tk.StringVar(value="#9CA3AF")  # 灰
         self.var_port = tk.StringVar(value=str(DEFAULT_PORT))
         self.var_host = tk.StringVar(value=DEFAULT_HOST)
         self.var_headless = tk.BooleanVar(value=True)
@@ -126,19 +140,26 @@ class HelperApp:
     #  UI 构建
     # ————————————————————————————————————————————————————
     def _build_ui(self) -> None:
-        pad = {"padx": 12, "pady": 8}
+        pad = theme.PAD_OUTER
 
         # 顶部：状态灯 + 标题
-        top = ttk.Frame(self.root)
+        top = ttk.Frame(self.root, style="Main.TFrame")
         top.pack(fill="x", **pad)
         self._status_dot = tk.Canvas(
-            top, width=18, height=18, highlightthickness=0, bg=self.root.cget("bg")
+            top,
+            width=18,
+            height=18,
+            highlightthickness=0,
+            bg=theme.BG_CANVAS,
         )
         self._status_dot.pack(side="left")
-        self._draw_status_dot("#9CA3AF")
-        ttk.Label(top, textvariable=self.var_status, font=("", 13, "bold")).pack(
-            side="left", padx=(8, 0)
-        )
+        self._draw_status_dot(theme.STATUS_IDLE)
+        ttk.Label(
+            top,
+            textvariable=self.var_status,
+            font=theme.ui_heading_font(),
+            style="Main.TLabel",
+        ).pack(side="left", padx=(8, 0))
 
         # 一键复制 helper 地址给扩展用
         self._copy_btn = ttk.Button(
@@ -149,14 +170,19 @@ class HelperApp:
         # 中部：参数区
         config = ttk.LabelFrame(self.root, text="启动参数")
         config.pack(fill="x", **pad)
+        config.grid_columnconfigure(1, weight=1)
 
-        ttk.Label(config, text="监听地址").grid(row=0, column=0, sticky="w", padx=8, pady=6)
-        ttk.Entry(config, textvariable=self.var_host, width=20).grid(
-            row=0, column=1, sticky="w", padx=4, pady=6
+        ttk.Label(config, text="监听地址", foreground=theme.TEXT_PRIMARY).grid(
+            row=0, column=0, sticky="nw", **theme.PAD_COMPACT
         )
-        ttk.Label(config, text="端口").grid(row=0, column=2, sticky="w", padx=(20, 4))
+        ttk.Entry(config, textvariable=self.var_host, width=20).grid(
+            row=0, column=1, sticky="ew", padx=4, pady=6
+        )
+        ttk.Label(config, text="端口", foreground=theme.TEXT_PRIMARY).grid(
+            row=0, column=2, sticky="nw", padx=(20, 4), pady=6
+        )
         ttk.Entry(config, textvariable=self.var_port, width=8).grid(
-            row=0, column=3, sticky="w", padx=4
+            row=0, column=3, sticky="w", padx=4, pady=6
         )
 
         ttk.Checkbutton(
@@ -180,23 +206,32 @@ class HelperApp:
         # —— 安全凭据区 —— #
         sec = ttk.LabelFrame(self.root, text="安全凭据")
         sec.pack(fill="x", **pad)
-        ttk.Label(sec, text="helper token:").grid(row=0, column=0, sticky="w", padx=8, pady=6)
-        ttk.Label(
-            sec, textvariable=self.var_token_display, foreground="#374151"
-        ).grid(row=0, column=1, sticky="w", padx=4, pady=6)
-        ttk.Button(
-            sec, text="重置 token", command=self._regenerate_token
-        ).grid(row=0, column=2, sticky="e", padx=8, pady=6)
+        sec.grid_columnconfigure(1, weight=1)
+
+        ttk.Label(sec, text="helper token:", foreground=theme.TEXT_PRIMARY).grid(
+            row=0, column=0, sticky="nw", **theme.PAD_COMPACT
+        )
         ttk.Label(
             sec,
+            textvariable=self.var_token_display,
+            foreground=theme.TEXT_SECONDARY,
+        ).grid(row=0, column=1, sticky="ew", padx=4, pady=6)
+        ttk.Button(sec, text="重置 token", command=self._regenerate_token).grid(
+            row=0, column=2, sticky="e", padx=8, pady=6
+        )
+        self._token_hint_label = ttk.Label(
+            sec,
             text="出于安全考虑，token 默认遮显示。点「复制 helper 地址」会把含 token 的完整地址写入剪贴板。",
-            foreground="#6B7280",
-            wraplength=560,
+            foreground=theme.TEXT_HINT,
+            wraplength=520,
             justify="left",
-        ).grid(row=1, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 6))
+        )
+        self._token_hint_label.grid(
+            row=1, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 6)
+        )
 
         # 启停按钮
-        actions = ttk.Frame(self.root)
+        actions = ttk.Frame(self.root, style="Main.TFrame")
         actions.pack(fill="x", **pad)
         self._start_btn = ttk.Button(actions, text="启动 helper", command=self._on_start)
         self._start_btn.pack(side="left")
@@ -215,23 +250,46 @@ class HelperApp:
             actions, text="检查更新", command=self._manual_check_update
         ).pack(side="right", padx=(0, 8))
 
-        # 底部：日志窗
+        # 底部：日志窗（pack 填满 LabelFrame 客户区，跨 Tk 版本最稳）
         log_frame = ttk.LabelFrame(self.root, text="运行日志")
         log_frame.pack(fill="both", expand=True, **pad)
         self._log_text = scrolledtext.ScrolledText(
-            log_frame, height=12, font=("Menlo", 10), state="disabled", wrap="word"
+            log_frame,
+            height=12,
+            font=theme.log_mono_font(),
+            state="disabled",
+            wrap="word",
+            background=theme.BG_LOG,
+            foreground=theme.TEXT_PRIMARY,
+            insertbackground=theme.TEXT_PRIMARY,
+            highlightthickness=0,
+            borderwidth=0,
         )
-        self._log_text.pack(fill="both", expand=True, padx=4, pady=4)
+        self._log_text.pack(fill="both", expand=True, padx=6, pady=6)
 
         # 状态栏
-        bar = ttk.Frame(self.root)
+        bar = ttk.Frame(self.root, style="Main.TFrame")
         bar.pack(fill="x", side="bottom")
         ttk.Separator(bar, orient="horizontal").pack(fill="x")
-        ttk.Label(
+        tk.Label(
             bar,
             text=f"v{__version__}  ·  日志: {app_log_dir() / 'helper.log'}",
-            foreground="#6B7280",
+            bg=theme.BG_WINDOW,
+            fg=theme.TEXT_HINT,
+            font=theme.ui_body_font(),
         ).pack(side="left", padx=12, pady=4)
+
+        self.root.bind("<Configure>", self._on_root_configure)
+
+    def _on_root_configure(self, event: object) -> None:
+        """窗口变宽时拉长 token 说明换行宽度，避免右侧大量留白。"""
+        if event.widget != self.root:
+            return
+        w = max(280, self.root.winfo_width() - 100)
+        try:
+            self._token_hint_label.configure(wraplength=w)
+        except Exception:
+            pass
 
     def _draw_status_dot(self, color: str) -> None:
         self._status_dot.delete("all")
@@ -262,7 +320,7 @@ class HelperApp:
 
         self._is_busy = True
         self._start_btn.configure(state="disabled")
-        self._set_status("正在启动 …", "#FBBF24")
+        self._set_status("正在启动 …", theme.STATUS_BUSY)
 
         # 启动放线程（避免 DrissionPage 懒加载阻塞 UI）
         def _runner() -> None:
@@ -281,7 +339,8 @@ class HelperApp:
     def _on_started(self) -> None:
         self._is_busy = False
         self._set_status(
-            f"运行中 · http://{self.var_host.get()}:{self.var_port.get()}", "#10B981"
+            f"运行中 · http://{self.var_host.get()}:{self.var_port.get()}",
+            theme.STATUS_OK,
         )
         self._start_btn.configure(state="disabled")
         self._stop_btn.configure(state="normal")
@@ -289,7 +348,7 @@ class HelperApp:
     def _on_start_failed(self, reason: str) -> None:
         self._is_busy = False
         self._controller = None
-        self._set_status("启动失败", "#EF4444")
+        self._set_status("启动失败", theme.STATUS_ERR)
         self._start_btn.configure(state="normal")
         self._stop_btn.configure(state="disabled")
         messagebox.showerror("启动失败", reason)
@@ -298,7 +357,7 @@ class HelperApp:
         if self._is_busy or self._controller is None:
             return
         self._is_busy = True
-        self._set_status("正在停止 …", "#FBBF24")
+        self._set_status("正在停止 …", theme.STATUS_BUSY)
 
         def _runner() -> None:
             ctrl = self._controller
@@ -314,7 +373,7 @@ class HelperApp:
 
     def _on_stopped(self) -> None:
         self._is_busy = False
-        self._set_status("未启动", "#9CA3AF")
+        self._set_status("未启动", theme.STATUS_IDLE)
         self._start_btn.configure(state="normal")
         self._stop_btn.configure(state="disabled")
 

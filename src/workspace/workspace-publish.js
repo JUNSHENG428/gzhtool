@@ -232,33 +232,50 @@ export async function publishBundle(mode) {
     const profileIndex = Number(_ctx.controls.wechatProfileSelect?.value ?? -1);
     const profiles = Array.isArray(state.settings.wechatProfiles) ? state.settings.wechatProfiles : [];
     let accountOverride = null;
+    // 缺失 mode 字段视为 "api"，保护历史 profile（向后兼容契约）
+    let publishChannel = "api";
     if (profileIndex >= 0 && profiles[profileIndex]) {
       const profile = profiles[profileIndex];
       accountLabel = profile.name?.trim() || `账号 ${profileIndex + 1}`;
-      accountOverride = {
-        wechatAppId: String(profile.appId || "").trim(),
-        wechatAppSecret: String(profile.appSecret || "").trim(),
-        wechatDefaultAuthor: String(profile.author || "").trim()
-      };
-      if (!accountOverride.wechatAppId || !accountOverride.wechatAppSecret) {
-        setStatus(
-          `选中的发布账号「${accountLabel}」缺少 AppID 或 AppSecret，请先到设置页补全。`,
-          "warning"
-        );
-        return;
+      publishChannel = profile.mode === "browser" ? "browser" : "api";
+
+      if (publishChannel === "api") {
+        accountOverride = {
+          wechatAppId: String(profile.appId || "").trim(),
+          wechatAppSecret: String(profile.appSecret || "").trim(),
+          wechatDefaultAuthor: String(profile.author || "").trim()
+        };
+        if (!accountOverride.wechatAppId || !accountOverride.wechatAppSecret) {
+          setStatus(
+            `选中的发布账号「${accountLabel}」缺少 AppID 或 AppSecret，请先到设置页补全。`,
+            "warning"
+          );
+          return;
+        }
       }
     }
 
-    showLoading(
-      `${mode === "publish" ? "正在提交多图文发布" : "正在推送多图文草稿包"} · 账号「${accountLabel}」`,
-      "先上传图片，再创建草稿，通常 5–15 秒。"
-    );
+    if (publishChannel === "browser") {
+      showLoading(
+        `正在通过浏览器登录模式同步到公众号编辑器 · 账号「${accountLabel}」`,
+        "扩展会自动打开 mp 后台编辑页，把内容写入；最后一步『保存草稿』需要你在 mp 后台手动点。"
+      );
+    } else {
+      showLoading(
+        `${mode === "publish" ? "正在提交多图文发布" : "正在推送多图文草稿包"} · 账号「${accountLabel}」`,
+        "先上传图片，再创建草稿，通常 5–15 秒。"
+      );
+    }
 
     const payload = await _buildWechatPublishPayload(mode);
     payload.accountOverride = accountOverride;
     payload.accountLabel = accountLabel;
     payload.profileIndex = profileIndex;
-    // P1.2 · 把发布面板里临时选的群发策略带过去
+    // 浏览器登录模式让 SW 短路到 wechat-browser-bridge.js，跳过 cgi-bin 链路
+    if (publishChannel === "browser") {
+      payload.publishMode = "browser";
+    }
+    // P1.2 · 把发布面板里临时选的群发策略带过去（API 模式才用得到）
     Object.assign(payload, _readSendStrategyFromUi());
     const response = await chrome.runtime.sendMessage({ type: "PUBLISH_TO_WECHAT", payload });
 
@@ -266,6 +283,12 @@ export async function publishBundle(mode) {
       // P1.1 · 48001/53400：触发"复制 HTML 手动粘贴"弹窗，避免用户对着红 toast 干瞪眼
       if (response?.error?.requiresVerifiedAccount) {
         _openVerifiedAccountModal(response.error);
+      }
+      // 浏览器登录模式 cookie 失效：顺手帮用户开 mp 登录页，比让他自己复制网址友好
+      if (response?.error?.code === "WECHAT_BROWSER_NOT_LOGGED_IN") {
+        try {
+          await chrome.tabs.create({ url: "https://mp.weixin.qq.com/", active: true });
+        } catch {}
       }
       throw new Error(formatRuntimeError(response?.error, "公众号发布失败。"));
     }
@@ -291,7 +314,16 @@ export async function publishBundle(mode) {
     }
 
     const failedImages = response.data.failedImages || [];
-    if (failedImages.length > 0) {
+    if (response.data?.mode === "browser") {
+      // 浏览器登录模式：内容已写入 mp 后台编辑页，提醒用户手动完成最后 3 步
+      const tail = response.data?.requiresMultiArticleManual
+        ? "（多图文：当前仅同步了第一篇，其余请在 mp 后台「添加一条」后用『复制正文 HTML』粘贴。）"
+        : "";
+      setStatus(
+        `账号「${accountLabel}」已写入公众号编辑器：请在 mp 后台手动 ① 上传封面图 ② 点「保存为草稿」。${tail}`,
+        "success"
+      );
+    } else if (failedImages.length > 0) {
       const lines = failedImages.map(
         (f) => `第 ${f.articleIndex} 篇 · ${f.type === "cover" ? "封面" : "正文图片"}：${f.error || "上传失败"}`
       );
