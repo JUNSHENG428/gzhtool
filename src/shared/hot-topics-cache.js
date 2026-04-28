@@ -5,8 +5,8 @@
  *   1) Chrome MV3 service worker 30s 不活动会被 evict，原本的内存 Map 缓存
  *      会一并丢失，导致每次打开热点页都要现拉，公共服务很容易把这个流量
  *      认成爬虫直接限流；
- *   2) 公共聚合（DailyHot demo / NewsNow demo / RSSHub demo）一旦挂掉，
- *      原本的代码会一直死命请求，每次都等到 8s 超时才报错，体验灾难。
+ *   2) 公共聚合（NewsNow demo / RSSHub demo）一旦挂掉，原本的代码会一直
+ *      死命请求，每次都等到 8s 超时才报错，体验灾难。
  *
  * 缓存：写到 chrome.storage.local，按 sourceId 分键 ht:cache:<sourceId>，
  *      默认 TTL 12 分钟（与现有内存缓存的 3 分钟相比拉长，但配合后台

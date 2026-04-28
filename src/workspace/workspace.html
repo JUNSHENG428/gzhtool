@@ -18,8 +18,17 @@
       aria-live="polite"
       aria-atomic="true"
     >
-      <div class="loading-spinner" aria-hidden="true"></div>
-      <p id="loadingMessage" aria-live="polite">加载中...</p>
+      <div class="loading-card">
+        <div class="loading-spinner-dual" aria-hidden="true">
+          <span class="loading-ring loading-ring--outer"></span>
+          <span class="loading-ring loading-ring--inner"></span>
+        </div>
+        <p class="loading-title" id="loadingTitle" aria-live="polite">处理中...</p>
+        <p class="loading-hint" id="loadingHint" hidden></p>
+        <div class="loading-dots" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+      </div>
     </div>
 
     <div id="firstRunOverlay" class="first-run-overlay" hidden>
@@ -115,13 +124,6 @@
               <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2c1.5 4 5 5 5 9a5 5 0 0 1-10 0c0-2 1-3 2-4-.5 2 1 3 2 3 0-3 .5-5 1-8Z"/></svg>
             </span>
             <span class="ui-nav-item-label">热点</span>
-          </button>
-          <button class="ui-nav-item" type="button" data-route="agent">
-            <span class="ui-nav-item-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 2 4 6v6c0 5 3.5 9.7 8 10 4.5-.3 8-5 8-10V6l-8-4Z"/></svg>
-            </span>
-            <span class="ui-nav-item-label">AI 选题代笔</span>
-            <span class="ui-nav-badge" data-tone="new">NEW</span>
           </button>
         </div>
 
@@ -240,12 +242,6 @@
                   <span class="ui-quick-tile-title">看今日热点</span>
                   <span class="ui-quick-tile-desc">挑一个选题开写</span>
                 </button>
-                <button class="ui-quick-tile" type="button" data-route="agent">
-                  <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2 4 6v6c0 5 3.5 9.7 8 10 4.5-.3 8-5 8-10V6l-8-4Z"/></svg></span>
-                  <span class="ui-quick-tile-title">AI 选题代笔</span>
-                  <span class="ui-quick-tile-desc">让 AI 帮你拉新选题</span>
-                  <span class="ui-quick-tile-badge">NEW</span>
-                </button>
                 <button class="ui-quick-tile" type="button" id="quickAiTemplate">
                   <span class="ui-quick-tile-icon" aria-hidden="true" data-tone="gold"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 2.5 13.6 8l5.4 1.7-4.3 3.6 1.5 5.6L12 16.1l-4.2 2.8 1.5-5.6L5 9.7 10.4 8 12 2.5Zm6.7 13.4 1 3.5 3.3-1.4-3.5-1L18.7 14l-.7 1.9Zm-13.4 0L6 14l-.8 3 -3.5 1 3.3 1.4 1-3.5Z"/></svg></span>
                   <span class="ui-quick-tile-title">AI 生成模板</span>
@@ -290,10 +286,10 @@
                   <span class="usage-cell-num" id="usageTodayPublish">0</span>
                   <span class="usage-cell-trend" id="usageWeekPublish">7 天 0</span>
                 </div>
-                <div class="usage-cell" data-kind="agentImport">
-                  <span class="usage-cell-label">AI 入库</span>
-                  <span class="usage-cell-num" id="usageTodayAgent">0</span>
-                  <span class="usage-cell-trend" id="usageWeekAgent">7 天 0</span>
+                <div class="usage-cell" data-kind="topicPlanner">
+                  <span class="usage-cell-label">智能选题</span>
+                  <span class="usage-cell-num" id="usageTodayTopicPlanner">0</span>
+                  <span class="usage-cell-trend" id="usageWeekTopicPlanner">7 天 0</span>
                 </div>
               </div>
               <p class="usage-peak-line" id="usagePeakLine"></p>
@@ -348,6 +344,15 @@
                     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Z"/></svg>
                     AI 改写当前篇
                   </button>
+                  <button id="humanizeToggleBtn" class="humanize-chip" type="button" aria-pressed="false" title="开启后会在主改写完成后再触发一次去 AI 味润色（按章节数计费）">
+                    <span class="humanize-chip-dot" aria-hidden="true"></span>
+                    <span class="humanize-chip-label">去 AI 味</span>
+                    <span class="humanize-chip-state">关</span>
+                    <span class="humanize-chip-pro" aria-hidden="true">PRO</span>
+                  </button>
+                  <button id="skipHumanizeBtn" class="humanize-skip-btn" type="button" hidden title="跳过当前正在并行进行的二次润色，立刻拿主改写结果">
+                    跳过润色
+                  </button>
                 </div>
               </div>
               <div class="layout-toolbar-group layout-toolbar-group--side">
@@ -355,6 +360,21 @@
                   <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M13 3a9 9 0 1 0 8.94 10H20a7 7 0 1 1-1.69-6.31L15 10h7V3l-2.35 2.35A8.96 8.96 0 0 0 13 3Zm-1 5v5l4 2 .75-1.23L13.5 12V8H12Z"/></svg>
                   历史草稿
                 </button>
+              </div>
+            </div>
+            <div id="humanizeStatusBar" class="humanize-status-bar" hidden>
+              <button id="humanizeBadge" class="humanize-badge" type="button" aria-expanded="false">
+                <span class="humanize-badge-dot" aria-hidden="true"></span>
+                <span class="humanize-badge-label">AI 味检测</span>
+                <span class="humanize-badge-score">--</span>
+                <svg class="humanize-badge-chevron" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M6 8 1.5 3.5h9z"/></svg>
+              </button>
+              <div id="humanizePanel" class="humanize-panel" hidden>
+                <div class="humanize-panel-summary"></div>
+                <ul class="humanize-panel-issues" aria-label="可优化项列表"></ul>
+                <p class="humanize-panel-foot">
+                  这只是本地启发式检测，仅用于提示风险点；建议结合「去 AI 味」二次润色一起使用。
+                </p>
               </div>
             </div>
             <main class="workspace-layout layout-single">
@@ -372,7 +392,34 @@
               </button>
             </header>
 
-            <div class="stack-toolbar" role="toolbar" aria-label="草稿包操作">
+            <div class="stack-toolbar" role="toolbar" aria-label="草稿与文件">
+              <div class="stack-toolbar-group" aria-label="从文件写入正文">
+                <button
+                  id="importFileButton"
+                  class="stack-chip"
+                  type="button"
+                  title="支持 Word（.docx）、PDF、Markdown（.md），在本地转换"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm4 18H6V4h7v5h5v11ZM8 12h8v2H8v-2Zm0 4h8v2H8v-2Z"
+                    />
+                  </svg>
+                  <span>从文件写入正文</span>
+                </button>
+                <label class="stack-file-import-check" title="不勾选则覆盖当前篇的正文内容">
+                  <input type="checkbox" id="importFileAsSubArticle" />
+                  <span>作为新副篇</span>
+                </label>
+                <input
+                  id="importFileInput"
+                  type="file"
+                  accept=".docx,.pdf,.md,.markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf,text/markdown,text/plain"
+                  hidden
+                />
+              </div>
+              <span class="stack-toolbar-divider" aria-hidden="true"></span>
               <div class="stack-toolbar-group" aria-label="排序与编辑">
                 <button id="moveArticleUpButton" class="stack-chip" type="button" aria-label="前移当前篇" title="前移当前篇">
                   <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 5l7 7h-4v7h-6v-7H5l7-7Z"/></svg>
@@ -392,18 +439,36 @@
                 </button>
               </div>
               <span class="stack-toolbar-divider" aria-hidden="true"></span>
-              <div class="stack-toolbar-group" aria-label="草稿包导入导出">
-                <button id="importBundleButton" class="stack-chip" type="button" title="从导出的 JSON 文件还原一个草稿包">
-                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M5 20h14v-2H5v2Zm7-18l-7 7h4v6h6v-6h4l-7-7Z"/></svg>
-                  <span>导入草稿包</span>
+              <div class="stack-toolbar-group" aria-label="本机备份与恢复">
+                <button
+                  id="importBundleButton"
+                  class="stack-chip"
+                  type="button"
+                  title="选之前用「导出备份」保存的草稿包，用于换机或从备份恢复"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path fill="currentColor" d="M5 20h14v-2H5v2Zm7-18l-7 7h4v6h6v-6h4l-7-7Z" />
+                  </svg>
+                  <span>从备份恢复</span>
                 </button>
-                <button id="exportBundleButton" class="stack-chip" type="button" title="把当前草稿包导出为 JSON 文件">
-                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M5 20h14v-2H5v2Zm7-2l7-7h-4V5h-6v6H5l7 7Z"/></svg>
-                  <span>导出草稿包</span>
+                <button
+                  id="exportBundleButton"
+                  class="stack-chip"
+                  type="button"
+                  title="把当前多图文、来源等完整状态保存为备份文件到本机"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path fill="currentColor" d="M5 20h14v-2H5v2Zm7-2l7-7h-4V5h-6v6H5l7 7Z" />
+                  </svg>
+                  <span>导出备份</span>
                 </button>
               </div>
             </div>
 
+            <p class="stack-hint stack-hint--bundle">
+              日常用 Word、PDF 或 .md 写作请点「从文件写入正文」。换机或要完整恢复多图文/来源时，请用「导出备份 / 从备份恢复」（文件名中通常含
+              <code class="stack-hint-code">.bundle</code>），无需、也不要手工改文件内容。
+            </p>
             <div id="articleStack" class="article-stack"></div>
             <p id="bundleSummary" class="stack-hint">一次最多可编排 1 篇主篇 + 7 篇副篇。你在右侧编辑的是上方当前选中的这一篇。</p>
             <input id="bundleImportInput" type="file" accept="application/json,.json" hidden />
@@ -421,12 +486,7 @@
               <label class="wide">
                 <span>公众号标题</span>
                 <input id="titleInput" type="text" placeholder="显示在公众号列表和分享卡片上的标题" aria-describedby="titleInputHint" />
-                <p id="titleInputHint" class="field-hint" data-for="titleInput">0 / 32</p>
-              </label>
-              <label>
-                <span>副标题</span>
-                <input id="subtitleInput" type="text" placeholder="显示在正文顶部的小字说明" aria-describedby="subtitleInputHint" />
-                <p id="subtitleInputHint" class="field-hint" data-for="subtitleInput">0 / 32</p>
+                <p id="titleInputHint" class="field-hint" data-for="titleInput">0 / 64</p>
               </label>
               <label>
                 <span>作者</span>
@@ -558,8 +618,8 @@
                 </button>
                 <button class="ui-quick-tile" type="button" data-route="layout">
                   <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4h2v4h14v-4h2ZM12 3l-5 5h3v8h4V8h3l-5-5Z"/></svg></span>
-                  <span class="ui-quick-tile-title">导入草稿包</span>
-                  <span class="ui-quick-tile-desc">从导出的 JSON 还原</span>
+                  <span class="ui-quick-tile-title">从文件/备份进编辑台</span>
+                  <span class="ui-quick-tile-desc">Word、PDF、Markdown 或本机备份</span>
                 </button>
               </div>
               <p class="ui-section-sub" style="margin-top:14px;">
@@ -745,31 +805,6 @@
             </div>
           </section>
 
-          <!-- ============ AI 选题代笔（Phase C 把 agent 内容搬进来） ============ -->
-          <section class="workspace-view" data-view="agent" aria-label="AI 选题代笔">
-            <header class="embed-view-head">
-              <div class="embed-view-head-text">
-                <h2 class="embed-view-title">AI 选题代笔</h2>
-                <p class="embed-view-sub">从知乎 / 掘金 / V2EX / Reddit / X 自动找题，并起草初稿</p>
-              </div>
-              <button id="openAgentButton" class="embed-view-open" type="button" title="在新标签页中打开完整代笔工作台">
-                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M14 3v2h3.59L9 13.59 10.41 15 19 6.41V10h2V3h-7Zm-7 4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5h-2v5H7V9h5V7H7Z"/></svg>
-                在新页打开
-              </button>
-            </header>
-            <div class="embed-frame-wrap" data-embed-frame="agent">
-              <iframe
-                id="agentEmbedFrame"
-                class="embed-frame"
-                title="AI 选题代笔"
-                data-src="src/pages/agent.html?embed=1"
-                referrerpolicy="no-referrer"
-                loading="lazy"
-              ></iframe>
-              <div class="embed-frame-loading" data-embed-loading="agent">正在载入选题代笔面板…</div>
-            </div>
-          </section>
-
           <!-- ============ 会员中心 ============ -->
           <section class="workspace-view" data-view="member" aria-label="会员中心">
 
@@ -941,6 +976,7 @@
         <button id="closeVerifiedAccountModalButton" type="button" class="ghost">关闭</button>
       </footer>
     </div>
+    <script src="../vendor/mammoth/mammoth.browser.min.js"></script>
     <script type="module" src="./workspace.js"></script>
   </body>
 </html>

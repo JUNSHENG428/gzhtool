@@ -12,6 +12,10 @@ export const ErrorCode = Object.freeze({
   WECHAT_IP_NOT_WHITELISTED: "WECHAT_IP_NOT_WHITELISTED",
   WECHAT_MEDIA_TOO_LARGE: "WECHAT_MEDIA_TOO_LARGE",
   WECHAT_INVALID_SECRET: "WECHAT_INVALID_SECRET",
+  // 微信 errcode=40007 invalid media_id：草稿 / 群发 / 发布接口的封面或素材 ID 失效。
+  // 由 wechat.js buildWechatError 在 errcode=40007 时附带 detectedMediaIdHint，
+  // service-worker 把这个字段透给 UI，UI 可以在 toast / 报错详情里直接 surface。
+  WECHAT_INVALID_MEDIA_ID: "WECHAT_INVALID_MEDIA_ID",
   // P1.1 · 2025-07 起未认证账号失去 draft/add / 群发等接口权限。
   // 由 wechat.js buildWechatError 在 errcode=48001/53400 时附带 requiresVerifiedAccount=true，
   // service-worker 把这个 code 透传给 UI，UI 据此弹"复制 HTML 手动粘贴"的兜底 modal。
@@ -43,6 +47,11 @@ const USER_MESSAGES = {
     "素材文件超过公众号大小限制，请压缩图片后再试。",
   [ErrorCode.WECHAT_INVALID_SECRET]:
     "公众号 AppID 或 AppSecret 无效，请检查设置页的凭证信息。",
+  [ErrorCode.WECHAT_INVALID_MEDIA_ID]:
+    "公众号拒绝了草稿里的封面或图片素材 ID（40007：invalid media_id）。\n" +
+    "最常见原因：① 上一步封面图上传失败，传给草稿接口的是空 media_id；" +
+    "② 你切换过公众号账号但仍在引用上一个账号的素材 ID；③ 微信 API 代理（aliyun-fc 等）的 access_token 缓存乱了。\n" +
+    "建议处置：回到「发布」面板，点「📷 上传本地封面」或「✨ 一键生成占位封面」重新生成一张封面后重试。",
   [ErrorCode.WECHAT_NEEDS_VERIFIED_ACCOUNT]:
     "当前账号没有这个接口权限（48001/53400）。\n" +
     "通常是因为：① 账号未认证；② 订阅号本身就没有此接口；③ 2025-07 后微信收紧了未认证号的草稿/发布权限。\n" +
@@ -130,6 +139,27 @@ export function classifyError(error, context) {
       message,
       retryable: false,
       ...(detectedIp ? { detectedIp } : {})
+    };
+  }
+
+  // ── 微信草稿封面 / 素材 ID 失效（errcode 40007）──
+  // 微信 errmsg 形如 "invalid media_id hint: [fbk5ma021425-1] rid: 69ed8aad..."
+  // wechat.js buildWechatError 已经把 hint 提取并挂到 error.detectedMediaIdHint 上；
+  // 这里再做一层兜底（如果是非 wechat.js 抛上来的同类错误，从 raw message 里再抽一次），
+  // 然后把这个 hint 拼进最终展示给用户的 message——不然客服也定位不到具体素材记录。
+  if (/\b40007\b|invalid\s*media_id/i.test(msg)) {
+    const detectedMediaIdHint = String(
+      error?.detectedMediaIdHint || extractMediaIdHintFromText(rawMessage) || ""
+    ).trim();
+    const baseMessage = USER_MESSAGES[ErrorCode.WECHAT_INVALID_MEDIA_ID];
+    const message = detectedMediaIdHint
+      ? `${baseMessage}\n微信侧诊断码：${detectedMediaIdHint}（反馈给客服可以查到具体哪条素材记录）。`
+      : baseMessage;
+    return {
+      code: ErrorCode.WECHAT_INVALID_MEDIA_ID,
+      message,
+      retryable: true,
+      ...(detectedMediaIdHint ? { detectedMediaIdHint } : {})
     };
   }
 
@@ -277,4 +307,21 @@ function extractIpFromText(text) {
   const ipv6 = s.match(/[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7}/);
   if (ipv6) return ipv6[0].replace(/^::ffff:/i, "");
   return "";
+}
+
+/**
+ * 从任意文本中提取微信 40007 hint 诊断码。仅作 detectedMediaIdHint 的字符串兜底：
+ * 当 error 对象没有 detectedMediaIdHint 字段（比如错误是从字符串重新构造出来的）时，
+ * 从 rawMessage 里再抽一次，避免丢信息。
+ *
+ * 主提取路径在 wechat.js extractWechatMediaIdHintFromErrmsg，那里的 regex 是同一份逻辑。
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function extractMediaIdHintFromText(text) {
+  const s = String(text || "");
+  if (!s) return "";
+  const match = s.match(/hint\s*:\s*\[([\w-]+)\]/i);
+  return match ? match[1] : "";
 }

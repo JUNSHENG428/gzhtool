@@ -100,6 +100,26 @@ const WECHAT_ERROR_CATALOG = {
     message:
       "公众号不接受该图片（40005：不合法的媒体文件类型）。请把图片转为 jpg/png/gif/bmp，并保证文件名带正确后缀。"
   },
+  // 40007 = 「invalid media_id」。微信对 add_draft / mass/sendall / freepublish/submit
+  // 等接口的 media_id 校验非常严格，下列 4 类是已知的所有触发原因：
+  //   1) 上游封面上传 silently 失败 → thumb_media_id 实际是空字符串（本仓库历史 silent
+  //      failure 链：见 `publishToWechat` 封面 try/catch 已修），微信对空 media_id 返 40007
+  //   2) 临时素材 media_id 已过期（微信临时素材只有 3 天有效，但本仓库一直用永久素材
+  //      `material/add_material`，所以这条路径不会触发——除非有人未来误改）
+  //   3) 跨账号 media_id 复用：上传用了账号 A 的 access_token、调用 add_draft 时用了
+  //      账号 B 的 access_token（典型场景：用户配了 wechatApiBase 反代，但反代里走了
+  //      不同账号的 token 缓存）
+  //   4) access_token 在上传与 add_draft 之间发生了刷新（极罕见，仅多设备并发时）
+  // 用户能直接复制反馈给客服的就是 errmsg 里 hint=[xxxx] 那段——`buildWechatError`
+  // 会专门提取并挂到 `err.detectedMediaIdHint`，让上层 UI 能直接 surface。
+  40007: {
+    category: "draft",
+    message:
+      "公众号拒绝了草稿里的封面或图片素材 ID（40007：invalid media_id）。\n" +
+      "最常见原因：① 封面上传环节 silently 失败、传给草稿接口的是空 media_id；" +
+      "② 你切换过公众号账号但仍引用了上一个账号的素材 ID；③ 微信 API 代理（aliyun-fc 等）的 access_token 缓存乱了。\n" +
+      "建议处置：回到「发布」面板，点「📷 上传本地封面」或「✨ 一键生成占位封面」重新生成一张封面后重试；问题仍在请把 hint 后面的诊断码连同截图发给客服。"
+  },
   40013: {
     category: "auth",
     message: "AppID 无效（40013）。请到公众号后台『开发 → 基本配置』确认 AppID。"
@@ -213,7 +233,13 @@ export async function publishToWechat(settings, payload) {
         coverFilename
       );
     } catch (error) {
-      allFailedImages.push({
+      // 封面失败必须立即抛错——不能像 inline 图那样降级吞掉。
+      // 历史 silent failure 链（已修）：catch 把错塞进 allFailedImages 但 coverMediaId 留为空字符串
+      // → 继续走到下面的 createDraft → `thumb_media_id: ""` 直接撞微信 errcode=40007 (invalid media_id)
+      // → 用户只看到「invalid media_id」通用文案，根本不知道根因是封面没传上去。
+      // inline 图允许降级是因为正文少一两张图仍然能成稿；封面没传上去 add_draft 必然 40007，
+      // 让流程往下走只是用一条更模糊的报错盖住一条更清晰的报错，纯属 anti-pattern。
+      const failureDetail = {
         type: "cover",
         src: article?.cover?.src || "",
         filename: coverFilename,
@@ -223,7 +249,18 @@ export async function publishToWechat(settings, payload) {
         rid: error?.rid || "",
         category: error?.category || "image",
         error: error?.userMessage || error.message || "封面上传失败"
-      });
+      };
+      const baseDetail = error?.userMessage || error?.message || "封面上传失败";
+      const enriched = new Error(
+        `第 ${index + 1} 篇封面图上传失败，无法继续创建草稿：${baseDetail}\n` +
+          `请回到「发布」面板换一张封面（推荐 ≤2MB 的 jpg/png）或点「✨ 一键生成占位封面」后重试。`
+      );
+      enriched.category = "image";
+      enriched.errcode = error?.errcode || 0;
+      enriched.rid = error?.rid || "";
+      enriched.userMessage = enriched.message;
+      enriched.failedCover = failureDetail;
+      throw enriched;
     }
 
     totalImageCount += Object.keys(replacements).length;
@@ -232,6 +269,17 @@ export async function publishToWechat(settings, payload) {
       contentHtml,
       thumbMediaId: coverMediaId
     });
+  }
+
+  // 双重防御：理论上走到这里 thumbMediaId 都已是非空的、合法的永久素材 ID。
+  // 但万一未来有人改了上面的 control flow（比如把封面 catch 改回降级），这里再卡一道，
+  // 避免用户撞上语义模糊的 40007 invalid media_id。
+  for (const [i, art] of preparedArticles.entries()) {
+    if (!art.thumbMediaId || typeof art.thumbMediaId !== "string") {
+      throw new Error(
+        `第 ${i + 1} 篇内部错误：thumb_media_id 为空，无法调用公众号草稿接口（这通常意味着上面的封面上传链路有 bug）。`
+      );
+    }
   }
 
   const draftMediaId = await createDraft(settings, accessToken, preparedArticles);
@@ -1046,6 +1094,16 @@ export function buildWechatError(payload, response, fallback) {
       `请把 ${detectedIp} 复制后加到白名单（动态 IP 用户建议改用『微信 API 代理地址』，详见设置页）。`;
   }
 
+  // errcode=40007 时，微信 errmsg 形如 "invalid media_id hint: [fbk5ma021425-1] rid: 69ed8aad..."。
+  // hint 里的诊断码 fbk5ma021425-1 是微信内部 trace，业务侧无法解，但客服侧能查；
+  // 把它单独挂出来，让 UI / 错误日志 / 工单复现链都能直接读，而不必再从 message 字符串里二次 regex。
+  // 同 40164 IP 透传模式（详见 memory-bank ninth session 里关于「errmsg 关键诊断信息必须挂字段透传」的硬约束）。
+  const detectedMediaIdHint =
+    errcode === 40007 ? extractWechatMediaIdHintFromErrmsg(payload?.errmsg) : "";
+  if (detectedMediaIdHint && userMessage) {
+    userMessage = `${userMessage}\n微信侧诊断码：${detectedMediaIdHint}（反馈给客服可以查到具体哪条素材记录）。`;
+  }
+
   const baseMessage = userMessage || `${fallback}：${payload?.errmsg || "未知错误"}`;
   const diagnostics = [
     errcode ? `errcode=${errcode}` : "",
@@ -1072,6 +1130,9 @@ export function buildWechatError(payload, response, fallback) {
   // 40164 专用：让上层（service-worker / UI）能直接读出口 IP，
   // 未来想加「一键复制 IP」按钮也只需读这一个字段。
   if (detectedIp) err.detectedIp = detectedIp;
+  // 40007 专用：让上层（service-worker / UI / 客服工单）都能直接读到 hint 内的诊断码，
+  // 而不必再从 message 字符串里 regex 二次解析。
+  if (detectedMediaIdHint) err.detectedMediaIdHint = detectedMediaIdHint;
   return err;
 }
 
@@ -1103,6 +1164,30 @@ export function extractWechatIpFromErrmsg(errmsg) {
   const ipv6 = text.match(/[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){2,7}/);
   if (ipv6) return ipv6[0].replace(/^::ffff:/i, "");
   return "";
+}
+
+/**
+ * 从微信 errcode=40007 的 errmsg 里提取 hint 诊断码。
+ *
+ * 微信实际 errmsg 形态（从用户工单 + 公众号 add_draft 接口实测确认）：
+ *   "invalid media_id hint: [fbk5ma021425-1] rid: 69ed8aad-06b2948c-21cc5eea"
+ *   "invalid media_id hint: [a1b2c3d4-5] rid: ..."
+ *
+ * hint 里的诊断码（如 `fbk5ma021425-1`）是微信内部 trace，业务侧无法直接解，
+ * 但客服 / 微信工单提交时凭这个码能精确定位到具体素材记录。
+ *
+ * 返回空字符串表示无法解析；调用方应回落到通用文案。
+ *
+ * @param {string} errmsg
+ * @returns {string}
+ */
+export function extractWechatMediaIdHintFromErrmsg(errmsg) {
+  const text = String(errmsg || "");
+  if (!text) return "";
+  // hint 标准形态："hint: [xxxx]"，xxxx 由字母 / 数字 / 下划线 / 连字符组成
+  // 不限定大小写、不强制 hint 必须紧跟 invalid media_id（微信偶尔在 hint 前插不同短语）
+  const match = text.match(/hint\s*:\s*\[([\w-]+)\]/i);
+  return match ? match[1] : "";
 }
 
 function mapWechatConnectionError(payload, status) {

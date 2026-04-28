@@ -9,8 +9,7 @@
  *   #capture    抓取入口面板
  *   #rewrite    AI 改写说明
  *   #publish    发布说明
- *   #hot        热点（占位，C 阶段填）
- *   #agent      AI 选题代笔（占位，C 阶段填）
+ *   #hot        热点与 AI 智能选题
  *   #member     会员中心（Phase 3 填）
  *   #settings   特殊路由，触发 openOptionsButton 的点击（打开新标签页）
  *   #help       特殊路由，触发 openHelpButton 的点击（打开新标签页）
@@ -41,7 +40,6 @@ const VALID_ROUTES = new Set([
   "capture",
   "publish",
   "hot",
-  "agent",
   "member",
 ]);
 
@@ -50,8 +48,7 @@ const VIEW_META = {
   layout: { title: "编辑排版", sub: "草稿包 + 标题 + 正文，AI 改写在工具条" },
   capture: { title: "抓取", sub: "把网页内容拽进编辑台" },
   publish: { title: "推草稿 / 发布", sub: "封面 + 预览 + 推送到公众号" },
-  hot: { title: "热点", sub: "今日热榜 + 一键入库" },
-  agent: { title: "AI 选题代笔", sub: "多平台自动找选题并起草" },
+  hot: { title: "热点", sub: "今日热榜 + AI 智能选题" },
   member: { title: "会员中心", sub: "套餐 / 到期 / 续费" },
 };
 
@@ -102,11 +99,11 @@ function applyRoute(route) {
 }
 
 /**
- * 当且仅当首次切到 hot / agent 路由时，把 data-src 提升为真正的 src。
+ * 当且仅当首次切到 hot 路由时，把 data-src 提升为真正的 src。
  * 之后再切走再切回不会重复加载（保持上一次的状态）。
  */
 function ensureEmbedFrameLoaded(route) {
-  if (route !== "hot" && route !== "agent") return;
+  if (route !== "hot") return;
   const frame = document.querySelector(`.workspace-view[data-view="${route}"] iframe.embed-frame`);
   if (!frame) return;
   if (frame.dataset.loaded === "true") return;
@@ -300,13 +297,15 @@ async function fillDashboard() {
       chrome.storage.local.get(null, (data) => resolve(data || {}));
     });
 
-    // 本地草稿数：以 historyDrafts / drafts 等键为准
-    const draftKeys = ["historyDrafts", "drafts", "draftHistory"];
-    let draftCount = 0;
-    for (const k of draftKeys) {
-      const arr = all[k];
-      if (Array.isArray(arr)) draftCount = Math.max(draftCount, arr.length);
-    }
+    // 本地草稿数：history.js 通过 STORAGE_KEYS.draftHistory（"__draft_history"）写入，
+    // 这里直接对齐这个键；旧版兼容键（historyDrafts/drafts/draftHistory）保留为兜底。
+    const draftEntries =
+      all[STORAGE_KEYS.draftHistory] ||
+      all.historyDrafts ||
+      all.drafts ||
+      all.draftHistory ||
+      [];
+    const draftCount = Array.isArray(draftEntries) ? draftEntries.length : 0;
     const draftEl = document.getElementById("statDraft");
     if (draftEl) {
       draftEl.innerHTML = `${draftCount}<span class="ui-stat-num-unit">篇</span>`;
@@ -373,12 +372,12 @@ async function fillUsageStats() {
   setText("usageTodayCapture", snap.today.capture || 0);
   setText("usageTodayRewrite", snap.today.rewrite || 0);
   setText("usageTodayPublish", snap.today.publish || 0);
-  setText("usageTodayAgent", snap.today.agentImport || 0);
+  setText("usageTodayTopicPlanner", snap.today.topicPlanner || 0);
 
   setText("usageWeekCapture", `7 天 ${snap.last7days.capture || 0}`);
   setText("usageWeekRewrite", `7 天 ${snap.last7days.rewrite || 0}`);
   setText("usageWeekPublish", `7 天 ${snap.last7days.publish || 0}`);
-  setText("usageWeekAgent", `7 天 ${snap.last7days.agentImport || 0}`);
+  setText("usageWeekTopicPlanner", `7 天 ${snap.last7days.topicPlanner || 0}`);
 
   const updatedEl = document.getElementById("usageUpdatedAt");
   if (updatedEl) {
@@ -392,7 +391,7 @@ async function fillUsageStats() {
         (snap.total.capture || 0) +
         (snap.total.rewrite || 0) +
         (snap.total.publish || 0) +
-        (snap.total.agentImport || 0);
+        (snap.total.topicPlanner || 0);
       peakEl.textContent = `历史峰值 ${snap.peakDay.date} · ${snap.peakDay.total} 次 · 累计 ${sum} 次`;
       peakEl.hidden = false;
     } else {
@@ -426,8 +425,15 @@ function formatUpdatedAt(iso) {
 function fillRecentDrafts(all) {
   const list = document.getElementById("dashboardRecentList");
   if (!list) return;
+  // history.js 实际写入的键是 STORAGE_KEYS.draftHistory（"__draft_history"），
+  // 条目结构是 { id, label, createdAt, articleBundle, sourcePreview, ... }，
+  // 这里把字段映射改成对齐 history.js 的输出；保留旧键兜底防止历史用户数据。
   const drafts =
-    all.historyDrafts || all.drafts || all.draftHistory || [];
+    all[STORAGE_KEYS.draftHistory] ||
+    all.historyDrafts ||
+    all.drafts ||
+    all.draftHistory ||
+    [];
   const records = Array.isArray(drafts) ? drafts.slice(0, 6) : [];
   if (records.length === 0) return; // 保留默认 empty state
 
@@ -435,8 +441,15 @@ function fillRecentDrafts(all) {
   records.forEach((rec, i) => {
     const li = document.createElement("li");
     li.className = "ui-mini-list-item";
-    const title = rec.title || rec.name || `草稿 ${i + 1}`;
-    const ts = rec.savedAt || rec.timestamp || rec.updatedAt;
+    const title =
+      (rec.articleBundle?.[0]?.meta?.title || "").trim() ||
+      (rec.sourcePreview?.title || "").trim() ||
+      rec.label ||
+      rec.title ||
+      rec.name ||
+      `草稿 ${i + 1}`;
+    const ts =
+      rec.createdAt || rec.savedAt || rec.timestamp || rec.updatedAt;
     let timeText = "";
     if (ts) {
       try {
@@ -639,7 +652,7 @@ function bindCaptureShortcuts() {
   const emptySample = document.getElementById("dashboardEmptySample");
   if (emptySample) {
     emptySample.addEventListener("click", () => {
-      // 触发示例稿导入：复用导入草稿包按钮（用户可以在弹出的 file input 里选示例 JSON）
+      // 触发示例稿导入：复用「从备份恢复」按钮（用户可在 file picker 里选导出的 .bundle 备份）
       // 同时引导到 hot-topics 作为兜底，让用户至少有一个可以马上写的来源
       const importBtn = document.getElementById("importBundleButton");
       if (importBtn) {
@@ -652,34 +665,11 @@ function bindCaptureShortcuts() {
 }
 
 /**
- * 「在新页打开」按钮：把对应独立页打开到新标签页。
- * hot 已由 workspace.js 绑定 (openHotTopicsPage)，这里只补 agent。
- */
-function bindEmbedOpenButtons() {
-  const agentBtn = document.getElementById("openAgentButton");
-  if (agentBtn && !agentBtn.dataset.bound) {
-    agentBtn.addEventListener("click", () => {
-      try {
-        if (globalThis.chrome?.tabs?.create && globalThis.chrome?.runtime?.getURL) {
-          chrome.tabs.create({ url: chrome.runtime.getURL("src/pages/agent.html") });
-        } else {
-          window.open("../pages/agent.html", "_blank");
-        }
-      } catch (err) {
-        console.warn("[workspace-router] open agent failed", err);
-      }
-    });
-    agentBtn.dataset.bound = "1";
-  }
-}
-
-/**
  * 初始化路由。需在 workspace.js 主流程加载完后调用。
  */
 export function initWorkspaceRouter() {
   bindNavigation();
   bindCaptureShortcuts();
-  bindEmbedOpenButtons();
   fillDashboard();
   fillNextStep();
   syncTopStatus();

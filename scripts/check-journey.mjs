@@ -313,7 +313,6 @@ async function main() {
   // 检查标题/作者输入是否填入
   const titleVal = await ws.inputValue("#titleInput").catch(() => "");
   const authorVal = await ws.inputValue("#authorInput").catch(() => "");
-  const subtitleVal = await ws.inputValue("#subtitleInput").catch(() => "");
   const previewLen = await ws.evaluate(() =>
     document.querySelector("#wechatPreview")?.innerHTML?.length || 0
   );
@@ -326,9 +325,7 @@ async function main() {
   log("J3", `编辑器加载 + 内容回填耗时 ${elapsed}ms`,
     elapsed < 8000 ? "ok" : "warn");
   log("J3", `标题输入框被自动填入`, titleVal ? "ok" : "fail",
-    titleVal ? `"${titleVal.slice(0, 30)}…" (${titleVal.length}/32)` : "空");
-  log("J3", `副标题输入框被自动填入`, subtitleVal ? "ok" : "warn",
-    subtitleVal ? `"${subtitleVal}"` : "空（站点没有 og:site_name 时正常）");
+    titleVal ? `"${titleVal.slice(0, 30)}…" (${titleVal.length}/64)` : "空");
   log("J3", `作者输入框被自动填入`, authorVal ? "ok" : "fail",
     authorVal ? `"${authorVal}" (${authorVal.length}/16)` : "空（scrape 链路没接住 author）");
   log("J3", `公众号预览有内容（≥500 字符 HTML）`,

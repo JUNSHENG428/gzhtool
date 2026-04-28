@@ -25,6 +25,23 @@
         </p>
       </section>
 
+      <section class="panel topic-planner-entry" data-el="topicPlannerEntry">
+        <div class="topic-planner-entry__head">
+          <div class="topic-planner-entry__head-text">
+            <p class="eyebrow">AI 选题规划 · Pro</p>
+            <h2>让 AI 当你的选题总监</h2>
+            <p class="topic-planner-entry__lead">
+              先填一份 60 秒「选题画像」，<strong>润笔</strong> 会从所有热点源里按算法过滤 → 8 维评分 → 多样性筛选，挑出 12-20 条最值得写的素材交给 AI 主编，输出「为什么写 / 怎么写 / 风险」的完整推荐卡片。免费版每天 1 次试用 · 1 条结果。
+            </p>
+          </div>
+          <div class="topic-planner-entry__cta">
+            <button type="button" class="primary" data-act="open-topic-planner">📍 AI 智能选题</button>
+            <p class="topic-planner-entry__meta" data-el="topicPlannerMeta"></p>
+          </div>
+        </div>
+        <div class="topic-planner-result" data-el="topicPlannerResult" hidden></div>
+      </section>
+
       <section class="panel">
         <div class="panel-head">
           <p class="eyebrow">实时来源</p>
@@ -110,6 +127,18 @@
 
         </div>
 
+        <div class="hot-rewrite-template-bar" data-el="rewriteTemplateBar">
+          <span class="hot-rewrite-template-label">
+            <span aria-hidden="true">✨</span>
+            点 <strong>「抓取并改写」</strong> 时会用这个模板
+          </span>
+          <label class="hot-rewrite-template-control">
+            <span class="hot-rewrite-template-control-tag">改写模板</span>
+            <select id="hotRewriteTemplateSelect" aria-label="选择默认 AI 改写模板"></select>
+          </label>
+          <a class="hot-rewrite-template-manage" href="#" data-act="manage-templates">管理模板 →</a>
+        </div>
+
         <div class="hot-toolbar">
           <p id="hotMeta" class="muted"></p>
           <div style="display: flex; gap: 8px; flex: 1; justify-content: flex-end;">
@@ -130,5 +159,6 @@
     </main>
     <script type="module" src="./page.js"></script>
     <script type="module" src="./hot-topics.js"></script>
+    <script type="module" src="./topic-planner-ui.js"></script>
   </body>
 </html>

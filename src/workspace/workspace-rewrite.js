@@ -9,12 +9,18 @@ import {
   getActiveTemplateId,
   getPromptTemplates,
   getSettings,
+  saveSettings,
   savePromptTemplates,
   setActiveTemplateId
 } from "../shared/storage.js";
-import { PAID_FEATURES } from "../shared/license.js";
+import { PAID_FEATURES, checkDeAiBoostAccess } from "../shared/license.js";
 import { showUpgradeModal } from "../shared/upgrade-modal.js";
 import { openAiTemplateDialog } from "../shared/ai-template-dialog.js";
+import {
+  buildManualPrompt,
+  buildRewriteSourceFromCurrentArticle,
+  isEditorBodySubstantiveForRewrite
+} from "../shared/ai.js";
 
 const AI_GEN_OPTION_VALUE = "__ai_gen__";
 
@@ -22,6 +28,9 @@ let _ctx;
 let _templates = [];
 let _selectedTemplateId = "";
 let _templateSelect = null;
+// 当前 in-flight 的 rewrite requestId。SKIP_HUMANIZE_PASS 用它精确取消那一篇的 S2，
+// 同时也是 REWRITE_PROGRESS 监听里筛选事件的 key（避免接收到别的 tab 的进度）。
+let _currentRewriteRequestId = "";
 
 export function init(ctx) {
   _ctx = ctx;
@@ -31,6 +40,33 @@ export function init(ctx) {
   _templateSelect = document.querySelector("#rewriteTemplateSelect");
   hydrateTemplatePicker();
 
+  // 「去 AI 味」检测 badge：点击切换详情面板
+  const badgeBtn = document.querySelector("#humanizeBadge");
+  badgeBtn?.addEventListener("click", () => {
+    const panel = document.querySelector("#humanizePanel");
+    if (!panel) return;
+    const opened = !panel.hasAttribute("hidden") ? false : true;
+    if (opened) panel.removeAttribute("hidden");
+    else panel.setAttribute("hidden", "");
+    badgeBtn.setAttribute("aria-expanded", String(opened));
+  });
+
+  // 「去 AI 味」开关 chip：与 settings.humanizeEnabled 双向绑定
+  initHumanizeToggleChip();
+
+  // 「跳过润色」按钮：触发后立即取消当前 in-flight 的 humanize-pass，
+  // 让 service-worker 用主 pass 结果直接 sendResponse。按钮平时隐藏，
+  // 只有进入 pass2 阶段才由 progress 事件 unhide。
+  initSkipHumanizeButton();
+
+  // 监听 service-worker 推过来的 REWRITE_PROGRESS，更新顶部状态条进度文案
+  if (chrome?.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (!message || message.type !== "REWRITE_PROGRESS") return;
+      handleRewriteProgress(message.payload || {});
+    });
+  }
+
   if (chrome?.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
       if (areaName !== "local") return;
@@ -39,6 +75,10 @@ export function init(ctx) {
         changes.wechatWriterActiveTemplateId
       ) {
         hydrateTemplatePicker();
+      }
+      // 用户在 options 页切换了 humanizeEnabled，编辑台 chip 同步刷新
+      if (changes.wechatWriterSettings) {
+        refreshHumanizeChip().catch(() => {});
       }
     });
   }
@@ -120,6 +160,7 @@ export async function rewriteArticle() {
     hideLoading,
     getCurrentArticle,
     applyCurrentArticleToControls,
+    syncCurrentArticleFromControls,
     syncWorkspace,
     schedulePersist,
     collectRewritePreferences,
@@ -127,25 +168,45 @@ export async function rewriteArticle() {
     resetRetryCount
   } = _ctx;
 
-  if (!state.source) {
-    setStatus("请先抓取一个网页。", "warning");
+  syncCurrentArticleFromControls();
+  const current = getCurrentArticle();
+  let sourceForRewrite = null;
+  let fromEditor = false;
+  if (isEditorBodySubstantiveForRewrite(current.bodyHtml)) {
+    fromEditor = true;
+    sourceForRewrite = buildRewriteSourceFromCurrentArticle(state, current);
+  } else if (state.source) {
+    sourceForRewrite = state.source;
+  } else {
+    setStatus("请先在编辑区写满一段正文，或先抓取一个网页再改写。", "warning");
     return;
   }
 
   const templateId = _selectedTemplateId || "";
   const templateLabel = _templates.find((t) => t.id === templateId)?.name;
+  // requestId 用于：
+  //  - 把 REWRITE_PROGRESS 事件路由到本 tab 的进度条（多 tab 互不影响）
+  //  - SKIP_HUMANIZE_PASS 精确取消「这一篇」的 S2
+  const requestId = `rw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  _currentRewriteRequestId = requestId;
   showLoading(
-    templateLabel
-      ? `正在调用 AI 改写当前篇（模板：${templateLabel}）...`
-      : "正在调用 AI 改写当前篇..."
+    "正在 AI 改写当前篇",
+    fromEditor
+      ? templateLabel
+        ? `正按当前编辑区正文 · 模板：${templateLabel} · 通常 8–25 秒，结果会更新到下方编辑器与预览。`
+        : "正按当前编辑区正文改写，结果会更新到下方编辑器与预览。通常 8–25 秒。"
+      : templateLabel
+        ? `模板：${templateLabel} · 通常 8–25 秒，结果会更新到下方编辑器与预览。`
+        : "通常 8–25 秒，结果会更新到下方编辑器与预览。"
   );
   try {
     const response = await chrome.runtime.sendMessage({
       type: "REWRITE_ARTICLE",
       payload: {
-        source: state.source,
+        source: sourceForRewrite,
         preferences: collectRewritePreferences(),
-        templateId
+        templateId,
+        requestId
       }
     });
 
@@ -183,7 +244,10 @@ export async function rewriteArticle() {
       return;
     }
 
-    const draftState = createArticleDraftState(response.data, state.source.images || []);
+    const draftState = createArticleDraftState(
+      response.data,
+      (sourceForRewrite && sourceForRewrite.images) || []
+    );
     const current = getCurrentArticle();
     current.meta = {
       ...current.meta,
@@ -213,25 +277,303 @@ export async function rewriteArticle() {
         ? "warning"
         : "success"
     );
+    renderHumanizeBadge(response.meta?.lint, response.meta?.humanizePass);
     resetRetryCount();
   } finally {
+    _currentRewriteRequestId = "";
+    setSkipButtonVisible(false);
     hideLoading();
   }
 }
 
-export async function copyManualPrompt() {
-  const { state, setStatus, collectRewritePreferences } = _ctx;
+/**
+ * 处理 service-worker 推过来的 REWRITE_PROGRESS 事件。
+ *
+ * 进度条逻辑：
+ *  - pass1:start  → "主改写进行中..."
+ *  - pass1:done   → "主改写完成，正在分析 AI 痕迹..."
+ *  - pass2:plan   → "lint 完成，正在准备润色..."
+ *  - pass2:start  → "正在并行润色 0/N 段..."（同时显示「跳过润色」按钮）
+ *  - pass2:tick   → "正在并行润色 K/N 段..."（K = current）
+ *  - pass2:done   → "润色完成，重新评估..."
+ *  - done         → 不显示文案，由主响应负责收尾
+ *
+ * 严格按 requestId 过滤（多 tab 时 service-worker 全局广播，得自己挑）。
+ */
+function handleRewriteProgress(payload) {
+  if (!payload || payload.requestId !== _currentRewriteRequestId) return;
+  const { setStatus } = _ctx || {};
+  const { phase, current, total } = payload;
+  switch (phase) {
+    case "pass1:start":
+      setStatus?.("正在主改写...", "info");
+      break;
+    case "pass1:done":
+      setStatus?.("主改写完成 ✓ 正在分析 AI 痕迹...", "info");
+      break;
+    case "pass2:plan":
+      setStatus?.("正在准备二次润色...", "info");
+      break;
+    case "pass2:start":
+      setSkipButtonVisible(true);
+      setStatus?.(`正在并行润色 0/${total || "?"} 段...`, "info");
+      break;
+    case "pass2:tick":
+      setStatus?.(`正在并行润色 ${current || 0}/${total || "?"} 段...`, "info");
+      break;
+    case "pass2:done":
+      setSkipButtonVisible(false);
+      setStatus?.("润色完成 ✓ 重新评估 AI 痕迹...", "info");
+      break;
+    case "done":
+      setSkipButtonVisible(false);
+      break;
+    default:
+      break;
+  }
+}
 
-  if (!state.source) {
-    setStatus("请先抓取一个网页。", "warning");
+/**
+ * 「跳过润色」按钮：用户等不及二次 pass 时一键放弃。
+ * 点击 → 给 service-worker 发 SKIP_HUMANIZE_PASS，service-worker abort
+ * 当前 controller，runHumanizePass 立刻 reject，主 pass 结果直接返回。
+ */
+function initSkipHumanizeButton() {
+  const btn = document.querySelector("#skipHumanizeBtn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (!_currentRewriteRequestId) return;
+    btn.disabled = true;
+    try {
+      await chrome.runtime.sendMessage({
+        type: "SKIP_HUMANIZE_PASS",
+        payload: { requestId: _currentRewriteRequestId }
+      });
+      _ctx?.setStatus?.("已请求跳过润色，等待主改写结果回收...", "warning");
+    } catch (err) {
+      console.warn("[humanize] 跳过润色失败：", err);
+    } finally {
+      btn.disabled = false;
+      setSkipButtonVisible(false);
+    }
+  });
+  setSkipButtonVisible(false);
+}
+
+function setSkipButtonVisible(visible) {
+  const btn = document.querySelector("#skipHumanizeBtn");
+  if (!btn) return;
+  if (visible) btn.removeAttribute("hidden");
+  else btn.setAttribute("hidden", "");
+}
+
+/**
+ * 「去 AI 味」开关 chip 与 settings.humanizeEnabled 双向绑定：
+ *  - 启动时读 settings 同步初始状态
+ *  - 点击 chip：先做 license 闸门检查
+ *      · 已 PRO → 直接 toggle settings.humanizeEnabled，写回 storage
+ *      · 未 PRO → 弹升级弹窗，不改 settings（避免误以为已生效）
+ *  - 监听 storage 变化（options 页里改了开关 / 强度）→ 调用 refreshHumanizeChip 同步
+ *
+ * 视觉只反映"是否启用"，强度（轻/中/重）放在 options 页选；
+ * 在 chip 的 title 里附带当前强度，节省工具栏空间。
+ */
+function initHumanizeToggleChip() {
+  const chip = document.querySelector("#humanizeToggleBtn");
+  if (!chip) return;
+
+  chip.addEventListener("click", async () => {
+    const settings = await getSettings().catch(() => null);
+    if (!settings) return;
+
+    const access = await checkDeAiBoostAccess().catch(() => ({ ok: false }));
+    if (!access?.ok) {
+      const meta = PAID_FEATURES?.["ai.deAiBoost"] || {};
+      showUpgradeModal({
+        featureName: meta.name || "去 AI 味二次润色",
+        hint:
+          meta.hint ||
+          "Pro 才能在主改写之外再跑一次专属「去 AI 味」模型润色，把 AI 痕迹压到检测线以下。",
+        bullets: [
+          "二次润色专项重写：句长、破折号、套话、协作语气全部重排",
+          "可按章节计费，一篇 1500 字大约 +3k–5k token",
+          "免费版：保留主 pass + 本地 lint 提示，不会触发额外调用"
+        ]
+      });
+      return;
+    }
+
+    const next = !settings.humanizeEnabled;
+    await saveSettings({ humanizeEnabled: next });
+    applyHumanizeChipState(chip, next, settings.humanizeIntensity, true);
+  });
+
+  refreshHumanizeChip();
+}
+
+async function refreshHumanizeChip() {
+  const chip = document.querySelector("#humanizeToggleBtn");
+  if (!chip) return;
+  const settings = await getSettings().catch(() => null);
+  if (!settings) return;
+  const access = await checkDeAiBoostAccess().catch(() => ({ ok: false }));
+  applyHumanizeChipState(
+    chip,
+    Boolean(settings.humanizeEnabled),
+    settings.humanizeIntensity,
+    Boolean(access?.ok)
+  );
+}
+
+function applyHumanizeChipState(chip, enabled, intensity, hasAccess) {
+  if (!chip) return;
+  const stateEl = chip.querySelector(".humanize-chip-state");
+  const proEl = chip.querySelector(".humanize-chip-pro");
+
+  // 没 PRO 资格：永远显示「关 · PRO」，避免用户误以为已开启
+  const effectiveEnabled = hasAccess && enabled;
+
+  chip.setAttribute("aria-pressed", String(effectiveEnabled));
+  chip.removeAttribute("aria-disabled");
+
+  const intensityLabel =
+    intensity === "light" ? "轻" : intensity === "strong" ? "重" : "中";
+
+  if (stateEl) {
+    stateEl.textContent = effectiveEnabled ? `开 · ${intensityLabel}` : "关";
+  }
+  if (proEl) {
+    proEl.hidden = hasAccess;
+  }
+
+  chip.title = effectiveEnabled
+    ? `已开启去 AI 味二次润色（强度：${intensityLabel}）。每篇额外 N 次 LLM 调用，token 成本约 +60%–80%。`
+    : hasAccess
+    ? "点击开启去 AI 味二次润色（按章节数额外调用 LLM）。"
+    : "Pro 专属：去 AI 味二次润色。点击查看升级方案。";
+}
+
+/**
+ * 把 service-worker 回传的 lint 报告渲染到 toolbar 下方的 badge 里。
+ * - 如果 lint 缺失（service worker 还没接 stage1-checker），整条 bar 隐藏；
+ * - score ≥ 90 显示绿色，75–89 浅黄，60–74 橙，< 60 红
+ * - 详情面板默认折叠，点击 badge 展开
+ *
+ * @param {object|null} lint           humanize-checker 输出
+ * @param {object|null} humanizePass   { applied, sectionCount, intensity }，
+ *                                     stage 2 接入后才有；用于在 summary 里说明二次润色是否生效
+ */
+function renderHumanizeBadge(lint, humanizePass) {
+  const bar = document.querySelector("#humanizeStatusBar");
+  const badge = document.querySelector("#humanizeBadge");
+  const panel = document.querySelector("#humanizePanel");
+  if (!bar || !badge || !panel) return;
+
+  if (!lint || typeof lint !== "object") {
+    bar.setAttribute("hidden", "");
     return;
   }
 
-  const { buildManualPrompt } = await import("../shared/ai.js");
+  const score = Math.max(0, Math.min(100, Number(lint.score) || 0));
+  const issues = Array.isArray(lint.issues) ? lint.issues : [];
+  const tier =
+    score >= 90 ? "great" : score >= 75 ? "ok" : score >= 60 ? "warn" : "bad";
+
+  const labelEl = badge.querySelector(".humanize-badge-label");
+  const scoreEl = badge.querySelector(".humanize-badge-score");
+  if (labelEl) {
+    const passNote =
+      humanizePass?.applied
+        ? `（已二次润色 · ${humanizePass.sectionCount || 0} 段）`
+        : "";
+    labelEl.textContent = `AI 味检测 ${passNote}`;
+  }
+  if (scoreEl) scoreEl.textContent = `${score} 分 · ${issues.length} 处可优化`;
+  badge.setAttribute("data-tier", tier);
+  bar.removeAttribute("hidden");
+
+  const summaryEl = panel.querySelector(".humanize-panel-summary");
+  if (summaryEl) {
+    const m = lint.metrics || {};
+    summaryEl.textContent = [
+      `句长均值 ${m.avgSentenceLen ?? 0} 字`,
+      `突发性 ${m.burstiness ?? 0}`,
+      `破折号每 500 字 ${m.dashesPer500 ?? 0}`,
+      `感叹号每 500 字 ${m.exclamPer500 ?? 0}`
+    ].join(" · ");
+  }
+
+  const list = panel.querySelector(".humanize-panel-issues");
+  if (list) {
+    list.innerHTML = "";
+    if (!issues.length) {
+      const li = document.createElement("li");
+      li.dataset.severity = "hint";
+      li.innerHTML =
+        '<span class="humanize-issue-tag">PASS</span><span class="humanize-issue-text">没有命中已知 AI 痕迹模式</span>';
+      list.appendChild(li);
+    } else {
+      // 默认只展示前 8 条；剩下的隐藏在「展开更多」里
+      const top = issues.slice(0, 8);
+      for (const it of top) {
+        const li = document.createElement("li");
+        li.dataset.severity = it.severity || "warn";
+        const tag = document.createElement("span");
+        tag.className = "humanize-issue-tag";
+        tag.textContent = severityTag(it.severity);
+        const text = document.createElement("span");
+        text.className = "humanize-issue-text";
+        text.textContent = it.text || it.kind || "";
+        const hint = document.createElement("span");
+        hint.className = "humanize-issue-hint";
+        hint.textContent = it.hint || "";
+        li.appendChild(tag);
+        li.appendChild(text);
+        li.appendChild(hint);
+        list.appendChild(li);
+      }
+      if (issues.length > top.length) {
+        const li = document.createElement("li");
+        li.dataset.severity = "hint";
+        li.innerHTML = `<span class="humanize-issue-tag">…</span><span class="humanize-issue-text">还有 ${
+          issues.length - top.length
+        } 条提示已折叠</span>`;
+        list.appendChild(li);
+      }
+    }
+  }
+
+  // 默认收起，避免抢编辑器的注意力
+  panel.setAttribute("hidden", "");
+  badge.setAttribute("aria-expanded", "false");
+}
+
+function severityTag(severity) {
+  if (severity === "error") return "ERROR";
+  if (severity === "warn") return "WARN";
+  return "HINT";
+}
+
+export async function copyManualPrompt() {
+  const { state, setStatus, collectRewritePreferences, syncCurrentArticleFromControls, getCurrentArticle } =
+    _ctx;
+
+  syncCurrentArticleFromControls();
+  const current = getCurrentArticle();
+  let sourceForPrompt = null;
+  if (isEditorBodySubstantiveForRewrite(current.bodyHtml)) {
+    sourceForPrompt = buildRewriteSourceFromCurrentArticle(state, current);
+  } else if (state.source) {
+    sourceForPrompt = state.source;
+  } else {
+    setStatus("请先在编辑区写满一段正文，或先抓取一个网页。", "warning");
+    return;
+  }
+
   state.settings = await getSettings();
   const template = _templates.find((t) => t.id === _selectedTemplateId) || null;
   const prompt = buildManualPrompt(
-    state.source,
+    sourceForPrompt,
     collectRewritePreferences(),
     state.settings,
     template

@@ -54,7 +54,7 @@ python3 scripts/drissionpage_helper.py
 
 ## 权限与上架
 
-- 开发态默认 **宽** `host_permissions`（`http/https` 通配）的原因与上架收窄建议见 **[docs/PERMISSIONS_AND_STORE.md](./docs/PERMISSIONS_AND_STORE.md)**。
+- 默认 `host_permissions` 已收窄到固定服务；任意网页抓取、自托 API、远程图片等动态域名走 `optional_host_permissions` 按需申请，详见 **[docs/PERMISSIONS_AND_STORE.md](./docs/PERMISSIONS_AND_STORE.md)**。
 - 热点依赖的第三方公开接口（RSSHub、各类热榜镜像）**适合自用与验证**；若商用分发，建议评估稳定性、合规与替换为自有后端。
 
 ## 上架前检查清单
@@ -63,7 +63,7 @@ python3 scripts/drissionpage_helper.py
 2. `npm run test:smoke` 通过。
 3. 在 Chrome **正式版**（≥ manifest `minimum_chrome_version`）用「加载已解压的扩展程序」跑通：设置保存、抓取三种模式、改写、发布或草稿、热点页。
 4. 隐私政策 / 服务条款：若提交 Chrome Web Store，通常需**可公网访问的 URL**；仓库内页面可作为开发副本，上架时替换为托管地址。
-5. 根据目标审核要求收窄 `host_permissions`，并在商店「单用途说明」中写清：抓取、AI、公众号接口、热点数据网络用途。
+5. 核对 `host_permissions` / `optional_host_permissions` 与商店「单用途说明」一致：固定服务默认授权，用户主动触发的抓取、AI、公众号接口、热点自托源按需申请。
 6. 截图与宣传语与真实能力一致（尤其：无自有账号体系、无云端草稿同步，除非自行二次开发）。
 
 ## 目录结构（摘要）

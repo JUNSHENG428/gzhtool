@@ -59,21 +59,11 @@
             <li><strong>会员权益核验：</strong>会员激活码、设备指纹（首次安装时本机生成的随机 UUID，不含任何硬件信息）、设备友好名称（如「Chrome on macOS」）。</li>
             <li><strong>每 12 小时一次的静默复验：</strong>用同样的激活码 + 指纹刷新会员状态，超过 7 天未验证则降级为免费版。</li>
           </ul>
-          <p>这些信息仅用于：判断你是否拥有有效的 Pro 会员、统计同一会员账号已激活的设备数（最多 3 台）、防止滥用。<strong>我们不收集你的文章内容、AI 提示词、改写结果、公众号 token、浏览记录。</strong>账号注销请联系客服邮箱（见第 7 节），我们会在 7 个工作日内删除该账号下所有授权记录。</p>
+          <p>这些信息仅用于：判断你是否拥有有效的 Pro 会员、统计同一会员账号已激活的设备数（最多 3 台）、防止滥用。<strong>我们不收集你的文章内容、AI 提示词、改写结果、公众号 token、浏览记录。</strong>账号注销请联系客服邮箱（见第 6 节），我们会在 7 个工作日内删除该账号下所有授权记录。</p>
         </section>
 
         <section>
-          <h2>5. 关于 cookies 权限的说明</h2>
-          <p>扩展声明了 <code>cookies</code> 权限，仅用于「AI 选题代笔」功能：通过 <code>chrome.cookies.getAll()</code> 检测你是否已在小红书 / X / Reddit / 知乎登录（即「关键 cookie name 是否存在」）。</p>
-          <ul>
-            <li>我们 <strong>只读取 cookie 的名字</strong>（如 <code>web_session</code>、<code>auth_token</code>），<strong>不读取 value</strong>。</li>
-            <li>cookie name 的存在与否判断结果只在本地内存使用，不写入存储、不发送到任何服务器。</li>
-            <li>缺登录时，扩展只会给出这些平台的官方登录 URL，由你自己开新 tab 完成登录。我们 <strong>不会模拟登录、不会代你提交账号密码、不会读取或保存你的账号信息</strong>。</li>
-          </ul>
-        </section>
-
-        <section>
-          <h2>6. 我们不会做的事</h2>
+          <h2>5. 我们不会做的事</h2>
           <ul>
             <li>不会在你没有主动操作时抓取你的浏览记录、cookie 值或网页内容。</li>
             <li>不会把你的文章正文、AI 提示词、改写结果、公众号凭据上传到开发者服务器（这些只在你的浏览器与你自己配置的接口之间往返）。</li>
@@ -84,7 +74,7 @@
         </section>
 
         <section>
-          <h2>7. 安全提醒与联系方式</h2>
+          <h2>6. 安全提醒与联系方式</h2>
           <p>公众号的 AppSecret、AI 接口 Key 都保存在当前浏览器本地存储中，仅用于你本人的操作。请不要在公共电脑或他人可访问的浏览器环境中填写这些信息。如果你怀疑信息泄露，可以在公众号后台 / AI 平台后台重置密钥后再填写。</p>
           <p>运营主体：<span data-operator-name>润笔 · DocuEarn</span></p>
           <p>客服邮箱：<a data-support-email href="mailto:support@docuearn.com">support@docuearn.com</a></p>

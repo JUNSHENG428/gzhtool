@@ -10,8 +10,31 @@
     "48": "src/icons/icon48.png",
     "128": "src/icons/icon128.png"
   },
-  "permissions": ["activeTab", "tabs", "storage", "scripting", "cookies", "alarms"],
+  "permissions": ["activeTab", "tabs", "storage", "scripting", "alarms"],
   "host_permissions": [
+    "https://mp.weixin.qq.com/*",
+    "https://api.weixin.qq.com/*",
+    "https://docuearn.com/*",
+    "https://*.docuearn.com/*",
+    "https://api.openai.com/*",
+    "https://api.deepseek.com/*",
+    "https://api.anthropic.com/*",
+    "https://dashscope.aliyuncs.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://hot.inkgold.info/*",
+    "https://rsshub.app/*",
+    "https://api.bilibili.com/*",
+    "https://www.reddit.com/*",
+    "https://techcrunch.com/*",
+    "https://www.theverge.com/*",
+    "https://rss.arxiv.org/*",
+    "https://machinelearningmastery.com/*",
+    "https://towardsdatascience.com/*",
+    "https://importai.substack.com/*",
+    "https://www.leiphone.com/*",
+    "https://hnrss.org/*"
+  ],
+  "optional_host_permissions": [
     "https://*/*",
     "http://*/*"
   ],
@@ -62,12 +85,15 @@
     },
     "open_options": {
       "description": "打开设置页（需手动在 chrome://extensions/shortcuts 绑定）"
-    },
-    "open_agent": {
-      "description": "打开 AI 选题代笔 Agent（需手动在 chrome://extensions/shortcuts 绑定）"
     }
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: blob:; connect-src 'self' https: wss: http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*;"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/vendor/pdfjs/pdf.worker.mjs"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

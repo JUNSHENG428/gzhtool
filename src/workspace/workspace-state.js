@@ -148,7 +148,10 @@ function _bindStateEvents() {
       if (!file) return;
       try {
         await addCustomImageFromFile(file);
-        _ctx.setStatus(`已上传「${file.name}」并设为当前文章封面。`, "success");
+        _ctx.setStatus(
+          `已上传「${file.name}」并设为当前文章封面。要放进正文，请在左侧图库中点该图，再使用编辑区「插入选中图片」。`,
+          "success"
+        );
       } catch (error) {
         _ctx.setStatus(error?.message || "上传图片失败。", "error");
       } finally {
@@ -291,7 +294,6 @@ export function applyCurrentArticleToControls() {
   if (!article) return;
 
   controls.title.value = article.meta.title || "";
-  controls.subtitle.value = article.meta.subtitle || "";
   controls.author.value = article.meta.author || state.settings.wechatDefaultAuthor || "";
   controls.digest.value = article.meta.digest || "";
   controls.sourceUrl.value =
@@ -308,7 +310,7 @@ export function applyCurrentArticleToControls() {
     state.selectedImageIndex = article.meta.coverImageIndex;
   }
 
-  // 程序化赋值不会触发 input 事件，需要手动刷新字数计数（标题/副标题/作者/摘要四个字段提示）。
+  // 程序化赋值不会触发 input 事件，需要手动刷新字数计数（标题/作者/摘要三个字段提示）。
   _ctx.refreshFieldHints?.();
 }
 
@@ -338,7 +340,6 @@ export function collectCurrentArticleMeta() {
     ...DEFAULT_ARTICLE_META,
     ...current.meta,
     title: controls.title.value.trim(),
-    subtitle: controls.subtitle.value.trim(),
     lead: controls.lead.value.trim(),
     cta: controls.cta.value.trim(),
     author: controls.author.value.trim(),
@@ -450,7 +451,18 @@ export async function exportBundle() {
   anchor.download = `${title || "wechat-bundle"}.bundle.json`;
   anchor.click();
   URL.revokeObjectURL(url);
-  _ctx.setStatus("草稿包 JSON 已导出。", "success");
+  _ctx.setStatus("草稿包备份已保存到本机。", "success");
+}
+
+function _userFacingBundleImportError(error) {
+  if (error instanceof SyntaxError) {
+    return "无法识别该文件内容。请确认所选文件是用「导出备份」保存的草稿包。";
+  }
+  const msg = String(error?.message || "");
+  if (msg.includes("articleBundle")) {
+    return "这个文件不是本扩展的草稿备份。请选「导出备份」生成的 .bundle 文件。";
+  }
+  return msg || "恢复失败，请重试。";
 }
 
 export async function importBundleFromFile(event) {
@@ -458,14 +470,16 @@ export async function importBundleFromFile(event) {
   event.target.value = "";
   if (!file) return;
   try {
-    _ctx.showLoading("正在导入草稿包...");
+    _ctx.showLoading("正在从备份恢复", "读取并校验本机文件…");
     const text = await file.text();
     const payload = JSON.parse(text);
     applyImportedBundle(payload);
     schedulePersist();
-    _ctx.setStatus("草稿包已导入。", "success");
+    _ctx.setStatus("已从备份恢复草稿包。", "success");
   } catch (error) {
-    _ctx.setStatus(error.message || "草稿包导入失败。", "error");
+    const detail = error instanceof Error ? error : new Error(String(error));
+    console.warn("[import bundle]", detail);
+    _ctx.setStatus(_userFacingBundleImportError(detail), "error");
   } finally {
     _ctx.hideLoading();
   }
@@ -474,7 +488,7 @@ export async function importBundleFromFile(event) {
 export function applyImportedBundle(payload) {
   const { controls } = _ctx;
   if (!Array.isArray(payload?.articleBundle) || payload.articleBundle.length === 0) {
-    throw new Error("草稿包格式不正确：缺少 articleBundle。");
+    throw new Error("这个文件不是有效的草稿备份（缺少可恢复的稿件）。");
   }
   state.source = normalizeImportedSource(payload.source);
   state.articleBundle = payload.articleBundle.map(normalizeArticleDoc);
@@ -930,8 +944,6 @@ export function validateCurrentArticleForPublish() {
   const errors = [];
   if (meta.title.length > 64)
     errors.push(`标题超出公众号限制（当前 ${meta.title.length} 字，最多 64 字）`);
-  if (meta.subtitle.length > 32)
-    errors.push(`副标题超出公众号限制（当前 ${meta.subtitle.length} 字，最多 32 字）`);
   if (meta.author.length > 8)
     errors.push(`作者超出公众号限制（当前 ${meta.author.length} 字，最多 8 字）`);
   if (meta.digest.length > 120)

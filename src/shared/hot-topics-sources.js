@@ -3,11 +3,11 @@ export const HOT_TOPICS_CACHE_TTL_MS = 15 * 60 * 1000;
 
 const DEFAULT_RSSHUB_BASE_URL = "https://rsshub.app";
 
-// AI & Tech RSS feeds —— 这是本文件唯一被外部触发的路径
-// （仅当 HOT_SOURCE_META[id].rss === true 时进入；
-//  zhihu/weibo/juejin 等中文聚合源走 hot-topics.js → DailyHotApi 链路，
-//  原本写在这里的 freejk/iyuns/xxapi/guiguiya 野鸡接口已确认是死代码，
-//  在 2026-04 清理掉了。再加新源请走 DailyHotApi 自托或 RSS。）
+// AI & Tech RSS feeds —— 这里是「内置 RSS 源」清单（meta.rss === true 时进入）。
+// 中文聚合热榜（zhihu/weibo/juejin/B站等）由 hot-topics.js 走 NewsNow 主链路，
+// NewsNow 失败时同样会复用本文件 export 的 fetchEndpointPayload + parseRssFeed
+// 去拉对应的 RSSHub 路径作为兜底（meta.rsshub 字段，2026-04-25 起）。
+// 历史野鸡接口（freejk/iyuns/xxapi/guiguiya）已在 2026-04 清理。
 const TECHCRUNCH_RSS = "https://techcrunch.com/feed/";
 const THE_VERGE_RSS = "https://www.theverge.com/rss/index.xml";
 const ARXIV_AI_RSS = "https://rss.arxiv.org/rss/cs.AI";
@@ -196,7 +196,7 @@ function buildSourceCandidates(source, settings) {
   return candidates;
 }
 
-async function fetchEndpointPayload(url) {
+export async function fetchEndpointPayload(url) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 12000);
 
@@ -229,7 +229,7 @@ async function fetchEndpointPayload(url) {
   }
 }
 
-function parseRssFeed(payload, source) {
+export function parseRssFeed(payload, source) {
   const body = String(payload?.bodyText || "");
   const isRss = /<rss[\s>]/i.test(body);
   const isAtom = /<feed[\s>]/i.test(body);

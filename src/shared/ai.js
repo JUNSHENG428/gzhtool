@@ -1,8 +1,201 @@
 import { LENGTH_LABELS, LENGTH_RANGES, LENGTH_TOLERANCE } from "./defaults.js";
+import {
+  AI_VOCAB_BLACKLIST,
+  AI_PHRASE_BLACKLIST,
+  BURSTINESS_TARGET,
+  PUNCTUATION_LIMITS,
+  RULE_CARDS,
+  AI_VOCAB_REPLACEMENTS,
+  getHumanizeProfile,
+  getTopRuleCards
+} from "./humanize-rules.js";
+import { ensureOptionalHostPermission } from "./host-permissions.js";
+import { normalizeText } from "./utils.js";
 
 const MAX_SOURCE_CHARS = 24000;
 
-export function buildRewriteMessages(source, preferences, settings, template) {
+/**
+ * 当前篇正文是否足够让「按编辑区改写」走正文而非仅 lastCapture（至少若干字，或含图）。
+ */
+export function isEditorBodySubstantiveForRewrite(bodyHtml) {
+  const raw = String(bodyHtml || "").trim();
+  if (!raw) return false;
+  if (/<\s*img\b/i.test(raw) || /<\s*figure\b/i.test(raw)) return true;
+  const text = normalizeText(
+    new DOMParser().parseFromString(raw, "text/html").body.textContent || ""
+  );
+  return text.length >= 8;
+}
+
+/**
+ * 用当前篇 meta + 正文 HTML 合成与抓取结构兼容的 source，供 buildRewriteMessages / requestRewrite 使用。
+ * 会合并 state.source 里的图片，并把正文里出现、但尚未在图库中的 img 追加入 images 数组。
+ */
+export function buildRewriteSourceFromCurrentArticle(state, article) {
+  const base = state.source
+    ? {
+        title: String(state.source.title || ""),
+        url: String(state.source.url || ""),
+        description: String(state.source.description || ""),
+        siteName: String(state.source.siteName || ""),
+        author: String(state.source.author || ""),
+        wordCount: Number(state.source.wordCount || 0),
+        images: (state.source.images || []).map((im) => ({ ...im }))
+      }
+    : {
+        title: "",
+        url: "",
+        description: "",
+        siteName: "",
+        author: "",
+        wordCount: 0,
+        images: []
+      };
+
+  const title = (article?.meta?.title && String(article.meta.title).trim()) || base.title;
+  const url = (article?.meta?.contentSourceUrl && String(article.meta.contentSourceUrl).trim()) || base.url;
+
+  const images = base.images;
+  const { blocks, textChars } = buildBlocksFromBodyHtml(article?.bodyHtml || "", images);
+  return {
+    ...base,
+    title: title || base.title,
+    url,
+    blocks,
+    wordCount: textChars > 0 ? textChars : base.wordCount
+  };
+}
+
+/**
+ * 将 #editor 内 bodyHtml 转为与抓取一致的 blocks 数组；`images` 为可变数组，可追加新图并更新索引。
+ */
+function buildBlocksFromBodyHtml(bodyHtml, images) {
+  const blocks = [];
+  let textChars = 0;
+  const wrap = String(bodyHtml || "").trim();
+  if (!wrap) {
+    return { blocks, textChars: 0 };
+  }
+  const doc = new DOMParser().parseFromString(
+    `<div class="gzh-rewrite-body">${wrap}</div>`,
+    "text/html"
+  );
+  const root = doc.body.querySelector(".gzh-rewrite-body");
+  if (!root) {
+    return { blocks, textChars: 0 };
+  }
+
+  const ensureImageIndex = (imgEl) => {
+    if (!imgEl) return 0;
+    const src = String(imgEl.getAttribute("src") || imgEl.src || "").trim();
+    if (!src) return 0;
+    let idx = images.findIndex((im) => im && String(im.src || "").trim() === src) + 1;
+    if (idx > 0) return idx;
+    const parent = imgEl.closest("figure");
+    const cap =
+      parent && parent.querySelector
+        ? normalizeText(parent.querySelector("figcaption")?.textContent || "")
+        : "";
+    images.push({
+      src,
+      alt: String(imgEl.getAttribute("alt") || "").trim(),
+      caption: cap || "正文插图"
+    });
+    return images.length;
+  };
+
+  const pushText = (t) => {
+    const s = normalizeText(t);
+    if (!s) return;
+    textChars += s.length;
+    blocks.push({ type: "paragraph", text: s });
+  };
+
+  const walk = (el) => {
+    if (!el) return;
+    for (const node of el.childNodes) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const tag = (node).tagName;
+        if (tag === "P") {
+          pushText(node.textContent);
+        } else if (/^H[1-6]$/i.test(tag)) {
+          const level = Math.min(6, Math.max(1, parseInt(tag.charAt(1), 10) || 2));
+          const hashes = "#".repeat(level) + " ";
+          pushText(hashes + normalizeText(node.textContent));
+        } else if (tag === "BLOCKQUOTE") {
+          const inner = normalizeText(node.textContent);
+          if (inner) pushText("> " + inner);
+        } else if (tag === "FIGURE") {
+          const img = node.querySelector("img");
+          const ix = ensureImageIndex(img);
+          if (ix) {
+            blocks.push({
+              type: "image",
+              index: ix,
+              src: String(img.getAttribute("src") || img.src),
+              alt: String(img.getAttribute("alt") || "").trim(),
+              caption: String(node.querySelector("figcaption")?.textContent || "").trim()
+            });
+          }
+        } else if (tag === "UL" || tag === "OL") {
+          for (const li of node.querySelectorAll(":scope > li")) {
+            const t = normalizeText(li.textContent);
+            if (t) {
+              const prefix = tag === "UL" ? "• " : "1) ";
+              pushText(prefix + t);
+            }
+          }
+        } else if (tag === "PRE") {
+          const text = (node.textContent || "").replace(/\n+$/, "");
+          if (text.trim()) {
+            blocks.push({ type: "code", language: "", text: text });
+            textChars += text.length;
+          }
+        } else if (tag === "DIV" || tag === "SECTION" || tag === "ARTICLE") {
+          walk(node);
+        } else if (tag === "IMG") {
+          const ix = ensureImageIndex(node);
+          if (ix) {
+            blocks.push({
+              type: "image",
+              index: ix,
+              src: String(node.getAttribute("src") || node.src),
+              alt: String(node.getAttribute("alt") || "").trim()
+            });
+          }
+        } else {
+          const onlyText = normalizeText(node.textContent);
+          if (onlyText) pushText(onlyText);
+        }
+      } else if (node.nodeType === Node.TEXT_NODE) {
+        const t = normalizeText(node.textContent);
+        if (t) pushText(t);
+      }
+    }
+  };
+
+  walk(root);
+
+  if (blocks.length === 0) {
+    const all = normalizeText(root.textContent || "");
+    if (all) {
+      return { blocks: [{ type: "paragraph", text: all }], textChars: all.length };
+    }
+  }
+  return { blocks, textChars };
+}
+
+/**
+ * 构建发给 LLM 的消息序列。
+ *
+ * @param {object} source            标准化后的来源 capture
+ * @param {object} preferences       用户在工作区设置的临时偏好
+ * @param {object} settings          全局 settings（含 humanize / voice 等）
+ * @param {object} [template]        当前激活的 prompt 模板
+ * @param {object} [voiceSample]     可选的「我的文风」样本（已抽取过 fingerprint）
+ *                                   stage 3 注入；为 null 时不影响任何已有行为。
+ */
+export function buildRewriteMessages(source, preferences, settings, template, voiceSample = null) {
   const snapshot = createSourceSnapshot(source);
   const requestedLength = LENGTH_LABELS[preferences.length] || LENGTH_LABELS.medium;
 
@@ -17,6 +210,12 @@ export function buildRewriteMessages(source, preferences, settings, template) {
   const cta =
     preferences.cta || template?.defaults?.cta || settings.defaultCta;
 
+  // 模板可以声明自己是否使用 voice sample（"force-off" 时强制忽略，例如学术稿）
+  const usePolicy = String(template?.useVoiceSample || "auto");
+  const effectiveVoiceSample =
+    usePolicy === "force-off" ? null : voiceSample;
+
+  const messages = [];
   if (template && (template.systemTemplate || template.userTemplate)) {
     const vars = {
       title: source.title || "",
@@ -40,11 +239,19 @@ export function buildRewriteMessages(source, preferences, settings, template) {
       template.userTemplate || DEFAULT_USER_TEMPLATE,
       vars
     );
-    return [
-      { role: "system", content: systemPrompt },
-      { role: "system", content: buildHardConstraintMessage(requestedLength) },
-      { role: "user", content: userPrompt }
-    ];
+    messages.push({ role: "system", content: systemPrompt });
+    messages.push({
+      role: "system",
+      content: buildHardConstraintMessage(requestedLength, template)
+    });
+    if (effectiveVoiceSample) {
+      messages.push({
+        role: "system",
+        content: buildVoiceSampleMessage(effectiveVoiceSample)
+      });
+    }
+    messages.push({ role: "user", content: userPrompt });
+    return messages;
   }
 
   const systemPrompt = DEFAULT_SYSTEM_PROMPT;
@@ -69,24 +276,70 @@ export function buildRewriteMessages(source, preferences, settings, template) {
     JSON.stringify(snapshot, null, 2)
   ].join("\n");
 
-  return [
-    { role: "system", content: systemPrompt },
-    { role: "system", content: buildHardConstraintMessage(requestedLength) },
-    { role: "user", content: userPrompt }
-  ];
+  messages.push({ role: "system", content: systemPrompt });
+  messages.push({
+    role: "system",
+    content: buildHardConstraintMessage(requestedLength, template)
+  });
+  if (effectiveVoiceSample) {
+    messages.push({
+      role: "system",
+      content: buildVoiceSampleMessage(effectiveVoiceSample)
+    });
+  }
+  messages.push({ role: "user", content: userPrompt });
+  return messages;
 }
 
 /**
- * 兜底"硬约束" system message：不论用户用什么 prompt 模板，
- * 这一条都会被附加到 system 队列里。包含两类强约束：
- *   1. 字数边界：把 requestedLength（如 "1200-1800 字"）显式提出来当门槛
- *   2. 反 AI 味：参考 AIWriteX 项目梳理的常见 AI 痕迹做集中清单（结构、句式、套话）
+ * 兜底"硬约束" system message v2（去 AI 味强化版）：
+ *
+ * 不论用户用什么 prompt 模板，这一条都会被附加到 system 队列里。
+ * 内容来自 src/shared/humanize-rules.js 的单一真源，避免规则在多处漂移。
+ *
+ *   1. 字数边界：把 requestedLength 显式提出来当门槛
+ *   2. 反 AI 痕迹：动态拼接 humanize-rules 的高优先级 rule cards、
+ *      黑名单子集、突发性目标、标点上限、词替换字典
+ *   3. 事实/图片/结构约束：保持原有兜底
+ *
+ * 模板可以通过 humanizeProfile 字段（meta-prompt 生成或用户在 storage 里手动填）
+ * 局部放宽（比如 listicle 模板天然句子短，burstiness 阈值放低）。
  *
  * 之所以独立成一条 system message 而不是合并进 systemPrompt：
  *   - 兼容老用户已经存到 chrome.storage 里的 prompt 模板（不会被覆盖）
  *   - 兼容用户后续自定义的模板，约束始终生效
  */
-function buildHardConstraintMessage(requestedLength) {
+function buildHardConstraintMessage(requestedLength, template = null) {
+  // 模板可声明 humanizeProfile（template-generator.js v2 会自动写入）
+  const profile = {
+    ...getHumanizeProfile(template?.id || ""),
+    ...(template?.humanizeProfile || {})
+  };
+
+  // 控制 prompt 长度：高优先级卡片只挑 8 张，黑名单挑 weight ≥ 7 的
+  const cards = getTopRuleCards(8);
+  const cardLines = cards.map(
+    (c) => `- 【${c.label}】${c.do}（避免：${c.dont}）`
+  );
+
+  // 黑名单 + 套话短语：只塞 12 个，避免 LLM 把整张表当套话来生产
+  const blacklistTop = AI_VOCAB_BLACKLIST.filter((x) => x.weight >= 7)
+    .slice(0, 8)
+    .map((x) => x.phrase);
+  const phraseTop = AI_PHRASE_BLACKLIST.filter((x) => x.weight >= 8)
+    .slice(0, 6)
+    .map((x) => x.phrase);
+
+  // 给 LLM 的"AI 词 → 替代词"字典（控制条数 8 条以内）
+  const dictLines = AI_VOCAB_REPLACEMENTS.slice(0, 8).map(
+    ([from, to]) => `「${from}」可换 ${to}`
+  );
+
+  // 突发性 / 节奏：根据模板 profile 调整阈值
+  const stdMin = Number(profile.burstinessMin || BURSTINESS_TARGET.minStdOverMean).toFixed(2);
+  const dashLimit = Number(profile.dashesPer500 || PUNCTUATION_LIMITS.dashesPer500);
+  const allowFp = profile.allowFirstPerson !== false;
+
   return [
     "硬性约束（不要忽略）：",
     "",
@@ -94,12 +347,38 @@ function buildHardConstraintMessage(requestedLength) {
       requestedLength +
       "」范围内。超出该范围 ±15% 视为不合格。请在产出前自检字数。",
     "",
-    "【反 AI 痕迹】请把以下「AI 习惯」主动消除：",
-    "- 不要全篇都是工整对仗的排比、三段式、清单。允许一篇用 1-2 个列表，避免每个 section 都用列表。",
-    "- 长短句交错。每段不超过 4 句；至少要有一段是 1-2 句的短段，让节奏有呼吸。",
-    "- 慎用机械连接词。减少「首先 / 其次 / 最后」、「一方面 / 另一方面」这种程式化过渡，改用更自然的承接。",
-    "- 允许出现轻微主观色彩、反问句、设问句、半口语化的判断；不要全程「客观中立」。",
-    "- 禁用套话黑名单：「随着 …… 的不断发展」「在当今时代」「毋庸置疑」「众所周知」「值得我们深思」「归根结底」「总而言之」「综上所述」「事实证明」「在 …… 的浪潮下」「科技的飞速发展」「不可忽视的力量」。",
+    "【反 AI 痕迹 · 句长突发性】",
+    `- 句长策略：${BURSTINESS_TARGET.ratioGuide}。`,
+    `- 全篇句长标准差 / 均值 ≥ ${stdMin}（即 burstiness ≥ ${stdMin}）。`,
+    `- 相邻三句不得长度相同；每个 section 至少出现 1 处 ${BURSTINESS_TARGET.shortParagraphMaxSentences} 句以内的短段，作为节奏呼吸。`,
+    "- 单段不超过 4 句。",
+    "",
+    "【反 AI 痕迹 · 高优先级规则卡】",
+    ...cardLines,
+    "",
+    "【反 AI 痕迹 · 黑名单】",
+    "- 不允许出现以下抽象壳词 / 套话动词：" + blacklistTop.join(" / "),
+    "- 不允许出现以下整段套话：" + phraseTop.join(" ／ "),
+    "- 不允许「**标签**：内容」式的内联标题列表，每篇文章至多保留" +
+      PUNCTUATION_LIMITS.inlineTitleListPerArticle +
+      "处。",
+    `- 破折号「——」每 500 字不得超过 ${dashLimit} 个，多用逗号或句号。`,
+    `- 感叹号每 500 字不得超过 ${PUNCTUATION_LIMITS.exclamPer500} 个。`,
+    "",
+    "【反 AI 痕迹 · 信息噪声】",
+    "- 涉及数据/事实时优先使用具体数字、具体时间、具体场景，禁止使用「大量 / 显著 / 明显 / 重要 / 极其重要」等模糊定性词。",
+    "- 涉及人物/机构时给出具体名称与角色，禁止使用「专家认为 / 业内人士指出 / 多个来源显示」等模糊归因。",
+    "",
+    "【反 AI 痕迹 · 反三段式】",
+    "- 列举优先 2 项或 4 项；连续 3 项并列以上必须改写。",
+    "- 禁止使用「不仅……而且……」「既要……也要……」「首先……其次……最后」等程式化串场。",
+    "",
+    allowFp
+      ? "【个人视角】允许在文中出现 1–2 处带主观判断的句子，例如「说实话，我意外的是…」「回过头看…」「讲真…」，让文章像真人观察。"
+      : "【个人视角】保持客观播报，不出现第一人称。",
+    "",
+    "【AI 词替换字典（参考）】",
+    ...dictLines.map((line) => "- " + line),
     "",
     "【事实约束（再次强调）】数字、人名、产品名、引语、时间必须与来源一致；不要编造来源中没有的细节。",
     "",
@@ -111,6 +390,59 @@ function buildHardConstraintMessage(requestedLength) {
     "codeBlocks / tables / mathBlocks 字段（不允许翻译成纯文字段落，也不允许丢弃）。",
     "代码块要保留原始缩进、原始 language 字段；表格要保留 headers/rows 维度。"
   ].join("\n");
+}
+
+/**
+ * 把用户的「文风样本」翻译成 system message。
+ * 分两段：fingerprint 摘要（结构化数据，让 LLM 知道目标）+ 2 段截选（few-shot）。
+ *
+ * 总 token 控制目标：fingerprint ~300 token，截选 ~600 token，整体 < 1000 token，
+ * 避免严重撑大 prompt。
+ */
+function buildVoiceSampleMessage(sample) {
+  if (!sample || typeof sample !== "object") return "";
+  const fp = sample.fingerprint || {};
+  const title = String(sample.title || "未命名样本").slice(0, 40);
+  const lines = [
+    "【个人文风学习】请尽量靠近以下作者的写作习惯（来源：用户保存的样本「" + title + "」）：",
+    ""
+  ];
+  if (fp.avgSentenceLen) lines.push(`- 平均句长约 ${Number(fp.avgSentenceLen).toFixed(1)} 字`);
+  if (fp.burstiness) lines.push(`- 突发性 ${Number(fp.burstiness).toFixed(2)}`);
+  if (Array.isArray(fp.signaturePhrases) && fp.signaturePhrases.length) {
+    lines.push(
+      "- 常用语气词：" +
+        fp.signaturePhrases.slice(0, 6).map((s) => `「${s}」`).join("、")
+    );
+  }
+  if (Array.isArray(fp.toneTags) && fp.toneTags.length) {
+    lines.push("- 语气标签：" + fp.toneTags.slice(0, 5).join(" / "));
+  }
+  if (fp.punctuationProfile) {
+    const pp = fp.punctuationProfile;
+    if (pp.dashesPer100 != null) lines.push(`- 破折号密度 ${Number(pp.dashesPer100).toFixed(2)}/100 字`);
+    if (pp.exclamPer100 != null) lines.push(`- 感叹号密度 ${Number(pp.exclamPer100).toFixed(2)}/100 字`);
+  }
+  if (Array.isArray(fp.forbidden) && fp.forbidden.length) {
+    lines.push(
+      "- 这位作者从不使用：" + fp.forbidden.slice(0, 6).map((s) => `「${s}」`).join("、")
+    );
+  }
+  if (Array.isArray(fp.excerpts) && fp.excerpts.length) {
+    lines.push("");
+    lines.push("【作者截选 · 仅用于风格参考，不要把内容搬到改写稿里】");
+    fp.excerpts.slice(0, 2).forEach((e, i) => {
+      const text = String(e || "").slice(0, 600).trim();
+      if (text) {
+        lines.push("");
+        lines.push(`截选 ${i + 1}：`);
+        lines.push(text);
+      }
+    });
+  }
+  lines.push("");
+  lines.push("注意：以上只是用于学习这位作者的语气与节奏，绝对不要把作者文章里出现过但和本次来源无关的事实、人名、数据搬过来。");
+  return lines.join("\n");
 }
 
 const DEFAULT_SYSTEM_PROMPT = [
@@ -158,7 +490,23 @@ function renderTemplateString(text, vars) {
   });
 }
 
-export async function requestRewrite(settings, source, preferences, template) {
+/**
+ * 严格把"可能是字符串/可能是数值/可能是空"的值转成 number。
+ * 用于 top_p / frequency_penalty / presence_penalty 等可选参数：
+ *  - null / undefined / "" / "auto"      -> 返回 null，调用方应当跳过这个字段
+ *  - 非数字字符串                          -> 返回 null
+ *  - 合法数值                              -> 返回 Number 实例
+ *
+ * 不在这里做边界 clamp，由 LLM 服务端自己拒绝越界值；UI 已经在 options 页做范围校验。
+ */
+function numberOrNull(value) {
+  if (value == null) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+export async function requestRewrite(settings, source, preferences, template, voiceSample = null) {
   if (!settings.apiKey?.trim()) {
     throw new Error("请先在设置页填写 API Key。");
   }
@@ -167,7 +515,13 @@ export async function requestRewrite(settings, source, preferences, template) {
     throw new Error("请先在设置页填写 API Base URL。");
   }
 
-  const messages = buildRewriteMessages(source, preferences, settings, template);
+  const messages = buildRewriteMessages(
+    source,
+    preferences,
+    settings,
+    template,
+    voiceSample
+  );
   const model =
     String(template?.model || "").trim() || String(settings.model || "").trim();
   const temperatureSource =
@@ -176,17 +530,46 @@ export async function requestRewrite(settings, source, preferences, template) {
       : settings.temperature;
   const temperature = Number(temperatureSource ?? 0.8);
 
-  const response = await fetch(settings.apiBaseUrl.trim(), {
+  const body = {
+    model,
+    temperature,
+    messages
+  };
+
+  // 透传 OpenAI 兼容的高级生成参数。
+  // 优先级：模板覆盖值 > 用户全局设置；任意值非数值时跳过（保持 API 默认）。
+  // 推荐去 AI 味档位：top_p 0.92 / frequency_penalty 0.5 / presence_penalty 0.3。
+  const topPSource =
+    template && template.topP != null && template.topP !== ""
+      ? template.topP
+      : settings.topP;
+  const topP = numberOrNull(topPSource);
+  if (topP != null) body.top_p = topP;
+
+  const freqSource =
+    template && template.frequencyPenalty != null && template.frequencyPenalty !== ""
+      ? template.frequencyPenalty
+      : settings.frequencyPenalty;
+  const freqPenalty = numberOrNull(freqSource);
+  if (freqPenalty != null) body.frequency_penalty = freqPenalty;
+
+  const presSource =
+    template && template.presencePenalty != null && template.presencePenalty !== ""
+      ? template.presencePenalty
+      : settings.presencePenalty;
+  const presPenalty = numberOrNull(presSource);
+  if (presPenalty != null) body.presence_penalty = presPenalty;
+
+  const apiUrl = settings.apiBaseUrl.trim();
+  await ensureOptionalHostPermission(apiUrl, "AI 改写接口");
+
+  const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${settings.apiKey.trim()}`
     },
-    body: JSON.stringify({
-      model,
-      temperature,
-      messages
-    })
+    body: JSON.stringify(body)
   });
 
   const payload = await response.json().catch(() => ({}));
@@ -226,6 +609,8 @@ export async function testAiConnection({ baseUrl, apiKey, model, timeoutMs = 120
   const startedAt = Date.now();
 
   try {
+    await ensureOptionalHostPermission(targetUrl, "AI 连通性测试接口");
+
     const response = await fetch(targetUrl, {
       method: "POST",
       headers: {
@@ -485,7 +870,7 @@ function mapAiConnectionRuntimeError(error) {
   return message || "连接失败，请检查接口地址和网络状态。";
 }
 
-function extractJson(rawText) {
+export function extractJson(rawText) {
   const fenced = rawText.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const text = fenced ? fenced[1].trim() : rawText.trim();
 

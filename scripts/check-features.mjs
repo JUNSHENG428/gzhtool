@@ -77,7 +77,7 @@ async function main() {
 
   // 拦截所有外部 fetch（包括 docuearn.com / openai.com 等）
   // 防止扩展真的去验 license 或调 LLM
-  await context.route(/api\.docuearn\.com|api\.openai\.com|api\.anthropic|api\.deepseek|.*hot.*api|api-hot|newsnow/, async (route) => {
+  await context.route(/api\.docuearn\.com|api\.openai\.com|api\.anthropic|api\.deepseek|newsnow|hot\.inkgold|rsshub/, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -256,6 +256,109 @@ async function main() {
   }
 
   // ──────────────────────────────────────────────────────────
+  // 3.6) 热点页：AI 选题规划入口 + 问卷 modal 弹出 + 卡片 reroll Pro 闸门
+  //   防回归点：
+  //     - hot-topics.html 必须有 [data-act="open-topic-planner"] 按钮
+  //     - 点击按钮后必须挂载 .topic-planner-backdrop modal
+  //     - modal 必须包含 8 道画像题（chip 组数 ≥ 8，textarea ≥ 1）
+  //     - 至少能选中第一个内容领域 chip 而不报错
+  // ──────────────────────────────────────────────────────────
+  console.log("\n[3.6] 热点页 AI 选题规划入口曝光 + 问卷 modal");
+  {
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto(`chrome-extension://${extId}/src/pages/hot-topics.html`, {
+      waitUntil: "networkidle"
+    });
+    await page.waitForTimeout(600);
+
+    const entryVisible = await page.evaluate(() => {
+      const btn = document.querySelector('[data-act="open-topic-planner"]');
+      return Boolean(btn && btn.offsetParent !== null && !btn.disabled);
+    });
+    log(
+      "topic-planner",
+      "热点页「📍 AI 智能选题」入口按钮可见",
+      entryVisible ? "ok" : "fail",
+      entryVisible ? "" : "topic-planner-ui.js 没有正确挂入口或 chrome.runtime 不可用"
+    );
+
+    if (entryVisible) {
+      await page.click('[data-act="open-topic-planner"]');
+      await page.waitForTimeout(400);
+
+      const modalOpen = await page.evaluate(() => {
+        const bd = document.querySelector(".topic-planner-backdrop");
+        return Boolean(bd && bd.hidden === false);
+      });
+      log(
+        "topic-planner",
+        "点击入口后弹出问卷 modal",
+        modalOpen ? "ok" : "fail",
+        modalOpen ? "" : "未挂载 .topic-planner-backdrop"
+      );
+
+      if (modalOpen) {
+        const stats = await page.evaluate(() => ({
+          chipGroups: document.querySelectorAll(".topic-planner-modal__field [data-group]").length,
+          excludeTextarea: document.querySelectorAll('[data-el="excludeKeywords"]').length,
+          submitBtn: document.querySelectorAll('[data-act="submit"]').length
+        }));
+        log(
+          "topic-planner",
+          `问卷 chip 组数 = ${stats.chipGroups} (≥8)`,
+          stats.chipGroups >= 8 ? "ok" : "fail"
+        );
+        log(
+          "topic-planner",
+          `自定义排除词 textarea = ${stats.excludeTextarea}`,
+          stats.excludeTextarea >= 1 ? "ok" : "fail"
+        );
+        log(
+          "topic-planner",
+          `生成按钮 = ${stats.submitBtn}`,
+          stats.submitBtn >= 1 ? "ok" : "fail"
+        );
+
+        // 选中第一个 contentPillars chip，确保事件代理工作
+        await page.evaluate(() => {
+          const chip = document.querySelector(
+            '.topic-planner-modal__field[data-field="contentPillars"] .topic-planner-chip'
+          );
+          chip?.click();
+        });
+        await page.waitForTimeout(150);
+        const pressed = await page.evaluate(() => {
+          const chip = document.querySelector(
+            '.topic-planner-modal__field[data-field="contentPillars"] .topic-planner-chip'
+          );
+          return chip?.getAttribute("aria-pressed") === "true";
+        });
+        log(
+          "topic-planner",
+          "点击 chip 切换 aria-pressed",
+          pressed ? "ok" : "fail"
+        );
+
+        // 关掉 modal，恢复现场，避免 console pageerror
+        await page.evaluate(() =>
+          document.querySelector('.topic-planner-modal__close')?.click()
+        );
+      }
+    }
+
+    log(
+      "topic-planner",
+      "问卷流程 console 干净",
+      errors.length === 0 ? "ok" : "fail",
+      errors.slice(0, 2).join(" | ")
+    );
+
+    await page.close();
+  }
+
+  // ──────────────────────────────────────────────────────────
   // 4) License pill 在 popup / options / workspace#member 文案一致
   // ──────────────────────────────────────────────────────────
   console.log("\n[4] License pill 在三处文案一致");
@@ -331,7 +434,7 @@ async function main() {
     page.on("pageerror", (e) => errors.push(e.message));
 
     const t0 = Date.now();
-    const views = ["dashboard", "capture", "layout", "publish", "hot", "agent", "member"];
+    const views = ["dashboard", "capture", "layout", "publish", "hot", "member"];
     for (let i = 0; i < 100; i++) {
       const v = views[i % views.length];
       await page.evaluate((view) => { window.location.hash = view; }, v);

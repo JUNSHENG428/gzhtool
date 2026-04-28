@@ -169,12 +169,8 @@
         <strong>扩展本地存储：</strong>使用浏览器的 <code>chrome.storage.local</code> 存放配置，不会跨站点共享，卸载即清除。
       </p>
       <p>
-        <strong>关于 <code>cookies</code> 权限：</strong>扩展声明了 <code>cookies</code> 权限，仅用于「AI 选题代笔」功能：
-        通过 <code>chrome.cookies.getAll()</code> 检测你是否已在小红书 / X / Reddit / 知乎登录
-        （即「关键 cookie name 是否存在」）。我们 <strong>只读取 cookie 的名字</strong>
-        （如 <code>web_session</code>、<code>auth_token</code>），<strong>不读取 value</strong>，
-        判断结果只在本地内存使用，不写入存储、不发送到任何服务器。缺登录时只会引导你开新 tab 自己登录，
-        不会模拟登录、不会代你提交账号密码。
+        <strong>关于扩展权限：</strong>旧「AI 选题代笔」功能已下线，扩展不再声明
+        <code>cookies</code> 权限，也不会读取小红书 / X / Reddit / 知乎等第三方平台的 cookie。
       </p>
 
       <h2>7. 儿童</h2>

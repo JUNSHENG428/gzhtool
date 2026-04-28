@@ -39,7 +39,8 @@ const PAID_FEATURE_KEYS = [
   "ai.templateGenerator",
   "ai.batchRewrite",
   "ai.deAiBoost",
-  "ai.unlimitedDaily"
+  "ai.unlimitedDaily",
+  "ai.topicPlanner"
 ];
 
 // 免费版每天 AI 改写次数（pro 不受限）

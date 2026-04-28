@@ -1,5 +1,6 @@
 import { formatRuntimeError } from "../shared/utils.js";
 import { getSettings } from "../shared/storage.js";
+import { STORAGE_KEYS } from "../shared/defaults.js";
 import {
   getLicenseState,
   subscribeLicenseChanges,
@@ -24,7 +25,6 @@ const els = {
   captureReadable: document.querySelector("#captureReadable"),
   captureRaw: document.querySelector("#captureRaw"),
   openWorkspace: document.querySelector("#openWorkspace"),
-  openAgent: document.querySelector("#openAgentButton"),
   openOptions: document.querySelector("#openOptions"),
   openHotTopics: document.querySelector("#openHotTopics"),
   refreshHotTopics: document.querySelector("#refreshHotTopics"),
@@ -66,6 +66,15 @@ void initPopup();
 async function initPopup() {
   bindEvents();
   bindTabs();
+  // 先注册跨页变更监听，再跑可能耗时的热点 / 会员初始化。
+  // 否则用户从 options 保存设置时，popup 可能仍卡在 loadHotTopics，
+  // 导致这次 settings.onChanged 被错过，AI 模型卡片停在旧值。
+  subscribeLicenseChanges(() => {
+    void hydrateLicenseStatus();
+  });
+  subscribeSettingsChanges(() => {
+    void hydrateAiStatus();
+  });
   await Promise.all([
     hydrateCurrentTab(),
     hydrateAiStatus(),
@@ -74,10 +83,7 @@ async function initPopup() {
     loadHotTopics(false)
   ]);
 
-  // license / 登录态变化时（任意一处：options 激活、sw 后台复验、解绑）都自动刷新徽章
-  subscribeLicenseChanges(() => {
-    void hydrateLicenseStatus();
-  });
+  // license / settings 监听已在初始化开始时注册，避免慢请求期间漏掉变更事件。
 }
 
 /**
@@ -125,13 +131,6 @@ function bindEvents() {
   els.openWorkspace?.addEventListener("click", () =>
     runAction({ type: "OPEN_WORKSPACE", autoCapture: false }, "已打开编辑台。")
   );
-
-  els.openAgent?.addEventListener("click", async () => {
-    await chrome.tabs.create({
-      url: chrome.runtime.getURL("src/pages/agent.html")
-    });
-    window.close();
-  });
 
   els.openOptions?.addEventListener("click", async () => {
     await chrome.runtime.openOptionsPage();
@@ -190,6 +189,30 @@ function bindEvents() {
       setStatus(formatRuntimeError(err, "同步失败，请稍后再试。"), "error");
     }
   });
+}
+
+function subscribeSettingsChanges(callback) {
+  if (typeof callback !== "function") return () => {};
+  if (typeof chrome === "undefined" || !chrome?.storage?.onChanged) {
+    return () => {};
+  }
+  const listener = (changes, area) => {
+    if (area !== "local") return;
+    if (!changes[STORAGE_KEYS.settings]) return;
+    try {
+      callback(changes[STORAGE_KEYS.settings]);
+    } catch (error) {
+      console.warn("[popup] settings subscriber failed", error);
+    }
+  };
+  chrome.storage.onChanged.addListener(listener);
+  return () => {
+    try {
+      chrome.storage.onChanged.removeListener(listener);
+    } catch {
+      // ignore
+    }
+  };
 }
 
 async function hydrateCurrentTab() {

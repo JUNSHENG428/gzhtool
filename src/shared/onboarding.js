@@ -278,8 +278,8 @@ export function subscribeOnboarding(callback) {
 
 function sumUsage(usage) {
   // usage 形态见 src/shared/usage-stats.js：
-  //   { byDay: { "2026-04-24": { capture, rewrite, publish, agentImport }, ... },
-  //     total: { capture, rewrite, publish, agentImport }, updatedAt }
+  //   { byDay: { "2026-04-24": { capture, rewrite, publish, topicPlanner }, ... },
+  //     total: { capture, rewrite, publish, topicPlanner }, updatedAt }
   // 这里只关心累计是否 > 0，所以优先看 total，没有就遍历 byDay 兜底。
   const total = usage?.total;
   if (total && typeof total === "object") {

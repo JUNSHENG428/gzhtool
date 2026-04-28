@@ -4,7 +4,7 @@
  *   1. service worker 能启动（Chrome MV3）
  *   2. popup / options / workspace / 5 个 pages 都能打开且 console 干净
  *   3. workspace 7 条 hash 路由切换正常
- *   4. options 12 个 section 锚点都存在
+ *   4. options 11 个 section 锚点都存在
  *
  * 失败的检查不会让脚本立即退出，会汇总到结尾的 markdown 报告里。
  */
@@ -88,14 +88,12 @@ async function main() {
     { name: "workspace#layout", path: `chrome-extension://${extensionId}/src/workspace/workspace.html#layout` },
     { name: "workspace#publish", path: `chrome-extension://${extensionId}/src/workspace/workspace.html#publish` },
     { name: "workspace#hot", path: `chrome-extension://${extensionId}/src/workspace/workspace.html#hot` },
-    { name: "workspace#agent", path: `chrome-extension://${extensionId}/src/workspace/workspace.html#agent` },
     { name: "workspace#member", path: `chrome-extension://${extensionId}/src/workspace/workspace.html#member` },
     { name: "welcome", path: `chrome-extension://${extensionId}/src/pages/welcome.html` },
     { name: "help", path: `chrome-extension://${extensionId}/src/pages/help.html` },
     { name: "permissions", path: `chrome-extension://${extensionId}/src/pages/permissions.html` },
     { name: "privacy", path: `chrome-extension://${extensionId}/src/pages/privacy.html` },
     { name: "terms", path: `chrome-extension://${extensionId}/src/pages/terms.html` },
-    { name: "agent", path: `chrome-extension://${extensionId}/src/pages/agent.html` },
     { name: "hot-topics", path: `chrome-extension://${extensionId}/src/pages/hot-topics.html` }
   ];
 
@@ -134,8 +132,8 @@ async function main() {
     await page.close();
   }
 
-  // 3) Workspace router: 单页打开 → 切 7 个 hash → 验 data-active
-  console.log("\n[3] Workspace 7 个 hash 路由切换");
+  // 3) Workspace router: 单页打开 → 切 6 个 hash → 验 data-active
+  console.log("\n[3] Workspace 6 个 hash 路由切换");
   const wsPage = await context.newPage();
   const wsErrors = [];
   wsPage.on("pageerror", (e) => wsErrors.push(e.message));
@@ -146,7 +144,7 @@ async function main() {
     waitUntil: "networkidle"
   });
 
-  for (const view of ["dashboard", "capture", "layout", "publish", "hot", "agent", "member"]) {
+  for (const view of ["dashboard", "capture", "layout", "publish", "hot", "member"]) {
     await wsPage.evaluate((v) => {
       window.location.hash = v;
     }, view);
@@ -176,16 +174,16 @@ async function main() {
   }
   await wsPage.close();
 
-  // 4) Options 12 个 section 锚点存在
-  console.log("\n[4] Options 12 个 section 锚点检查");
+  // 4) Options 10 个 section 锚点存在
+  console.log("\n[4] Options 10 个 section 锚点检查");
   const optPage = await context.newPage();
   await optPage.goto(`chrome-extension://${extensionId}/src/options/options.html`, {
     waitUntil: "networkidle"
   });
   const sectionKeys = [
-    "start", "ai", "brand", "pref", "prompt",
+    "start", "ai", "pref", "prompt",
     "wechat", "profiles", "drission", "hot",
-    "agent", "license", "pages"
+    "license", "pages"
   ];
   for (const key of sectionKeys) {
     const present = await optPage.evaluate(

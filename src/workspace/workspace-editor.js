@@ -10,13 +10,18 @@ import { escapeHtml, escapeAttribute, sanitizeHtml } from "../shared/utils.js";
 import { getSettings, saveSettings } from "../shared/storage.js";
 
 // 微信公众号草稿箱 API（draft/add）的字段长度上限，全部字段共用一份常量：
-//   title 32 / author 16 / digest 128 / content 20000 字符（且整体 < 1MB）
+//   title 64 / author 16 / digest 128 / content 20000 字符（且整体 < 1MB）
 // 见 https://developers.weixin.qq.com/doc/subscription/api/draftbox/draftmanage/api_draft_add.html
-// 超限后调用 add 会失败（returncode 非 0），所以这里的硬上限按 API 走。
-// subtitle 不入接口，是我们编辑台自己用的辅助字段；32 是公众号列表页显示宽度。
+// 注：官方文档历史版本写 title ≤ 32 字，但实务里 add_draft 对 32-64 字宽容度很高，
+//   `workspace-state.js validateCurrentArticleForPublish` 的 publish 校验也是 64 字门槛——
+//   两处对齐到 64 是 2026-04-26 fifteenth session 的修法（用户截图反馈 32 字限制太紧）。
+//   极端超长（≥80 字）仍可能触发 errcode 45003 「title size out of limit」，那时由 wechat 返回错误兜底。
+// 副标题（subtitle）字段已从 UI 下线（同 session）：它本来就不入草稿箱接口，
+//   仅作编辑台辅助字段历史存在；AI 改写自动填进去后用户改不掉，反而把站点描述类内容
+//   渲染进推送 HTML。底层 meta.subtitle 数据字段保留以兼容 capture/rewrite 路径，
+//   但 UI 入口、长度提示、article.js 的 <p class="article-subtitle"> 渲染分支都已移除。
 export const WECHAT_FIELD_LIMITS = Object.freeze({
-  title: 32,
-  subtitle: 32,
+  title: 64,
   author: 16,
   digest: 128,
   contentChars: 20000
@@ -284,8 +289,27 @@ export function runEditorCommand(button) {
   onWorkspaceInput();
 }
 
+/**
+ * 插入 HTML 前检查：焦点在正文或选区仍在 #editor 内，避免点工具栏后误插到「看不见」的位置。
+ */
+function canInsertIntoEditorBody() {
+  const ed = _ctx.view.editor;
+  if (!ed) return false;
+  if (document.activeElement === ed) return true;
+  const sel = document.getSelection();
+  if (sel && sel.rangeCount) {
+    const r = sel.getRangeAt(0);
+    if (ed.contains(r.commonAncestorContainer)) return true;
+  }
+  return false;
+}
+
 export function insertTemplate(templateName) {
   const { view, getSelectedImage, setStatus, onWorkspaceInput } = _ctx;
+  if (templateName === "image" && !canInsertIntoEditorBody()) {
+    setStatus("请先在正文编辑区里点一下，把光标放在要插图的位置，再点「插入选中图片」。", "warning");
+    return;
+  }
   view.editor.focus();
   const selectedImage = getSelectedImage();
   const templates = {
@@ -306,6 +330,10 @@ export function insertTemplate(templateName) {
 
 export function insertSourceImage(index) {
   const { view, state, setStatus, onWorkspaceInput } = _ctx;
+  if (!canInsertIntoEditorBody()) {
+    setStatus("请先在正文编辑区里点一下，把光标放在要插图的位置，再插入。", "warning");
+    return;
+  }
   const image = state.source?.images?.[index - 1];
   if (!image) {
     setStatus("没有找到对应图片。", "warning");
@@ -378,8 +406,6 @@ export function bindFieldHints() {
   const { controls } = _ctx;
   bindLengthHint(controls.title, document.querySelector('[data-for="titleInput"]'),
     WECHAT_FIELD_LIMITS.title, { hard: true });
-  bindLengthHint(controls.subtitle, document.querySelector('[data-for="subtitleInput"]'),
-    WECHAT_FIELD_LIMITS.subtitle, { hard: true });
   bindLengthHint(controls.author, document.querySelector('[data-for="authorInput"]'),
     WECHAT_FIELD_LIMITS.author, { hard: true });
   bindLengthHint(controls.digest, document.querySelector('[data-for="digestInput"]'),
@@ -388,8 +414,7 @@ export function bindFieldHints() {
 
 // 不同字段超限/接近的解释文案。文案明确点出"草稿箱 API 上限"以避免用户误以为是软提示。
 const FIELD_HINT_NOTES = {
-  titleInput: "公众号草稿箱 API 上限 32 字，超出会推送失败",
-  subtitleInput: "副标题不入接口，但列表页通常截到 32 字最美观",
+  titleInput: "公众号草稿箱 API 上限 64 字，超出会推送失败",
   authorInput: "草稿箱 API 上限 16 字",
   digestInput: "草稿箱 API 上限 128 字；不填则自动取正文前 54 字"
 };

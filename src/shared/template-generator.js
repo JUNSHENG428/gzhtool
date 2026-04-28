@@ -26,6 +26,7 @@ import {
   MAGAZINE_THEMES
 } from "./defaults.js";
 import { getSettings } from "./storage.js";
+import { ensureOptionalHostPermission } from "./host-permissions.js";
 
 // ---------------------------------------------------------------------
 // 问卷选项 schema（同时给 UI 和 meta-prompt 用，确保两端一致）
@@ -92,7 +93,15 @@ const META_SYSTEM_PROMPT = `你是一名给"公众号改写工具"设计 prompt 
     "cta": string,                 // 8–30 字，描述结尾行动建议
     "audience": string             // 10–40 字，描述目标读者
   },
-  "temperature": number            // 0.3 ~ 1.0 之间，与风格匹配（冷静分析偏低，故事/创意偏高）
+  "temperature": number,           // 0.3 ~ 1.0 之间，与风格匹配（冷静分析偏低，故事/创意偏高）
+  "humanizeProfile": {              // 必填，描述这个模板对"去 AI 味"的容忍度
+    "burstinessMin": number,        // 0.30 – 0.85，句长标准差/均值的最低门槛；故事/随笔偏高（0.6+），清单/资讯偏低（0.35–0.45）
+    "dashesPer500": number,         // 0 – 4，破折号"——"每 500 字上限；学术/分析最多 3，新闻最多 1
+    "exclamPer500": number,         // 0 – 4，感叹号每 500 字上限；正式稿建议 0–1，故事 2–3
+    "allowFirstPerson": boolean,    // 是否允许第一人称 / 主观判断（故事/随笔 true，新闻通稿 false）
+    "intensity": "light" | "medium" | "strong" // 若开启二次去 AI 味 pass，使用的强度建议
+  },
+  "useVoiceSample": "auto" | "force-on" | "force-off" // 是否使用「我的文风」样本；学术/官方稿建议 force-off
 }
 
 【styleInstruction 写作要点】
@@ -104,12 +113,24 @@ const META_SYSTEM_PROMPT = `你是一名给"公众号改写工具"设计 prompt 
 
 【避坑 · AI 套话黑名单】
 styleInstruction 中**不允许使用**也**禁止生成出的文章使用**以下表达：
-- "随着…的不断发展" / "在当今时代" / "在数字化浪潮下" / "拥抱变革" / "赋能"
-- "首先…其次…最后" 这类机械三段式串场
-- 大量排比（"不是…而是…"、"既要…也要…"等连续 3 句以上）
-- 过度形容词堆砌（"无与伦比""突破性""颠覆性"）
-- 滥用破折号、问号反问、收尾感叹号
+- 抽象壳词："格局 / 织锦 / 基石 / 里程碑 / 试金石 / 风向标"
+- 宣传式动词："赋能 / 夯实 / 助推 / 引领 / 彰显 / 凸显"
+- 套话短语："随着 …… 的不断发展 / 在当今时代 / 在数字化浪潮下 / 拥抱变革 / 至关重要 / 毋庸置疑 / 综上所述 / 归根结底 / 由此可见"
+- 模糊归因："专家认为 / 业内人士指出 / 多个来源显示"（请要求模板写作时给出明确的人/机构/时间）
+- 协作语气："希望对您有帮助 / 当然可以 / 让我为您 / 您说得对"（任何聊天残留必须删除）
+- "首先…其次…最后" 这类机械三段式串场，"不仅…而且…"，连续 3 项及以上的并列
+- 过度形容词堆砌（"无与伦比""突破性""颠覆性""划时代"）
+- 滥用破折号（每 500 字 ≤ 2 个）、连续多次反问、收尾感叹号
+- "**标签**：内容"式的内联标题列表，每篇 ≤ 1 处
+- 句长高度均匀（每段都 18–25 字 4 句）：要求长短句交错，相邻三句必须有不同长度
 - emoji 堆砌（除非用户明确说要走活泼路线，否则正文里禁用 emoji）
+
+【humanizeProfile 推荐档位（按问卷的 rhythm + tone 大致选）】
+- 长篇随笔 / 故事 / 文化评论：burstinessMin 0.65、dashesPer500 2、exclamPer500 2、allowFirstPerson true、intensity strong
+- 行业观察 / 深度分析：burstinessMin 0.55、dashesPer500 3、exclamPer500 1、allowFirstPerson true、intensity medium
+- 教程 / 测评：burstinessMin 0.50、dashesPer500 2、exclamPer500 1、allowFirstPerson true、intensity medium
+- 资讯 / 清单 / 简报：burstinessMin 0.40、dashesPer500 1、exclamPer500 1、allowFirstPerson false、intensity light
+- 学术 / 严肃专题：burstinessMin 0.50、dashesPer500 3、exclamPer500 0、allowFirstPerson false、intensity light（这种通常 useVoiceSample 设 force-off）
 
 【杂志感 / 反"土" 要求】
 用户已经在问卷里选定了一套杂志级视觉主题（你在【用户问卷】里能看到 visualTheme 的名字和气质）。
@@ -143,6 +164,57 @@ const META_USER_TEMPLATE = `用户在问卷里给出了如下答案，请按 sch
 const ALLOWED_LENGTHS = new Set(["short", "medium", "long"]);
 const RHYTHM_TO_LENGTH = { short: "short", standard: "medium", long: "long" };
 const VALID_THEME_IDS = new Set(MAGAZINE_THEMES.map((t) => t.id));
+
+// 「我的文风」样本的使用策略；模板 JSON 里写错值时回退成 auto
+const ALLOWED_VOICE_POLICIES = new Set(["auto", "force-on", "force-off"]);
+const ALLOWED_HUMANIZE_INTENSITIES = new Set(["light", "medium", "strong"]);
+
+// humanizeProfile 兜底：当 LLM 漏写 / 写错时填入这套保守值
+const DEFAULT_GENERATED_HUMANIZE_PROFILE = Object.freeze({
+  burstinessMin: 0.55,
+  dashesPer500: 2,
+  exclamPer500: 2,
+  allowFirstPerson: true,
+  intensity: "medium"
+});
+
+function normalizeHumanizeProfile(raw) {
+  const obj = raw && typeof raw === "object" ? raw : {};
+  const burstinessMin = clampNumber(
+    obj.burstinessMin,
+    0.3,
+    0.85,
+    DEFAULT_GENERATED_HUMANIZE_PROFILE.burstinessMin
+  );
+  const dashesPer500 = clampNumber(
+    obj.dashesPer500,
+    0,
+    6,
+    DEFAULT_GENERATED_HUMANIZE_PROFILE.dashesPer500
+  );
+  const exclamPer500 = clampNumber(
+    obj.exclamPer500,
+    0,
+    6,
+    DEFAULT_GENERATED_HUMANIZE_PROFILE.exclamPer500
+  );
+  const allowFirstPerson =
+    typeof obj.allowFirstPerson === "boolean"
+      ? obj.allowFirstPerson
+      : DEFAULT_GENERATED_HUMANIZE_PROFILE.allowFirstPerson;
+  const intensity = ALLOWED_HUMANIZE_INTENSITIES.has(obj.intensity)
+    ? obj.intensity
+    : DEFAULT_GENERATED_HUMANIZE_PROFILE.intensity;
+  return { burstinessMin, dashesPer500, exclamPer500, allowFirstPerson, intensity };
+}
+
+function clampNumber(value, min, max, fallback) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  if (num < min) return min;
+  if (num > max) return max;
+  return Math.round(num * 100) / 100;
+}
 
 // ---------------------------------------------------------------------
 // 主入口
@@ -181,7 +253,10 @@ export async function generateTemplate(input) {
 
   const userPrompt = renderUserPrompt(quiz);
 
-  const response = await fetch(settings.apiBaseUrl.trim(), {
+  const apiUrl = settings.apiBaseUrl.trim();
+  await ensureOptionalHostPermission(apiUrl, "AI 模板生成接口");
+
+  const response = await fetch(apiUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -383,12 +458,25 @@ export function validateAndShape(raw, opts = {}) {
 
   const icon = pickIcon(raw.icon);
 
-  // 防御：禁止 styleInstruction 里出现 "{{变量}}"，否则 buildRewriteMessages 会把它当模板变量
   if (/\{\{[^}]+\}\}/.test(styleInstruction)) {
     throw new Error("LLM 在 styleInstruction 里塞了变量占位符，请重试。");
   }
 
-  return { name, icon, styleInstruction, userIntro, defaults: shapedDefaults, temperature };
+  const humanizeProfile = normalizeHumanizeProfile(raw.humanizeProfile);
+  const useVoiceSample = ALLOWED_VOICE_POLICIES.has(raw.useVoiceSample)
+    ? raw.useVoiceSample
+    : "auto";
+
+  return {
+    name,
+    icon,
+    styleInstruction,
+    userIntro,
+    defaults: shapedDefaults,
+    temperature,
+    humanizeProfile,
+    useVoiceSample
+  };
 }
 
 /**
@@ -417,6 +505,8 @@ export function composeTemplate(shaped, opts = {}) {
     userTemplate,
     defaults: shaped.defaults,
     temperature: shaped.temperature,
+    humanizeProfile: shaped.humanizeProfile || { ...DEFAULT_GENERATED_HUMANIZE_PROFILE },
+    useVoiceSample: shaped.useVoiceSample || "auto",
     model: "",
     aiGenerated: true,
     suggestedTheme,

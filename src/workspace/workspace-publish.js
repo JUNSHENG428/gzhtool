@@ -250,7 +250,8 @@ export async function publishBundle(mode) {
     }
 
     showLoading(
-      `${mode === "publish" ? "正在提交多图文发布" : "正在推送多图文草稿包"} · 账号「${accountLabel}」...`
+      `${mode === "publish" ? "正在提交多图文发布" : "正在推送多图文草稿包"} · 账号「${accountLabel}」`,
+      "先上传图片，再创建草稿，通常 5–15 秒。"
     );
 
     const payload = await _buildWechatPublishPayload(mode);
@@ -510,7 +511,10 @@ export async function syncCurrentToWebEditor() {
   try {
     syncCurrentArticleFromControls();
     const current = getCurrentArticle();
-    showLoading("正在打开并同步到公众号网页编辑器...");
+    showLoading(
+      "正在同步到公众号网页编辑器",
+      "将打开公众号网页编辑器，并自动写入正文。"
+    );
     const response = await chrome.runtime.sendMessage({
       type: "SYNC_TO_WECHAT_WEB_EDITOR",
       payload: {

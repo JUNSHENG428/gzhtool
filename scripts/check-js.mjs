@@ -30,7 +30,7 @@ function walkJs(dir, out = []) {
   for (const ent of entries) {
     const p = path.join(dir, ent.name);
     if (ent.isDirectory()) {
-      if (ent.name === "node_modules" || ent.name === ".git") continue;
+      if (ent.name === "node_modules" || ent.name === ".git" || ent.name === "vendor") continue;
       walkJs(p, out);
     } else if (ent.name.endsWith(".js") || ent.name.endsWith(".mjs")) {
       out.push(p);

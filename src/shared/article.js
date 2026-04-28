@@ -31,11 +31,19 @@ export function renderArticleBody(article, sourceImages = []) {
 }
 
 export function composeArticleBodyHtml(meta, bodyHtml) {
+  // 注：meta.subtitle 历史上会渲染成 <p class="article-subtitle">，2026-04-26 fifteenth session
+  // 把副标题输入栏从 UI 下线后此处也同步移除——meta.subtitle 字段在 article doc / draft history 里保留
+  // （capture/rewrite 仍会写入），但既然用户没有 UI 可编辑，就不应该把它推到公众号草稿 HTML 里。
+  // 主题应用层 (decorateHtmlForTheme) 的 .article-subtitle 选择器自动 no-op（querySelector 找不到元素）。
+  // CTA 内段落显式 color:inherit；CTA 外层 div 上已有主题色（theme.cta 含 color），
+  // 保险起见让内层 p 强制继承父级颜色，避免预览/导出环境里被读者侧 reader/dark mode
+  // CSS 重置成默认深色，导致"深底深字"读不出来（用户反馈：CTA 文字框背景深，字体应是白）。
+  // 同时 margin:0 抹掉浏览器默认 1em 上下 margin，让 CTA box 不会因 p 默认 margin
+  // 越界破相。decorateHtmlForTheme 里专门 skip 了 cta-box 内的 p，所以这里写死安全。
   return `<article class="wechat-article">
-    ${meta.subtitle ? `<p class="article-subtitle">${escapeHtml(meta.subtitle)}</p>` : ""}
     ${meta.lead ? `<p class="article-lead">${escapeHtml(meta.lead)}</p>` : ""}
     <div class="article-body">${bodyHtml || ""}</div>
-    ${meta.cta ? `<div class="cta-box"><p>${escapeHtml(meta.cta)}</p></div>` : ""}
+    ${meta.cta ? `<div class="cta-box"><p style="margin:0;color:inherit;">${escapeHtml(meta.cta)}</p></div>` : ""}
   </article>`;
 }
 

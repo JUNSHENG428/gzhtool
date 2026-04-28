@@ -9,11 +9,10 @@ const manifest = runtimeAvailable ? chrome.runtime.getManifest() : { version: "w
 // Single source of truth for last-updated date across legal/help pages
 export const LAST_UPDATED_AT = "2026-04-22";
 
-// Unified topnav: 5 core pages
+// Unified topnav: core extension pages
 const TOPNAV_ITEMS = [
   { id: "welcome", href: "./welcome.html", label: "欢迎" },
   { id: "hot-topics", href: "./hot-topics.html", label: "热点捕捉" },
-  { id: "agent", href: "./agent.html", label: "AI 选题代笔" },
   { id: "workspace", action: "open-workspace", label: "编辑台" },
   { id: "help", href: "./help.html", label: "帮助中心" },
   { id: "options", action: "open-options", label: "设置" }

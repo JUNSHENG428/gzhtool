@@ -6,7 +6,6 @@
     <title>设置 API</title>
     <link rel="icon" type="image/png" href="../icons/icon128.png" />
     <link rel="stylesheet" href="./options.css" />
-    <link rel="stylesheet" href="./options-platform-grid.css" />
   </head>
   <body class="ambient-page" data-novice-mode="on">
     <aside class="settings-quicknav" id="settingsQuicknav" aria-label="设置分区">
@@ -18,7 +17,6 @@
 
           <p class="settings-quicknav-group">AI</p>
           <a href="#opt-anchor-ai" class="settings-quicknav-item" data-section-target="ai">AI 接口</a>
-          <a href="#opt-anchor-brand" class="settings-quicknav-item" data-section-target="brand">品牌信息</a>
           <a href="#opt-anchor-pref" class="settings-quicknav-item" data-section-target="pref">改写偏好</a>
           <a href="#opt-anchor-prompt" class="settings-quicknav-item" data-section-target="prompt">Prompt 模板</a>
 
@@ -29,7 +27,6 @@
           <p class="settings-quicknav-group">抓取</p>
           <a href="#drissionSettings" class="settings-quicknav-item" data-section-target="drission">DrissionPage</a>
           <a href="#opt-anchor-hot" class="settings-quicknav-item" data-section-target="hot">热点接口</a>
-          <a href="#agentSettings" class="settings-quicknav-item" data-section-target="agent">选题代笔</a>
 
           <p class="settings-quicknav-group">授权</p>
           <a href="#licenseSection" class="settings-quicknav-item" data-section-target="license">会员激活</a>
@@ -145,8 +142,40 @@
         <label class="field-narrow">
           <span>采样温度 <small class="field-meta">Temperature · 0~2</small></span>
           <input id="temperature" type="number" required min="0" max="2" step="0.1" />
-          <small class="field-hint">越接近 0 越严谨稳定，越接近 1 越有创意；改写公众号文章一般填 <code>0.7</code>。</small>
+          <small class="field-hint">越接近 0 越严谨稳定，越接近 1 越有创意；改写公众号文章一般填 <code>0.7</code>。想去 AI 味建议 <code>0.85</code>。</small>
         </label>
+
+        <details class="advanced-params">
+          <summary>
+            <span>高级生成参数</span>
+            <small class="field-meta">去 AI 味推荐档位 · 留空 = 服务端默认</small>
+          </summary>
+          <p class="advanced-params-hint">
+            这三个参数都是 OpenAI 兼容 API 的标准字段。留空时不会下发给服务端，由模型按默认值处理；填上时会随每次改写一起发出去。
+            <strong>推荐"去 AI 味档位"</strong>：top_p <code>0.92</code>、frequency_penalty <code>0.5</code>、presence_penalty <code>0.3</code>，配合 temperature <code>0.85</code> 使用，能在大多数 OpenAI / DeepSeek / Qwen 兼容服务上把句长方差和用词丰富度推高。
+          </p>
+          <div class="advanced-params-grid">
+            <label class="field-narrow">
+              <span>核采样 <small class="field-meta">top_p · 0~1</small></span>
+              <input id="topP" type="number" min="0" max="1" step="0.01" placeholder="留空 = 不下发" />
+              <small class="field-hint">越低越保守，越高词汇越多样；调到 <code>0.92</code> 能配合 frequency_penalty 削掉重复用词。</small>
+            </label>
+            <label class="field-narrow">
+              <span>频率惩罚 <small class="field-meta">frequency_penalty · -2~2</small></span>
+              <input id="frequencyPenalty" type="number" min="-2" max="2" step="0.05" placeholder="留空 = 不下发" />
+              <small class="field-hint">把高频用词压下去，越大越能避免「赋能/重要/显著」式套话堆叠；推荐 <code>0.5</code>。</small>
+            </label>
+            <label class="field-narrow">
+              <span>新词激励 <small class="field-meta">presence_penalty · -2~2</small></span>
+              <input id="presencePenalty" type="number" min="-2" max="2" step="0.05" placeholder="留空 = 不下发" />
+              <small class="field-hint">鼓励出现新概念，避免一直绕同一个话题；推荐 <code>0.3</code>。</small>
+            </label>
+          </div>
+          <div class="advanced-params-actions">
+            <button id="advancedParamsRecommendBtn" class="ghost" type="button">套用推荐档位</button>
+            <button id="advancedParamsClearBtn" class="ghost ghost-muted" type="button">全部清空</button>
+          </div>
+        </details>
 
         <div class="test-action-row">
           <button id="testConnectionButton" class="ghost" type="button">测试连接</button>
@@ -154,28 +183,79 @@
         </div>
       </section>
 
-      <section class="card split-grid" data-advanced="true" data-section-key="brand" id="opt-anchor-brand">
+      <section class="card split-grid" data-section-key="humanize" id="opt-anchor-humanize">
         <div class="section-heading split-full">
-          <h2>品牌与联系方式<span class="section-tag soft">进阶</span></h2>
-          <p>这些信息会自动显示在欢迎页、帮助中心和政策页面上，方便用户在需要时联系到你。</p>
+          <h2>去 AI 味强化<span class="section-tag soft">PRO · 默认开</span></h2>
+          <p>
+            开启后，AI 改写完成的文章会再过一道"去 AI 味"专项润色，<strong>句长、用词、节奏会被重写到更接近真人写作</strong>。这一步会触发额外的 LLM 调用（按章节数计 N 次），改写时间和 token 用量会有 30%–80% 的增加。
+          </p>
         </div>
 
+        <label class="humanize-toggle-row split-full">
+          <input id="humanizeEnabled" type="checkbox" />
+          <div class="humanize-toggle-text">
+            <strong>启用「去 AI 味」二次润色</strong>
+            <small>免费版仍可看到主 pass + 本地 lint 检测；二次润色仅 Pro 启用。即便开了开关，免费用户也不会被实际收费，只是不会触发二次调用。</small>
+          </div>
+        </label>
+
         <label>
-          <span>产品名</span>
-          <input id="productName" type="text" placeholder="润笔" />
+          <span>润色强度 <small class="field-meta">humanize_intensity</small></span>
+          <select id="humanizeIntensity">
+            <option value="light">轻 · 仅修 lint 命中权重最高的 1 段（最省 token）</option>
+            <option value="medium">中 · 仅重写 lint 命中段 + lead（推荐档位 · 默认）</option>
+            <option value="strong">重 · 全文重写 + lead + 注入个人文风样本</option>
+          </select>
+          <small class="field-hint">
+            轻档位只跑权重最高的 1 段；中档位只跑被 lint 命中风险点的章节 + lead，零命中时退化到全段兜底；重档位强制重写全部 H2 + lead 并注入"我的文风"指纹。强度越高越像真人，但也越烧 token、越慢。
+          </small>
         </label>
-        <label>
-          <span>运营主体</span>
-          <input id="operatorName" type="text" placeholder="公司名或个人品牌名" />
-        </label>
-        <label class="split-full">
-          <span>客服邮箱</span>
-          <input id="supportEmail" type="email" placeholder="support@your-domain.com" />
-        </label>
-        <label class="split-full">
-          <span>官网 / 落地页</span>
-          <input id="officialSiteUrl" type="url" placeholder="https://your-domain.com" />
-        </label>
+
+        <p class="humanize-cost-hint split-full">
+          <strong>token 估算</strong>：一篇 1500 字稿件，主 pass 大约 ~2.5k token；中档位通常只重写 1–3 段（~1.5k–3k token），重档位按章节数（典型 4–6 章）总计 ~3k–5k token。lint 分数 ≥ 85 时整篇会跳过二次润色，直接用主 pass 结果。
+        </p>
+      </section>
+
+      <section class="card split-grid" data-section-key="voice" id="opt-anchor-voice">
+        <div class="section-heading split-full">
+          <h2>我的文风<span class="section-tag soft">可选 · 让 AI 模仿你的语气</span></h2>
+          <p>
+            把你以前写过的几篇代表作粘进来，AI 会先离线提取一份"风格指纹"（常用语气词、句长偏好、忌讳词），
+            之后所有 AI 改写 + 二次"去 AI 味"润色都会向这份指纹靠拢。
+            <strong>样本只存在你本机浏览器</strong>，不会上传到我们的服务器；但每次改写时会随 prompt 发给你配置的 LLM API 提供方。
+          </p>
+        </div>
+
+        <div class="voice-samples-toolbar split-full">
+          <button id="voiceSampleAddBtn" class="primary" type="button">
+            <span aria-hidden="true">＋</span>
+            添加新样本
+          </button>
+          <small class="field-meta">最多保存 8 份，每份原文最长 12000 字。同一时间只能启用 1 份。</small>
+        </div>
+
+        <ul id="voiceSampleList" class="voice-sample-list split-full" aria-label="已保存的文风样本"></ul>
+
+        <p class="voice-sample-empty split-full" data-state="empty" hidden>
+          还没有保存任何样本。点上面的「添加新样本」开始。
+        </p>
+
+        <details class="voice-sample-editor split-full" id="voiceSampleEditor" hidden>
+          <summary>正在编辑样本</summary>
+          <label>
+            <span>样本名称 <small class="field-meta">用于自己识别，例如「公众号 2024-08 文章」</small></span>
+            <input id="voiceSampleTitle" type="text" maxlength="60" placeholder="未命名样本" />
+          </label>
+          <label>
+            <span>原文内容 <small class="field-meta">建议粘贴 1500–6000 字，越多越能反映稳定风格</small></span>
+            <textarea id="voiceSampleRaw" rows="10" placeholder="把你写过的一篇或几篇文章粘进来。可以含标题/段落，扩展会自动按段落切分。"></textarea>
+          </label>
+          <div class="voice-sample-editor-actions">
+            <button id="voiceSampleSaveBtn" class="primary" type="button">保存并提取指纹</button>
+            <button id="voiceSampleCancelBtn" class="ghost" type="button">取消</button>
+            <small id="voiceSampleEditorStatus" class="field-meta" role="status" aria-live="polite"></small>
+          </div>
+        </details>
       </section>
 
       <section class="card split-grid" data-section-key="pref" id="opt-anchor-pref">
@@ -389,28 +469,19 @@
           <h2>热点接口<span class="section-tag soft">进阶</span></h2>
           <p>
             热点捕捉默认走开源
-            <a href="https://github.com/imsyy/DailyHotApi" target="_blank" rel="noreferrer">DailyHotApi</a>
-            （公共地址 <code>https://api-hot.imsyy.top/</code>）。如果公共服务被限流，建议自己用一行 Docker 跑一份，再把地址填到这里：
+            <a href="https://github.com/ourongxing/newsnow" target="_blank" rel="noreferrer">NewsNow</a>
+            （公共地址 <code>https://hot.inkgold.info/</code>）。NewsNow 失败时会自动回退到
+            <a href="https://github.com/DIYgod/RSSHub" target="_blank" rel="noreferrer">RSSHub</a>
+            （30+ 中文热榜源都有路由），实现「双独立后端」抗单点失败。
           </p>
           <p class="muted">
-            <code>docker run -d --name daily-hot-api -p 6688:6688 imsyy/dailyhot-api:latest</code>
+            如果公共 NewsNow 被限流，建议自部署一份到 Cloudflare Pages（5 分钟，免费）。
           </p>
         </div>
 
         <label class="split-full">
-          <span>DailyHotApi 地址（留空使用公共地址）</span>
-          <input id="hotTopicsDailyHotBase" type="url" placeholder="https://api-hot.imsyy.top/" />
-        </label>
-        <div class="row" style="margin: -6px 0 12px; gap: 8px;">
-          <button type="button" class="btn btn-secondary btn-sm" id="testHotTopicsDailyHot">
-            测试 DailyHotApi 连接
-          </button>
-          <span class="muted" id="testHotTopicsDailyHotResult" aria-live="polite"></span>
-        </div>
-
-        <label class="split-full">
-          <span>NewsNow 备用地址（留空使用公共地址）</span>
-          <input id="hotTopicsNewsnowBase" type="url" placeholder="https://newsnow.busiyi.world/" />
+          <span>NewsNow 地址（留空使用公共地址）</span>
+          <input id="hotTopicsNewsnowBase" type="url" placeholder="https://hot.inkgold.info/" />
         </label>
         <div class="row" style="margin: -6px 0 12px; gap: 8px;">
           <button type="button" class="btn btn-secondary btn-sm" id="testHotTopicsNewsnow">
@@ -420,9 +491,14 @@
         </div>
 
         <p class="muted">
-          抓取顺序：先 DailyHotApi，失败时自动回退到 NewsNow，再失败才提示错误。
+          RSSHub 兜底地址在「抓取增强 → RSSHub Base URL」里配置（默认
+          <code>https://rsshub.app/</code>），同样支持自托。
+        </p>
+
+        <p class="muted">
+          抓取顺序：先 NewsNow，失败时自动回退到 RSSHub 兜底，再失败才提示错误。
           某个后端连续 3 次失败会自动冷却 10 分钟，避免反复轰炸已挂掉的服务。
-          公共服务限流频繁，强烈推荐部署自己的版本（一行 Docker 或一键 Vercel，
+          公共服务限流频繁，强烈推荐部署自己的版本（NewsNow / RSSHub 都有一键部署方案，
           见 <code>docs/SELFHOST_HOTTOPICS.md</code>）。
         </p>
       </section>
@@ -473,57 +549,6 @@
           <button id="testDrissionConnectionButton" class="ghost" type="button">测试 helper 连接</button>
           <p id="testDrissionConnectionResult" class="test-result" aria-live="polite"></p>
           <small class="field-hint">测试只检查 helper 的 <code>/health</code> 接口可达。真正抓取效果取决于目标站点 + 浏览器内核。</small>
-        </div>
-      </section>
-
-      <section class="card" id="agentSettings" data-advanced="true" data-section-key="agent">
-        <div class="section-heading">
-          <h2>AI 选题代笔 Agent<span class="section-tag soft">进阶</span></h2>
-          <p>
-            为 <a href="./../pages/agent.html" target="_blank" rel="noreferrer">AI 选题代笔</a> 控制台设默认值：默认勾选哪些平台、每平台抓多少条、并发与抖动、是否调用一次 AI 生成选题总结。这些值仍可在控制台临时修改。
-          </p>
-          <p class="muted">
-            凭据完全靠浏览器自身 cookie，扩展不存账号密码。如未登录，对应平台会被自动跳过。
-          </p>
-        </div>
-
-        <fieldset class="platform-grid-fieldset">
-          <legend>默认抓取平台</legend>
-          <div id="agentPlatformsGrid" class="platform-grid"></div>
-        </fieldset>
-
-        <div class="split-grid">
-          <label>
-            <span>每平台抓取上限</span>
-            <input id="agentPerPlatformLimit" type="number" min="1" max="30" />
-          </label>
-          <label>
-            <span>最终保留条数</span>
-            <input id="agentFinalLimit" type="number" min="1" max="30" />
-          </label>
-          <label>
-            <span>并发数（建议 1-2）</span>
-            <input id="agentConcurrency" type="number" min="1" max="4" />
-          </label>
-          <label>
-            <span>抖动下限（毫秒）</span>
-            <input id="agentJitterMin" type="number" min="0" max="8000" />
-          </label>
-          <label>
-            <span>抖动上限（毫秒）</span>
-            <input id="agentJitterMax" type="number" min="0" max="12000" />
-          </label>
-        </div>
-
-        <div class="checkbox-stack">
-          <label class="checkbox-row">
-            <input id="agentEnableBrief" type="checkbox" />
-            <span>跑完后让 AI 生成「选题总结 + 推荐角度」（消耗一次模型调用）</span>
-          </label>
-          <label class="checkbox-row">
-            <input id="agentShowAnglesAside" type="checkbox" />
-            <span>在结果区同时展示推荐角度提示</span>
-          </label>
         </div>
       </section>
 
@@ -649,6 +674,23 @@
                   <label>
                     <span>专属 Model（留空跟随全局）</span>
                     <input id="templateModel" type="text" placeholder="例如 gpt-4.1-mini" />
+                  </label>
+                  <label>
+                    <span>「我的文风」注入策略 <small class="field-meta">useVoiceSample</small></span>
+                    <select id="templateUseVoiceSample">
+                      <option value="auto">自动 · 若用户启用了样本则注入（默认）</option>
+                      <option value="force-on">强制开启 · 即便用户没启用也尝试注入</option>
+                      <option value="force-off">强制关闭 · 例如「行业观察稿」等正式模板</option>
+                    </select>
+                    <small class="field-hint">控制本模板要不要把用户保存的文风指纹放进 prompt。强制关闭可避免正式稿件被个人语气干扰。</small>
+                  </label>
+                  <label>
+                    <span>允许「去 AI 味」二次润色 <small class="field-meta">humanizePassAllowed</small></span>
+                    <select id="templateHumanizePassAllowed">
+                      <option value="true">允许（推荐 · 大部分模板都该开）</option>
+                      <option value="false">禁止 · 例如「教程拆解」需要保留代码 / 步骤精确度</option>
+                    </select>
+                    <small class="field-hint">禁用后即使用户开启了「去 AI 味」开关，使用本模板时也不会触发二次 LLM 调用。</small>
                   </label>
                 </div>
               </details>
@@ -794,7 +836,7 @@
 
       <p class="advanced-toast" id="advancedToast" role="note">
         <span aria-hidden="true">💡</span>
-        还有「品牌信息 / 多账号 / 热点接口 / AI 选题代笔 / 改写 Prompt 模板」等进阶配置已收起。
+        还有「多账号 / 热点接口 / 改写 Prompt 模板」等进阶配置已收起。
         <button type="button" class="link-button" data-mode="expert">切到高级模式查看</button>
       </p>
     </main>

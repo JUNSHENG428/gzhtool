@@ -99,7 +99,13 @@ export function sanitizeHtml(html) {
     "ul", "ol", "li", "dl", "dt", "dd",
     "strong", "em", "b", "i", "u", "s", "strike", "sub", "sup", "mark",
     "blockquote", "pre", "code", "a", "img", "figure", "figcaption",
-    "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col"
+    "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col",
+    // article/section 是 HTML5 安全的语义化容器；之前被剥到只剩内文，
+    // 会把 buildExportHtmlForArticle 给 <article> 节点设置的主题 root inline-style
+    // （背景 / 文字色 / 字体 / 内边距）一并丢掉——表现就是「换主题但预览没变」，
+    // 深色主题（wired-neon 等）尤其严重，文字在默认浅色预览底色上几乎不可见。
+    // 保留这两个 tag 的同时只允许 style/class 这类无害属性，安全无回退。
+    "article", "section"
   ]);
 
   const dangerousTagsToDrop = new Set([

@@ -10,6 +10,7 @@ import { escapeHtml } from "../shared/utils.js";
 import { initWorkspaceShortcuts } from "./shortcuts.js";
 import { initWorkspaceRouter } from "./workspace-router.js";
 import { initWorkspaceMember } from "./workspace-member.js";
+import { initImportFile } from "./workspace-import-file.js";
 
 import {
   init as initState,
@@ -113,7 +114,8 @@ const view = {
   keywordSuggestions: document.querySelector("#keywordSuggestions"),
   status: document.querySelector("#status"),
   loadingOverlay: document.querySelector("#loadingOverlay"),
-  loadingMessage: document.querySelector("#loadingMessage"),
+  loadingTitle: document.querySelector("#loadingTitle"),
+  loadingHint: document.querySelector("#loadingHint"),
   firstRunOverlay: document.querySelector("#firstRunOverlay"),
   emptyPromptCard: document.querySelector("#emptyPromptCard"),
   historyDrawer: document.querySelector("#historyDrawer"),
@@ -124,7 +126,6 @@ const view = {
 const controls = {
   bundleImport: document.querySelector("#bundleImportInput"),
   title: document.querySelector("#titleInput"),
-  subtitle: document.querySelector("#subtitleInput"),
   author: document.querySelector("#authorInput"),
   digest: document.querySelector("#digestInput"),
   sourceUrl: document.querySelector("#sourceUrlInput"),
@@ -147,8 +148,21 @@ const controls = {
 
 // ── 入口级工具 ──
 
-export function showLoading(message = "处理中...") {
-  view.loadingMessage.textContent = message;
+/**
+ * 中央加载卡片。
+ * 5 处老调用方式 `showLoading("正在 xxx...")` 完全兼容；
+ * 想给用户传达「等多久 / 结果落到哪」时再传第二参 `hint`。
+ * 见 workspace-rewrite / workspace-publish 等调用点。
+ */
+export function showLoading(title = "处理中...", hint = "") {
+  view.loadingTitle.textContent = title;
+  if (hint) {
+    view.loadingHint.textContent = hint;
+    view.loadingHint.hidden = false;
+  } else {
+    view.loadingHint.textContent = "";
+    view.loadingHint.hidden = true;
+  }
   view.loadingOverlay.classList.add("active");
   view.loadingOverlay.setAttribute("aria-hidden", "false");
 }
@@ -293,6 +307,7 @@ async function bootstrap() {
   initState(ctx);
   initRender(ctx);
   initEditor(ctx);
+  initImportFile(ctx);
   initCapture(ctx);
   initRewrite(ctx);
   initPublish(ctx);
@@ -388,7 +403,7 @@ function _bindGlobalEvents(ctx) {
   document.querySelector("#openHelpButton")?.addEventListener("click", openHelp);
 
   const syncTargets = [
-    controls.title, controls.subtitle, controls.author, controls.digest,
+    controls.title, controls.author, controls.digest,
     controls.sourceUrl, controls.lead, controls.cta,
     controls.audience, controls.tone, controls.angle
   ];

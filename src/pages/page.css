@@ -29,7 +29,7 @@ body {
 /* ──────────────────────────────────────────────────────────────
  * Embed mode（嵌入模式）
  *
- * 当独立页（hot-topics.html / agent.html 等）以 ?embed=1 加载时，
+ * 当独立页（hot-topics.html 等）以 ?embed=1 加载时，
  * 在 <html> / <body> 上由 inline 脚本设置 data-embed="1"，
  * 这里负责去掉品牌头/Hero/欢迎横幅、压平背景、收紧边距，
  * 让它在 workspace iframe 里看起来像原生面板。
@@ -47,8 +47,7 @@ body[data-embed="1"]::after {
 
 body[data-embed="1"] .skip-link,
 body[data-embed="1"] .topbar,
-body[data-embed="1"] .hero,
-body[data-embed="1"] .agent-banner {
+body[data-embed="1"] .hero {
   display: none !important;
 }
 

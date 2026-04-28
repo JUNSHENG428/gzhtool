@@ -8,12 +8,6 @@ import {
 } from "../shared/drission.js";
 import { initPromptTemplates } from "./prompt-templates.js";
 import {
-  getAgentConfig,
-  setAgentConfig,
-  DEFAULT_AGENT_CONFIG
-} from "../shared/agent/agent-store.js";
-import { PLATFORM_COOKIE_RULES, PLATFORM_IDS } from "../shared/agent/credentials.js";
-import {
   PAID_FEATURES,
   checkAccountLimit,
   checkLicense,
@@ -59,10 +53,6 @@ const HELPER_DOWNLOAD = {
 };
 
 const fields = {
-  productName: document.querySelector("#productName"),
-  operatorName: document.querySelector("#operatorName"),
-  supportEmail: document.querySelector("#supportEmail"),
-  officialSiteUrl: document.querySelector("#officialSiteUrl"),
   apiBaseUrl: document.querySelector("#apiBaseUrl"),
   apiKey: document.querySelector("#apiKey"),
   model: document.querySelector("#model"),
@@ -83,7 +73,6 @@ const fields = {
   wechatSendStrategy: document.querySelector("#wechatSendStrategy"),
   wechatSendTagId: document.querySelector("#wechatSendTagId"),
   wechatSendIgnoreReprint: document.querySelector("#wechatSendIgnoreReprint"),
-  hotTopicsDailyHotBase: document.querySelector("#hotTopicsDailyHotBase"),
   hotTopicsNewsnowBase: document.querySelector("#hotTopicsNewsnowBase"),
   drissionEnabled: document.querySelector("#drissionEnabled"),
   drissionHelperUrl: document.querySelector("#drissionHelperUrl"),
@@ -95,8 +84,6 @@ const testConnectionButton = document.querySelector("#testConnectionButton");
 const testConnectionResult = document.querySelector("#testConnectionResult");
 const testWechatConnectionButton = document.querySelector("#testWechatConnectionButton");
 const testWechatConnectionResult = document.querySelector("#testWechatConnectionResult");
-const testHotTopicsDailyHotButton = document.querySelector("#testHotTopicsDailyHot");
-const testHotTopicsDailyHotResult = document.querySelector("#testHotTopicsDailyHotResult");
 const testHotTopicsNewsnowButton = document.querySelector("#testHotTopicsNewsnow");
 const testHotTopicsNewsnowResult = document.querySelector("#testHotTopicsNewsnowResult");
 const testDrissionConnectionButton = document.querySelector("#testDrissionConnectionButton");
@@ -121,11 +108,6 @@ document.querySelector("#resetPreferencesButton")?.addEventListener("click", () 
 );
 testConnectionButton.addEventListener("click", testAiConnection);
 testWechatConnectionButton.addEventListener("click", testWechatConnection);
-if (testHotTopicsDailyHotButton) {
-  testHotTopicsDailyHotButton.addEventListener("click", () =>
-    testHotTopicsBackend("dailyhot")
-  );
-}
 if (testHotTopicsNewsnowButton) {
   testHotTopicsNewsnowButton.addEventListener("click", () =>
     testHotTopicsBackend("newsnow")
@@ -223,6 +205,7 @@ fields.drissionEnabled?.addEventListener("change", async (event) => {
 async function hydrateForm() {
   const settings = await getSettings();
   for (const [key, field] of Object.entries(fields)) {
+    if (!field) continue;
     if (field.type === "checkbox") {
       field.checked = Boolean(settings[key]);
       continue;
@@ -264,6 +247,7 @@ async function saveForm() {
   const invalidFields = [];
 
   for (const [key, field] of Object.entries(fields)) {
+    if (!field) continue;
     if (!field.checkValidity || field.checkValidity()) continue;
     const label = field.closest("label")?.querySelector("span")?.textContent || key;
     invalidFields.push(label);
@@ -272,7 +256,9 @@ async function saveForm() {
   if (invalidFields.length > 0) {
     setStatus(`请检查以下字段：${invalidFields.join("、")}`);
     invalidFields.forEach((label) => {
-      const field = Object.values(fields).find((f) => f.closest("label")?.querySelector("span")?.textContent === label);
+      const field = Object.values(fields).find(
+        (f) => f && f.closest("label")?.querySelector("span")?.textContent === label
+      );
       field?.focus();
     });
     return;
@@ -280,6 +266,7 @@ async function saveForm() {
 
   const patch = {};
   for (const [key, field] of Object.entries(fields)) {
+    if (!field) continue;
     if (field.type === "checkbox") {
       patch[key] = field.checked;
     } else if (field.type === "number") {
@@ -301,7 +288,6 @@ async function saveForm() {
   patch.wechatProfiles = currentProfiles;
 
   await saveSettings(patch);
-  await saveAgentSettings();
   refreshHelperTokenStatus();
   setStatus("设置已保存。");
 }
@@ -524,12 +510,10 @@ async function refreshWechatSendUsage() {
 }
 
 async function testHotTopicsBackend(kind) {
-  const button =
-    kind === "newsnow" ? testHotTopicsNewsnowButton : testHotTopicsDailyHotButton;
-  const resultEl =
-    kind === "newsnow" ? testHotTopicsNewsnowResult : testHotTopicsDailyHotResult;
-  const baseField =
-    kind === "newsnow" ? fields.hotTopicsNewsnowBase : fields.hotTopicsDailyHotBase;
+  if (kind !== "newsnow") return;
+  const button = testHotTopicsNewsnowButton;
+  const resultEl = testHotTopicsNewsnowResult;
+  const baseField = fields.hotTopicsNewsnowBase;
   if (!button || !resultEl) return;
 
   button.disabled = true;
@@ -892,65 +876,6 @@ async function addProfile() {
   setStatus(`账号「${name}」已添加并保存。`);
 }
 
-const agentPlatformsGrid = document.querySelector("#agentPlatformsGrid");
-const agentPerPlatformLimit = document.querySelector("#agentPerPlatformLimit");
-const agentFinalLimit = document.querySelector("#agentFinalLimit");
-const agentConcurrency = document.querySelector("#agentConcurrency");
-const agentJitterMin = document.querySelector("#agentJitterMin");
-const agentJitterMax = document.querySelector("#agentJitterMax");
-const agentEnableBrief = document.querySelector("#agentEnableBrief");
-const agentShowAnglesAside = document.querySelector("#agentShowAnglesAside");
-
-async function initAgentSettings() {
-  if (!agentPlatformsGrid) return;
-
-  agentPlatformsGrid.innerHTML = `
-    <div class="platform-grid-group">
-      <div class="platform-grid-group-title">Agent 抓取目标</div>
-      <div class="platform-grid-group-items">
-        ${PLATFORM_IDS.map(
-          (id) => `
-          <label class="platform-grid-checkbox">
-            <input type="checkbox" data-agent-platform="${escapeHtml(id)}" />
-            <span>${escapeHtml(PLATFORM_COOKIE_RULES[id]?.name || id)}</span>
-          </label>`
-        ).join("")}
-      </div>
-    </div>
-  `;
-
-  const config = await getAgentConfig();
-  const enabled = new Set(config.defaultPlatforms);
-  agentPlatformsGrid.querySelectorAll("input[data-agent-platform]").forEach((cb) => {
-    cb.checked = enabled.has(cb.dataset.agentPlatform);
-  });
-  if (agentPerPlatformLimit) agentPerPlatformLimit.value = config.perPlatformLimit;
-  if (agentFinalLimit) agentFinalLimit.value = config.finalLimit;
-  if (agentConcurrency) agentConcurrency.value = config.concurrency;
-  if (agentJitterMin) agentJitterMin.value = config.jitterMinMs;
-  if (agentJitterMax) agentJitterMax.value = config.jitterMaxMs;
-  if (agentEnableBrief) agentEnableBrief.checked = Boolean(config.enableBrief);
-  if (agentShowAnglesAside) agentShowAnglesAside.checked = Boolean(config.showAnglesAsideHits);
-}
-
-async function saveAgentSettings() {
-  if (!agentPlatformsGrid) return;
-  const defaultPlatforms = Array.from(
-    agentPlatformsGrid.querySelectorAll("input[data-agent-platform]:checked")
-  ).map((cb) => cb.dataset.agentPlatform);
-
-  await setAgentConfig({
-    defaultPlatforms: defaultPlatforms.length > 0 ? defaultPlatforms : DEFAULT_AGENT_CONFIG.defaultPlatforms,
-    perPlatformLimit: Number(agentPerPlatformLimit?.value) || DEFAULT_AGENT_CONFIG.perPlatformLimit,
-    finalLimit: Number(agentFinalLimit?.value) || DEFAULT_AGENT_CONFIG.finalLimit,
-    concurrency: Number(agentConcurrency?.value) || DEFAULT_AGENT_CONFIG.concurrency,
-    jitterMinMs: Number(agentJitterMin?.value) || DEFAULT_AGENT_CONFIG.jitterMinMs,
-    jitterMaxMs: Number(agentJitterMax?.value) || DEFAULT_AGENT_CONFIG.jitterMaxMs,
-    enableBrief: Boolean(agentEnableBrief?.checked),
-    showAnglesAsideHits: Boolean(agentShowAnglesAside?.checked)
-  });
-}
-
 /* ──────────────────────────────────────────────────────────────
  * 小白友好：上手清单 + 模式切换
  * 这两块都是「附加层」：不改任何已有 input 的 ID，也不影响保存逻辑，
@@ -994,7 +919,7 @@ function applyNoviceMode(mode) {
     hint.textContent =
       mode === "novice"
         ? "新手模式只显示最关键的几张配置卡，进阶能力默认收起。"
-        : "高级模式：所有进阶卡片都已展开，包括多账号、热点接口、AI 选题代笔、Prompt 模板等。";
+        : "高级模式：所有进阶卡片都已展开，包括多账号、热点接口、Prompt 模板等。";
   }
   try {
     localStorage.setItem(NOVICE_MODE_KEY, mode === "novice" ? "novice" : "expert");
@@ -1639,12 +1564,6 @@ function escapeAttr(value) {
  * 否则走默认。所有升级弹窗的主按钮都通过这里取链接，避免散落硬编码。
  */
 function pricingUrl() {
-  try {
-    const v = fields.officialSiteUrl?.value?.trim();
-    if (v) return `${v.replace(/\/+$/, "")}/pricing`;
-  } catch {
-    // ignore
-  }
   return "https://docuearn.com/pricing";
 }
 
@@ -1662,11 +1581,6 @@ async function bootstrapOptionsPage() {
     await initPromptTemplates(setStatus);
   } catch (err) {
     console.error("[options] initPromptTemplates failed:", err);
-  }
-  try {
-    await initAgentSettings();
-  } catch (err) {
-    console.error("[options] initAgentSettings failed:", err);
   }
   initNoviceMode();
   initChecklist();
@@ -1694,4 +1608,3 @@ async function bootstrapOptionsPage() {
 }
 
 await bootstrapOptionsPage();
-

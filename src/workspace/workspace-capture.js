@@ -43,7 +43,10 @@ export async function captureSource(captureMode) {
 
   const mode = VALID_CAPTURE_MODES.has(captureMode) ? captureMode : "readable";
 
-  showLoading(CAPTURE_MODE_LABELS[mode] || CAPTURE_MODE_LABELS.readable);
+  showLoading(
+    CAPTURE_MODE_LABELS[mode] || CAPTURE_MODE_LABELS.readable,
+    "通常 1–3 秒，结果会出现在「采集信息」面板。"
+  );
   try {
     const response = await chrome.runtime.sendMessage({
       type: "SCRAPE_LAST_SOURCE_TAB",
@@ -64,12 +67,24 @@ export async function captureSource(captureMode) {
       }
     }
 
+    // ── 当前正在编辑的这一篇：抓取动作必然代表"换页面 = 换正文"，
+    // 所以原文链接和结尾语都按"新一轮抓取"对齐：
+    //   • contentSourceUrl 必然被覆盖成新页面的 URL
+    //   • cta 清空 → applyCurrentArticleToControls 会回退到 settings.defaultCta，
+    //     避免上次手动改过的 CTA 锁住新内容（用户每次抓页面会重新决定 CTA 文案）
+    // 其他 bundle 文章保持原值，避免误伤多图文里另外几篇的署名 / 链接。
+    const currentForCapture = getCurrentArticle();
+    if (currentForCapture) {
+      currentForCapture.meta.contentSourceUrl = state.source.url || "";
+      currentForCapture.meta.cta = "";
+    }
+
     if (!state.selectedImageIndex && state.source.images.length > 0) {
       state.selectedImageIndex = 1;
     }
 
     // ── 抓取后自动套排版填正文 ──
-    const autoFilled = autoFillEditorFromSource(getCurrentArticle());
+    const autoFilled = autoFillEditorFromSource(currentForCapture);
 
     applyCurrentArticleToControls();
     syncWorkspace();
@@ -128,11 +143,20 @@ export async function importCurrentSourceToArticle() {
       article.meta.coverImageIndex = 1;
     }
   }
+
+  // 与 captureSource 同步：热点「一键入库」也是"换页面 = 换正文"语义，
+  // 当前篇的原文链接 / 结尾语都按新一轮抓取覆盖。
+  const currentForImport = getCurrentArticle();
+  if (currentForImport) {
+    currentForImport.meta.contentSourceUrl = state.source.url || "";
+    currentForImport.meta.cta = "";
+  }
+
   if (!state.selectedImageIndex && state.source.images.length > 0) {
     state.selectedImageIndex = 1;
   }
 
-  const autoFilled = autoFillEditorFromSource(getCurrentArticle());
+  const autoFilled = autoFillEditorFromSource(currentForImport);
 
   applyCurrentArticleToControls();
   syncWorkspace();

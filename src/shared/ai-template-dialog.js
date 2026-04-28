@@ -128,6 +128,12 @@ const CSS = `
   flex-direction: column;
   gap: 14px;
 }
+/* 兜底：HTML5 [hidden] 的 UA 样式 display:none 会被上面的 display:flex 覆盖，
+   所以必须用同优先级的 [hidden] 选择器显式盖回去——否则 loading / preview
+   两个 step 会永远和 input 同框出现（loading 圆环始终在转）。 */
+.ai-template-step[hidden] {
+  display: none;
+}
 
 /* 问卷块 */
 .ai-template-quiz-block {

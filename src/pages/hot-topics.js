@@ -1,4 +1,9 @@
 import { formatRuntimeError, escapeHtml } from "../shared/utils.js";
+import {
+  getPromptTemplates,
+  getActiveTemplateId,
+  setActiveTemplateId
+} from "../shared/storage.js";
 
 /* ============== 单平台浏览 ============== */
 
@@ -364,8 +369,8 @@ function escapeAttr(s) {
 }
 
 function formatBackend(backend) {
-  if (backend === "dailyhot") return "DailyHotApi";
-  if (backend === "newsnow") return "NewsNow（备用）";
+  if (backend === "newsnow") return "NewsNow";
+  if (backend === "rsshub") return "RSSHub 兜底";
   if (backend === "direct") return "官方接口直连";
   if (backend === "reddit") return "Reddit 直连";
   if (backend === "portal") return "门户引导";
@@ -374,4 +379,114 @@ function formatBackend(backend) {
 }
 
 void loadSource(activeSource);
+void initRewriteTemplateBar();
+
+/* ============== 改写模板可见性 chip ============== */
+
+/**
+ * 在热点页顶部展示「点 抓取并改写 时会用这个模板」chip。
+ * 解决用户经常忘了选模板就直接点 ✨ 抓取并改写 → workspace 用上一次的随机模板
+ * → 浪费 AI 配额这个体感最差的踩坑。
+ *
+ * 行为：
+ *  - 加载已有 prompt templates + 当前 activeId
+ *  - activeId 为空 / 不在列表里时自动选第一项并回写 storage（避免后台 service-worker
+ *    走兜底路径返回不可控模板）
+ *  - 切换 select 立刻写回 storage，options/workspace 下次打开会自动同步
+ *  - 监听 chrome.storage.onChanged 同步 options/workspace 那边的改动
+ *  - 「管理模板」链接兜底打开 options page
+ */
+async function initRewriteTemplateBar() {
+  const select = document.querySelector("#hotRewriteTemplateSelect");
+  const bar = document.querySelector('[data-el="rewriteTemplateBar"]');
+  const manageLink = bar?.querySelector('[data-act="manage-templates"]');
+  if (!select || !bar) return;
+
+  if (!runtimeOk) {
+    bar.hidden = true;
+    return;
+  }
+
+  manageLink?.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (typeof chrome.runtime.openOptionsPage === "function") {
+      chrome.runtime.openOptionsPage();
+    } else {
+      chrome.tabs.create({ url: chrome.runtime.getURL("src/pages/options.html") });
+    }
+  });
+
+  let templates = [];
+
+  async function refresh({ forceWriteFirst = true } = {}) {
+    try {
+      const [tpls, activeId] = await Promise.all([
+        getPromptTemplates(),
+        getActiveTemplateId()
+      ]);
+      templates = Array.isArray(tpls) ? tpls : [];
+
+      if (templates.length === 0) {
+        select.innerHTML = `<option value="">（暂无模板，请先到「管理模板」新建）</option>`;
+        select.disabled = true;
+        select.dataset.activeId = "";
+        return;
+      }
+
+      select.disabled = false;
+      const known = new Set(templates.map((t) => t.id));
+      let nextActive = activeId;
+      if (!nextActive || !known.has(nextActive)) {
+        nextActive = templates[0].id;
+        if (forceWriteFirst) {
+          await setActiveTemplateId(nextActive);
+        }
+      }
+
+      select.innerHTML = templates
+        .map((t) => {
+          const label = `${t.icon || "📝"} ${t.name || "未命名模板"}`;
+          return `<option value="${escapeAttr(t.id)}">${escapeHtml(label)}</option>`;
+        })
+        .join("");
+      select.value = nextActive;
+      select.dataset.activeId = nextActive;
+    } catch (err) {
+      console.warn("[hot-topics] 加载改写模板列表失败：", err);
+      select.innerHTML = `<option value="">（模板列表加载失败）</option>`;
+      select.disabled = true;
+    }
+  }
+
+  select.addEventListener("change", async () => {
+    const value = select.value;
+    if (!value) return;
+    try {
+      await setActiveTemplateId(value);
+      select.dataset.activeId = value;
+      const picked = templates.find((t) => t.id === value);
+      const label = picked?.name || "新模板";
+      showToast(`下次「抓取并改写」将使用：${label}`);
+    } catch (err) {
+      console.warn("[hot-topics] 切换默认模板失败：", err);
+      showToast("切换默认模板失败，请稍后重试。");
+    }
+  });
+
+  // options/workspace 改了模板或 activeId，这里同步刷新；不再重复回写 storage
+  // 避免环式 onChanged 触发。
+  if (chrome.storage?.onChanged?.addListener) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "local") return;
+      if (
+        Object.prototype.hasOwnProperty.call(changes, "wechatWriterActiveTemplateId") ||
+        Object.prototype.hasOwnProperty.call(changes, "wechatWriterPromptTemplates")
+      ) {
+        void refresh({ forceWriteFirst: false });
+      }
+    });
+  }
+
+  await refresh();
+}
 

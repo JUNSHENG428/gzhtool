@@ -1,5 +1,7 @@
 # Phase 1 自动化机测报告 + Phase 2 手测清单
 
+> 说明：本报告保留历史 Phase 1 结果。2026-04-27 之后旧「AI 选题代笔 Agent」已下线，`#agent` 路由、独立 agent 页、cookies 权限和相关手测项不再适用；选题能力由热点页「AI 智能选题（topic-planner）」承接。
+
 > 跑完了所有不依赖真凭证的自动化检查，给你一份一目了然的总结。
 >
 > **总成绩**：共 63 项检查 / 60 ✓ / 3 ⚠️ / 0 ❌
@@ -13,8 +15,8 @@
 | 维度 | 项数 | 关键结论 |
 |---|---|---|
 | 扩展加载 + Service Worker | 2 | SW 启动无报错，extension ID 拿得到 |
-| 16 个静态页面加载 + console | 16 | popup / options / 9 个 workspace 路由 / 5 个独立页全部干净 |
-| Workspace 7 个 hash 路由 | 8 | dashboard / capture / layout / publish / hot / agent / member 切换正确，console 干净 |
+| 16 个静态页面加载 + console | 16 | 历史记录：popup / options / 9 个 workspace 路由 / 5 个独立页全部干净 |
+| Workspace 7 个 hash 路由 | 8 | 历史记录：dashboard / capture / layout / publish / hot / agent / member 切换正确，console 干净 |
 | Options 12 个 section | 12 | 所有 quicknav 锚点存在 |
 | Popup 3 个 tab 切换 | 3 | 写作 / 热点 / 我的 都能切 |
 | Member 页 4 个核心卡 | 4 | hero / quota / features / actions 都渲染 |
@@ -193,12 +195,9 @@ npm run check:all
 
 ## 🟢 P2 · 锦上添花（4 项）
 
-### P2-1 · AI 选题代笔 Agent（先注入 fake-pro）
+### P2-1 · AI 选题代笔 Agent（已下线，改由 topic-planner 承接）
 
-1. 用 `dev-fixtures as-pro` 解锁
-2. 打开 `#agent` 视图
-3. 勾选 1-2 个平台（知乎 + X，需要你已登录的）
-4. 跑一次
+旧 `#agent` 视图、独立 agent 页与平台登录态检测已下线。后续选题相关测试看 `docs/SELF_CHECK.md` 的「AI 智能选题（Topic Planner）」章节。
 5. **预期**：进度反馈 + 任务历史里出现这次任务
 
 ### P2-2 · 多账号闸门（free 上限 2 个）

@@ -225,6 +225,271 @@ textarea {
   align-items: center;
 }
 
+/* 高级生成参数（Temperature 下方的折叠区）*/
+.advanced-params {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px dashed #d6dde6;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.advanced-params > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+.advanced-params > summary::-webkit-details-marker {
+  display: none;
+}
+.advanced-params > summary::before {
+  content: "▸";
+  display: inline-block;
+  transform: translateY(-1px);
+  color: #64748b;
+  transition: transform 0.15s ease;
+}
+.advanced-params[open] > summary::before {
+  transform: rotate(90deg);
+}
+.advanced-params > summary small {
+  font-weight: 400;
+  color: #64748b;
+}
+.advanced-params-hint {
+  margin: 10px 0 14px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: #475569;
+}
+.advanced-params-hint code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #e2e8f0;
+  font-size: 12px;
+}
+.advanced-params-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.advanced-params-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ghost.ghost-muted {
+  color: #64748b;
+}
+
+/* 「去 AI 味」段落 */
+.humanize-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+.humanize-toggle-row input[type="checkbox"] {
+  margin-top: 4px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+.humanize-toggle-text {
+  display: grid;
+  gap: 4px;
+}
+.humanize-toggle-text strong {
+  font-size: 14px;
+  color: #0f172a;
+}
+.humanize-toggle-text small {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #64748b;
+}
+.humanize-cost-hint {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #fff7ed;
+  border: 1px solid rgba(234, 88, 12, 0.18);
+  font-size: 12.5px;
+  color: #9a3412;
+  line-height: 1.6;
+}
+.humanize-cost-hint strong {
+  color: #7c2d12;
+}
+
+/* ────────────────────────────────────────────────────────────
+ * 「我的文风」样本管理
+ *  - 顶部工具条：添加按钮 + 当前限额提示
+ *  - 列表：每条样本一行；激活态高亮，操作按钮放在右侧
+ *  - 编辑面板：默认折叠（hidden 属性），点击新增/编辑时弹开
+ * ──────────────────────────────────────────────────────────── */
+.voice-samples-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 0 0;
+}
+.voice-samples-toolbar .field-meta {
+  flex: 1 1 240px;
+  text-align: right;
+  color: #64748b;
+}
+.voice-sample-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.voice-sample-list:empty {
+  display: none;
+}
+.voice-sample-empty {
+  margin: 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  color: #64748b;
+  text-align: center;
+}
+.voice-sample-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.voice-sample-item[data-active="true"] {
+  border-color: rgba(99, 102, 241, 0.5);
+  background: linear-gradient(135deg, #eef2ff 0%, #ffffff 60%);
+  box-shadow: 0 6px 14px -10px rgba(99, 102, 241, 0.45);
+}
+.voice-sample-radio {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+.voice-sample-info {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.voice-sample-info .voice-sample-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+  word-break: break-word;
+}
+.voice-sample-info .voice-sample-fingerprint {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.6;
+}
+.voice-sample-info .voice-sample-fingerprint code {
+  background: #f1f5f9;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  margin: 0 2px;
+}
+.voice-sample-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.voice-sample-actions button {
+  padding: 5px 10px;
+  font-size: 12.5px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  cursor: pointer;
+}
+.voice-sample-actions button:hover {
+  border-color: #94a3b8;
+  background: #fff;
+}
+.voice-sample-actions .danger {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+.voice-sample-actions .danger:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+
+/* 编辑面板 */
+.voice-sample-editor {
+  display: block;
+  padding: 12px 14px;
+  border: 1px solid #c7d2fe;
+  border-radius: 12px;
+  background: #f5f7ff;
+}
+.voice-sample-editor[open] {
+  background: #ffffff;
+}
+.voice-sample-editor summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #4338ca;
+  margin-bottom: 6px;
+}
+.voice-sample-editor label {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+}
+.voice-sample-editor textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.voice-sample-editor-actions {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.voice-sample-editor-actions .field-meta {
+  flex: 1 1 200px;
+  color: #64748b;
+}
+@media (max-width: 600px) {
+  .voice-sample-item {
+    grid-template-columns: auto 1fr;
+  }
+  .voice-sample-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+
 /* DrissionPage 设置区里的「下载桌面助手」横幅 */
 .helper-download-banner {
   margin-top: 12px;
@@ -2361,17 +2626,13 @@ body[data-novice-mode="on"] [data-advanced="true"] {
 }
 
 /* 高级模式默认隐藏的卡片，对应 quicknav 项也淡化（不点击只是不强调） */
-body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="brand"],
 body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="profiles"],
 body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="hot"],
 body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="drission"],
-body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="agent"],
 body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="prompt"],
-body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="brand"]::after,
 body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="profiles"]::after,
 body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="hot"]::after,
 body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="drission"]::after,
-body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="agent"]::after,
 body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="prompt"]::after {
   opacity: 0.55;
 }

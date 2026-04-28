@@ -6,17 +6,26 @@
  *     仓库：https://github.com/ourongxing/newsnow
  *     选它的理由：作者每周更新；自带 SQLite 缓存；多平台覆盖；CF Pages 边缘节点
  *  2. 官方直连（如 Bilibili 排行榜公共接口）
- *  3. DailyHotApi（兜底，默认 https://api-hot.imsyy.top/，仅当 NewsNow 都挂时启用）
- *     仓库：https://github.com/imsyy/DailyHotApi
+ *  3. RSSHub 兜底（默认 https://rsshub.app/，按 meta.rsshub 路径拉 RSS 2.0，
+ *     复用本文件 RSS 解析器零格式适配；仅当 NewsNow / 官方直连均挂时启用）
+ *     仓库：https://github.com/DIYgod/RSSHub
  *  4. Reddit 直连（独立通道）
- *  5. RSS / RSSHub 直连（AI / 技术博客类）
+ *  5. RSS / RSSHub 直连（AI / 技术博客类，meta.rss === true）
  *  6. 门户引导（X / 小红书）
  *
  * 用户可在「设置 → 热点接口」里把 NewsNow 改成自托地址，
- * 或填写 DailyHotApi 自托地址，避免公共服务被限流。
+ * 也可在「设置 → 抓取增强 → RSSHub Base URL」填写自托 RSSHub，
+ * 避免公共服务被限流。
+ *
+ * 2026-04-25 起 DailyHotApi 整体退役（公共 demo 长期 530），由 RSSHub 接管兜底。
  */
 
-import { fetchHotTopicSourceItems } from "./hot-topics-sources.js";
+import {
+  fetchHotTopicSourceItems,
+  fetchEndpointPayload,
+  parseRssFeed,
+  resolveRsshubBaseUrl
+} from "./hot-topics-sources.js";
 import {
   readCachedPayload,
   writeCachedPayload,
@@ -34,57 +43,62 @@ const UA =
 // 默认走我们自部署的 NewsNow（Cloudflare Pages，国内国外都稳）
 // 想自部一份的用户可在「设置 → 热点接口」覆盖此地址
 export const DEFAULT_NEWSNOW_BASE = "https://hot.inkgold.info/";
-// DailyHotApi 仅作兜底，公共 demo 经常 530，不再作为首选
-export const DEFAULT_DAILYHOT_BASE = "https://api-hot.imsyy.top/";
 
 const FETCH_TIMEOUT_MS = 8000;
 // 仅当 items 少于这个数量才认为「实际为空」并触发 fallback
 const MIN_VALID_ITEMS = 1;
 
+// HOT_SOURCE_META：
+//   newsNow  → NewsNow 主链路 source id（由 fetchNewsNowHot 拼到 ?id=xxx）
+//   rsshub   → RSSHub 兜底路径（由 fetchRsshubHot 拼到 ${rsshubBase}${rsshub}），主挂时启用
+//   direct   → 官方直连（仅 bilibili-ranking 这种少数源用）
+//   rss      → 走专门的 RSS / RSSHub 直连（meta.rssSourceId）
+//   注：RSSHub 路径以 / 开头，不含尾斜杠；个别源（如 tieba/douyin）路由稳定性较差，
+//       未来可单独剔除对应 rsshub 字段，让它退化为「单 NewsNow 无兜底」。
 export const HOT_SOURCE_META = {
   // 综合 / 社区
-  zhihu: { id: "zhihu", label: "知乎热榜", detail: "知乎热门内容", category: "china", dailyhot: "zhihu", newsNow: "zhihu" },
-  weibo: { id: "weibo", label: "微博热搜", detail: "新浪微博实时热点", category: "china", dailyhot: "weibo", newsNow: "weibo" },
-  tieba: { id: "tieba", label: "百度贴吧", detail: "贴吧热议话题", category: "china", dailyhot: "tieba", newsNow: "tieba" },
-  baidu: { id: "baidu", label: "百度热搜", detail: "百度搜索实时榜", category: "china", dailyhot: "baidu", newsNow: "baidu" },
-  toutiao: { id: "toutiao", label: "今日头条", detail: "头条热点资讯", category: "china", dailyhot: "toutiao", newsNow: "toutiao" },
-  hupu: { id: "hupu", label: "虎扑步行街", detail: "主干道热门讨论", category: "china", dailyhot: "hupu", newsNow: "hupu" },
-  thepaper: { id: "thepaper", label: "澎湃新闻", detail: "热榜资讯", category: "china", dailyhot: "thepaper", newsNow: "thepaper" },
-  tencent: { id: "tencent-hot", label: "腾讯新闻", detail: "综合早报与热点", category: "china", dailyhot: "qq-news", newsNow: "tencent-hot" },
-  netease: { id: "netease-news", label: "网易新闻", detail: "热点头条", category: "china", dailyhot: "netease-news" },
-  weread: { id: "weread", label: "微信读书", detail: "飙升榜", category: "china", dailyhot: "weread" },
+  zhihu: { id: "zhihu", label: "知乎热榜", detail: "知乎热门内容", category: "china", newsNow: "zhihu", rsshub: "/zhihu/hotlist" },
+  weibo: { id: "weibo", label: "微博热搜", detail: "新浪微博实时热点", category: "china", newsNow: "weibo", rsshub: "/weibo/search/hot" },
+  tieba: { id: "tieba", label: "百度贴吧", detail: "贴吧热议话题", category: "china", newsNow: "tieba", rsshub: "/tieba/forum/hot" },
+  baidu: { id: "baidu", label: "百度热搜", detail: "百度搜索实时榜", category: "china", newsNow: "baidu", rsshub: "/baidu/topwords" },
+  toutiao: { id: "toutiao", label: "今日头条", detail: "头条热点资讯", category: "china", newsNow: "toutiao", rsshub: "/toutiao" },
+  hupu: { id: "hupu", label: "虎扑步行街", detail: "主干道热门讨论", category: "china", newsNow: "hupu", rsshub: "/hupu/topic-daily" },
+  thepaper: { id: "thepaper", label: "澎湃新闻", detail: "热榜资讯", category: "china", newsNow: "thepaper", rsshub: "/thepaper/featured" },
+  tencent: { id: "tencent-hot", label: "腾讯新闻", detail: "综合早报与热点", category: "china", newsNow: "tencent-hot", rsshub: "/tencentnews/24hours" },
+  netease: { id: "netease-news", label: "网易新闻", detail: "热点头条", category: "china", rsshub: "/netease/news/special/00011HOT" },
+  weread: { id: "weread", label: "微信读书", detail: "飙升榜", category: "china", rsshub: "/weread/rising" },
 
   // 科技 / 数码 / 开发
-  sspai: { id: "sspai", label: "少数派", detail: "高效工具与生活方式", category: "tech", dailyhot: "sspai", newsNow: "sspai" },
-  juejin: { id: "juejin", label: "稀土掘金", detail: "开发者技术热点", category: "tech", dailyhot: "juejin", newsNow: "juejin" },
-  coolapk: { id: "coolapk", label: "酷安", detail: "数码科技数码圈热议", category: "tech", dailyhot: "coolapk", newsNow: "coolapk" },
-  ithome: { id: "ithome", label: "IT之家", detail: "每日科技要闻", category: "tech", dailyhot: "ithome", newsNow: "ithome" },
-  "36kr": { id: "36kr-quick", label: "36氪", detail: "科技创投最新快讯", category: "tech", dailyhot: "36kr", newsNow: "36kr-quick" },
-  v2ex: { id: "v2ex", label: "V2EX", detail: "极客社区最新分享", category: "tech", dailyhot: "v2ex", newsNow: "v2ex" },
-  github: { id: "github-trending-today", label: "GitHub", detail: "Trending今日趋势", category: "tech", dailyhot: "github", newsNow: "github-trending-today" },
-  hackernews: { id: "hackernews", label: "Hacker News", detail: "前沿科技资讯 (英)", category: "tech", dailyhot: "hackernews", newsNow: "hackernews" },
-  producthunt: { id: "producthunt", label: "Product Hunt", detail: "每日全球新产品", category: "tech", dailyhot: "producthunt", newsNow: "producthunt" },
-  hellogithub: { id: "hellogithub", label: "HelloGitHub", detail: "高质量开源项目", category: "tech", dailyhot: "hellogithub" },
-  nodeseek: { id: "nodeseek", label: "NodeSeek", detail: "服务器圈热议", category: "tech", dailyhot: "nodeseek" },
-  csdn: { id: "csdn", label: "CSDN", detail: "技术博客排行", category: "tech", dailyhot: "csdn" },
-  huxiu: { id: "huxiu", label: "虎嗅", detail: "商业科技深度", category: "tech", dailyhot: "huxiu" },
+  sspai: { id: "sspai", label: "少数派", detail: "高效工具与生活方式", category: "tech", newsNow: "sspai", rsshub: "/sspai/matrix" },
+  juejin: { id: "juejin", label: "稀土掘金", detail: "开发者技术热点", category: "tech", newsNow: "juejin", rsshub: "/juejin/category/all" },
+  coolapk: { id: "coolapk", label: "酷安", detail: "数码科技数码圈热议", category: "tech", newsNow: "coolapk", rsshub: "/coolapk/tuwen-xinxian" },
+  ithome: { id: "ithome", label: "IT之家", detail: "每日科技要闻", category: "tech", newsNow: "ithome", rsshub: "/ithome" },
+  "36kr": { id: "36kr-quick", label: "36氪", detail: "科技创投最新快讯", category: "tech", newsNow: "36kr-quick", rsshub: "/36kr/newsflashes" },
+  v2ex: { id: "v2ex", label: "V2EX", detail: "极客社区最新分享", category: "tech", newsNow: "v2ex", rsshub: "/v2ex/topics/hot" },
+  github: { id: "github-trending-today", label: "GitHub", detail: "Trending今日趋势", category: "tech", newsNow: "github-trending-today", rsshub: "/github/trending/daily" },
+  hackernews: { id: "hackernews", label: "Hacker News", detail: "前沿科技资讯 (英)", category: "tech", newsNow: "hackernews", rsshub: "/hackernews/best" },
+  producthunt: { id: "producthunt", label: "Product Hunt", detail: "每日全球新产品", category: "tech", newsNow: "producthunt", rsshub: "/producthunt/today" },
+  hellogithub: { id: "hellogithub", label: "HelloGitHub", detail: "高质量开源项目", category: "tech", rsshub: "/hellogithub" },
+  nodeseek: { id: "nodeseek", label: "NodeSeek", detail: "服务器圈热议", category: "tech", rsshub: "/nodeseek" },
+  csdn: { id: "csdn", label: "CSDN", detail: "技术博客排行", category: "tech", rsshub: "/csdn/index" },
+  huxiu: { id: "huxiu", label: "虎嗅", detail: "商业科技深度", category: "tech", rsshub: "/huxiu/article" },
 
   // 财经
-  wallstreetcn: { id: "wallstreetcn-hot", label: "华尔街见闻", detail: "全球金融要闻", category: "finance", dailyhot: "wallstreetcn", newsNow: "wallstreetcn-hot" },
-  xueqiu: { id: "xueqiu-hotstock", label: "雪球", detail: "热门讨论与股票", category: "finance", dailyhot: "xueqiu", newsNow: "xueqiu-hotstock" },
+  wallstreetcn: { id: "wallstreetcn-hot", label: "华尔街见闻", detail: "全球金融要闻", category: "finance", newsNow: "wallstreetcn-hot", rsshub: "/wallstreetcn/hot" },
+  xueqiu: { id: "xueqiu-hotstock", label: "雪球", detail: "热门讨论与股票", category: "finance", newsNow: "xueqiu-hotstock", rsshub: "/xueqiu/hots" },
   cls: { id: "cls-telegraph", label: "财联社", detail: "财经电报实时动态", category: "finance", newsNow: "cls-telegraph" },
 
   // 视频 / 娱乐
-  bilibili: { id: "bilibili-hot-search", label: "B站热搜", detail: "Bilibili 热搜词", category: "video", dailyhot: "bilibili", newsNow: "bilibili-hot-search" },
+  bilibili: { id: "bilibili-hot-search", label: "B站热搜", detail: "Bilibili 热搜词", category: "video", newsNow: "bilibili-hot-search", rsshub: "/bilibili/hot-search" },
   bilibili_rank: { id: "bilibili-ranking", label: "B站排行榜", detail: "最受全站欢迎视频", category: "video", direct: "bilibili-ranking", newsNow: "bilibili-ranking" },
-  douyin: { id: "douyin", label: "抖音热点", detail: "抖音全网热榜", category: "video", dailyhot: "douyin", newsNow: "douyin" },
-  douban_movie: { id: "douban-movie", label: "豆瓣电影", detail: "近期热门影视", category: "video", dailyhot: "douban-movie", newsNow: "douban" },
-  douban_group: { id: "douban-group", label: "豆瓣小组", detail: "热门小组讨论", category: "video", dailyhot: "douban-group" },
-  acfun: { id: "acfun", label: "AcFun", detail: "弹幕视频热门", category: "video", dailyhot: "acfun" },
+  douyin: { id: "douyin", label: "抖音热点", detail: "抖音全网热榜", category: "video", newsNow: "douyin", rsshub: "/douyin/hot" },
+  douban_movie: { id: "douban-movie", label: "豆瓣电影", detail: "近期热门影视", category: "video", newsNow: "douban", rsshub: "/douban/movie/showing" },
+  douban_group: { id: "douban-group", label: "豆瓣小组", detail: "热门小组讨论", category: "video", rsshub: "/douban/group/discover" },
+  acfun: { id: "acfun", label: "AcFun", detail: "弹幕视频热门", category: "video", rsshub: "/acfun/rank/general/24" },
 
   // 国际视野 / 其他门户
   reddit: { id: "reddit", label: "Reddit", detail: "r/popular 全球热帖", category: "world" },
-  zaobao: { id: "zaobao", label: "联合早报", detail: "早晨国际要闻", category: "world", dailyhot: "zaobao", newsNow: "zaobao" },
+  zaobao: { id: "zaobao", label: "联合早报", detail: "早晨国际要闻", category: "world", newsNow: "zaobao", rsshub: "/zaobao/realtime/china" },
   x: { id: "x", label: "X (Twitter)", detail: "官方趋势引导", category: "world" },
   xiaohongshu: { id: "xiaohongshu", label: "小红书", detail: "发现页引导", category: "china" },
 
@@ -101,8 +115,8 @@ export const HOT_SOURCE_META = {
 };
 
 const BACKEND_LABEL = {
-  dailyhot: "DailyHotApi",
   newsnow: "NewsNow",
+  rsshub: "RSSHub 兜底",
   direct: "官方接口",
   reddit: "Reddit",
   portal: "门户",
@@ -114,11 +128,11 @@ const BACKEND_LABEL = {
  * @param {keyof typeof HOT_SOURCE_META} sourceId
  * @param {Object} [opts]
  * @param {boolean} [opts.forceRefresh] 强制忽略缓存
- * @param {string} [opts.dailyhotBase] DailyHotApi 自定义地址
  * @param {string} [opts.newsnowBase] NewsNow 自定义地址
+ * @param {string} [opts.rsshubBaseUrl] RSSHub 自定义地址（同时也是兜底通道的 base）
  */
 export async function fetchHotTopics(sourceId, opts = {}) {
-  const { forceRefresh = false, dailyhotBase, newsnowBase, rsshubBaseUrl } = opts;
+  const { forceRefresh = false, newsnowBase, rsshubBaseUrl } = opts;
 
   const meta = HOT_SOURCE_META[sourceId];
   if (!meta) {
@@ -183,7 +197,9 @@ export async function fetchHotTopics(sourceId, opts = {}) {
   // 4) Reddit 直连通道
   if (sourceId === "reddit") {
     const redditUrl = "https://www.reddit.com";
-    if (await isBaseCoolingDown(redditUrl)) {
+    // forceRefresh = true 表示用户主动点了「🔄 强制刷新」明确要重试，
+    // 必须绕过冷却给个逃生口，否则冷却 10 分钟内用户怎么点都没反应。
+    if (!forceRefresh && (await isBaseCoolingDown(redditUrl))) {
       return { ok: false, message: coolingMessage("Reddit") };
     }
     try {
@@ -193,20 +209,31 @@ export async function fetchHotTopics(sourceId, opts = {}) {
         await writeCachedPayload(sourceId, payload);
         return { ok: true, payload };
       }
-      await recordBaseFailure(redditUrl, "返回空列表");
+      // 空列表是 Reddit 上游的内容问题（被 sticky / 全 NSFW 过滤掉），
+      // Reddit 服务本身是 200 OK，不该计入 base 失败拖累整个 reddit.com 通道。
       return { ok: false, message: friendlyEmpty("Reddit", meta) };
     } catch (e) {
+      // 只有真实的 HTTP/网络错误才记 base 失败（fetchRedditHot 抛错都属于这类）
       await recordBaseFailure(redditUrl, shortMessage(e));
       return { ok: false, message: friendlyMessage("Reddit", e) };
     }
   }
 
-  // 5) 主链路：NewsNow（首选）→ 官方直连 → DailyHotApi（兜底），带后端健康度
+  // 5) 主链路：NewsNow（首选）→ 官方直连 → RSSHub（兜底），带后端健康度
+  //    设计权衡：
+  //    - forceRefresh 绕过冷却闸门：用户主动点「🔄 强制刷新」是明确意图，必须给逃生口；
+  //      若强刷成功，recordBaseSuccess 会立刻清零冷却；若再次失败，最多多累计 1 次失败次数，
+  //      但 coolingSince 已设、不会延长冷却时长。
+  //    - 上游每源错误（json.error / json.statusCode>=400 / 空列表）只惩罚单次结果，
+  //      不计入 base 健康度——这些错来自 NewsNow 抓的某个上游网站（如 zhihu 反爬），
+  //      hot.inkgold.info 自己是 200 OK 的健康状态，不该被一并冷却。
+  //      只有真实的网络/HTTP/JSON parse 错（fetchNewsNowHot 主动 throw 且未挂 upstreamPerSource 标记的）
+  //      才计入 recordBaseFailure。
   let payload = null;
 
   if (meta.newsNow) {
     const base = normalizeBase(newsnowBase, DEFAULT_NEWSNOW_BASE);
-    if (await isBaseCoolingDown(base)) {
+    if (!forceRefresh && (await isBaseCoolingDown(base))) {
       errors.push(`NewsNow: 上次失败后冷却中（${COOLDOWN_MS / 60000} 分钟）`);
     } else {
       try {
@@ -216,18 +243,20 @@ export async function fetchHotTopics(sourceId, opts = {}) {
           await recordBaseSuccess(base);
         } else {
           errors.push("NewsNow: 返回空列表");
-          await recordBaseFailure(base, "空列表");
+          // 空列表 = 上游某网站今天没数据 / 被反爬，不是 NewsNow 自己挂了，不计 base
         }
       } catch (e) {
         errors.push(`NewsNow: ${shortMessage(e)}`);
-        await recordBaseFailure(base, shortMessage(e));
+        if (!e?.upstreamPerSource) {
+          await recordBaseFailure(base, shortMessage(e));
+        }
       }
     }
   }
 
   if (!payload && meta.direct === "bilibili-ranking") {
     const biliBase = "https://api.bilibili.com";
-    if (await isBaseCoolingDown(biliBase)) {
+    if (!forceRefresh && (await isBaseCoolingDown(biliBase))) {
       errors.push("Bilibili 官方接口: 冷却中");
     } else {
       try {
@@ -237,32 +266,34 @@ export async function fetchHotTopics(sourceId, opts = {}) {
           await recordBaseSuccess(biliBase);
         } else {
           errors.push("Bilibili 官方接口: 返回空列表");
-          await recordBaseFailure(biliBase, "空列表");
         }
       } catch (e) {
         errors.push(`Bilibili 官方接口: ${shortMessage(e)}`);
-        await recordBaseFailure(biliBase, shortMessage(e));
+        if (!e?.upstreamPerSource) {
+          await recordBaseFailure(biliBase, shortMessage(e));
+        }
       }
     }
   }
 
-  if (!payload && meta.dailyhot) {
-    const base = normalizeBase(dailyhotBase, DEFAULT_DAILYHOT_BASE);
-    if (await isBaseCoolingDown(base)) {
-      errors.push(`DailyHotApi: 兜底链路也在冷却（${COOLDOWN_MS / 60000} 分钟）`);
+  if (!payload && meta.rsshub) {
+    const base = resolveRsshubBaseUrl({ rsshubBaseUrl });
+    if (!forceRefresh && (await isBaseCoolingDown(base))) {
+      errors.push(`RSSHub: 兜底链路也在冷却（${COOLDOWN_MS / 60000} 分钟）`);
     } else {
       try {
-        const candidate = await fetchDailyHotApi(fetchedAt, meta, base);
+        const candidate = await fetchRsshubHot(fetchedAt, meta, base);
         if (candidate.items.length >= MIN_VALID_ITEMS) {
           payload = candidate;
           await recordBaseSuccess(base);
         } else {
-          errors.push("DailyHotApi: 返回空列表");
-          await recordBaseFailure(base, "空列表");
+          errors.push("RSSHub: 返回空列表");
         }
       } catch (e) {
-        errors.push(`DailyHotApi: ${shortMessage(e)}`);
-        await recordBaseFailure(base, shortMessage(e));
+        errors.push(`RSSHub: ${shortMessage(e)}`);
+        if (!e?.upstreamPerSource) {
+          await recordBaseFailure(base, shortMessage(e));
+        }
       }
     }
   }
@@ -275,7 +306,7 @@ export async function fetchHotTopics(sourceId, opts = {}) {
   if (errors.length === 0) {
     return {
       ok: false,
-      message: `「${meta.label}」暂未配置可用的数据接口，建议改用其他源（推荐：知乎热榜 / 微博热搜 / GitHub Trending），或在「设置 → 热点接口」填写自托 NewsNow / DailyHotApi 地址。`
+      message: `「${meta.label}」暂未配置可用的数据接口，建议改用其他源（推荐：知乎热榜 / 微博热搜 / GitHub Trending），或在「设置 → 热点接口」填写自托 NewsNow，或在「设置 → 抓取增强」填写自托 RSSHub 地址。`
     };
   }
 
@@ -283,11 +314,12 @@ export async function fetchHotTopics(sourceId, opts = {}) {
   const allCooling = errors.every((line) => line.includes("冷却"));
   let advice;
   if (allCooling) {
-    advice = `所有候选后端都在冷却。建议在「设置 → 热点接口 → 测试连接」检查你的自托地址，或先换个源。`;
+    // 给用户明确的逃生口：强制刷新会绕过冷却闸门
+    advice = `点页面顶部的「🔄 强制刷新」按钮可立即重试（绕过冷却）；若仍失败，可在「设置 → 热点接口 → 测试连接」检查自托地址，或先换个源。`;
   } else if (allEmpty) {
     advice = `当前时段「${meta.label}」榜单可能没有新数据，可以稍后再试或换个源（推荐：知乎热榜 / GitHub Trending / 36氪）。`;
   } else {
-    advice = `首选 NewsNow 与兜底 DailyHotApi 均不可达。建议在「设置 → 热点接口」点测试连接定位问题，或自部署一份 NewsNow（部署指南见 docs/SELFHOST_HOTTOPICS.md）。`;
+    advice = `首选 NewsNow 与 RSSHub 兜底均不可达。建议先点「🔄 强制刷新」立即重试一次（会绕过冷却），仍不行可在「设置 → 热点接口」点测试连接定位问题，或自部署一份 NewsNow / RSSHub（部署指南见 docs/SELFHOST_HOTTOPICS.md）。`;
   }
 
   return {
@@ -296,41 +328,35 @@ export async function fetchHotTopics(sourceId, opts = {}) {
   };
 }
 
-// ── DailyHotApi ──
+// ── RSSHub 兜底 ──
+// RSSHub 路径在 HOT_SOURCE_META[id].rsshub 里（以 / 开头），全部输出 RSS 2.0，
+// 复用 hot-topics-sources.js 的 fetchEndpointPayload + parseRssFeed 零格式适配。
+// 公共 demo `https://rsshub.app` 限流频繁，强烈建议用户在「设置 → 抓取增强」自托。
 
-async function fetchDailyHotApi(fetchedAt, meta, base) {
-  const url = `${base}${meta.dailyhot}?cache=true`;
-  const res = await fetchWithTimeout(url, {
-    headers: { "User-Agent": UA, Accept: "application/json" }
-  });
+async function fetchRsshubHot(fetchedAt, meta, base) {
+  const url = `${base}${meta.rsshub}`;
+  const payloadInfo = await fetchEndpointPayload(url);
+  // 用 meta.label 作为 source 名字，让 parseRssFeed 内部抛错文案带上中文
+  const parsed = parseRssFeed(payloadInfo, { name: meta.label });
 
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-  const json = await res.json().catch(() => null);
-  if (!json) throw new Error("响应不是合法 JSON");
-  if (json.code != null && Number(json.code) !== 200) {
-    throw new Error(json.message || `code ${json.code}`);
-  }
-
-  const rawItems = Array.isArray(json.data) ? json.data : [];
   const items = [];
-  for (let i = 0; i < rawItems.length && items.length < 35; i++) {
-    const d = rawItems[i] || {};
+  for (let i = 0; i < parsed.length && items.length < 35; i++) {
+    const d = parsed[i] || {};
     const title = String(d.title || "").trim();
     if (!title) continue;
 
-    let link = d.url || d.mobileUrl || "";
+    let link = String(d.url || "").trim();
     if (link && link.startsWith("bilibili://")) {
       link = `https://search.bilibili.com/all?keyword=${encodeURIComponent(title)}`;
     }
 
     const subtitleParts = [];
-    if (d.hot != null) subtitleParts.push(`热度 ${formatHotValue(d.hot)}`);
-    if (d.author) subtitleParts.push(String(d.author).slice(0, 24));
-    if (d.desc) subtitleParts.push(String(d.desc).replace(/\s+/g, " ").slice(0, 50));
+    if (d.summary) {
+      subtitleParts.push(String(d.summary).replace(/\s+/g, " ").slice(0, 80));
+    }
 
     items.push({
-      id: `${meta.id}-${d.id || i}`,
+      id: `${meta.id}-${i}`,
       title,
       url: link,
       subtitle: subtitleParts.length ? subtitleParts.join(" · ") : `${meta.label}热榜`
@@ -344,13 +370,13 @@ async function fetchDailyHotApi(fetchedAt, meta, base) {
     detail: meta.detail,
     fetchedAt,
     items,
-    backend: "dailyhot",
+    backend: "rsshub",
     notice: ""
   };
 }
 
 // ── NewsNow ──
-// NewsNow 实际返回结构（与 DailyHotApi 完全不同）：
+// NewsNow 返回结构：
 //   { status: "success", id: "weibo", updatedTime: 1776..., items: [
 //     { id, title, url, mobileUrl?, extra: { info?: "434 万热度", hover?: "描述", date? } }
 //   ]}
@@ -367,13 +393,21 @@ async function fetchNewsNowHot(fetchedAt, meta, base) {
   const json = await res.json().catch(() => null);
   if (!json) throw new Error("响应不是合法 JSON");
 
-  // NewsNow 上游失败：上游网站反爬 / 限流时返回的标准错误
+  // NewsNow 上游失败：上游网站反爬 / 限流时返回的标准错误。
+  // 关键：这是 NewsNow 自己 200 OK 然后把上游的错误包装回来，hot.inkgold.info
+  // 自己是健康的，所以挂 upstreamPerSource 标记，外层 catch 不会把这次失败计到
+  // base 健康度上，避免「访问 zhihu/weibo/baidu 各失败 1 次（这些上游本就不稳）→
+  // 整个 NewsNow base 被冷却 → github / hackernews 等本来工作的源也被锁」。
   if (json.error === true || (json.statusCode && json.statusCode >= 400)) {
     const upstreamMsg = String(json.message || json.statusMessage || `HTTP ${json.statusCode}`);
-    throw new Error(`NewsNow 上游失败：${upstreamMsg.slice(0, 80)}`);
+    const err = new Error(`NewsNow 上游失败：${upstreamMsg.slice(0, 80)}`);
+    err.upstreamPerSource = true;
+    throw err;
   }
   if (json.status && json.status !== "success") {
-    throw new Error(`NewsNow 状态异常：${json.status}`);
+    const err = new Error(`NewsNow 状态异常：${json.status}`);
+    err.upstreamPerSource = true;
+    throw err;
   }
 
   const rawItems = Array.isArray(json.items) ? json.items : [];
@@ -601,25 +635,59 @@ export async function getHotTopicsHealth() {
 
 /**
  * 测试一个热点接口 base URL 是否可用。
- * - kind: "dailyhot" | "newsnow"
- * - 用一个一定存在的轻量端点（DailyHot: zhihu，NewsNow: zhihu）
+ * - kind: "newsnow" | "rsshub"
+ * - 都用 zhihu 路径做探测：NewsNow → /api/s?id=zhihu&latest，RSSHub → /zhihu/hotlist
  * - 成功会清掉该 base 的失败计数；失败不计入冷却（避免用户测试本身把它点进冷却）
  */
 export async function testHotTopicsBackend(kind, baseUrl) {
-  const targetBase = normalizeBase(
-    baseUrl,
-    kind === "newsnow" ? DEFAULT_NEWSNOW_BASE : DEFAULT_DAILYHOT_BASE
-  );
   const startedAt = Date.now();
 
+  let targetBase;
   let url;
-  if (kind === "newsnow") {
-    url = `${targetBase}api/s?id=zhihu&latest`;
+  let mode;
+  if (kind === "rsshub") {
+    targetBase = resolveRsshubBaseUrl({ rsshubBaseUrl: baseUrl });
+    url = `${targetBase}/zhihu/hotlist`;
+    mode = "rss";
   } else {
-    url = `${targetBase}zhihu?cache=true`;
+    targetBase = normalizeBase(baseUrl, DEFAULT_NEWSNOW_BASE);
+    url = `${targetBase}api/s?id=zhihu&latest`;
+    mode = "newsnow";
   }
 
   try {
+    if (mode === "rss") {
+      // RSSHub 直接走 RSS 解析，能解析出至少 1 条就算 OK
+      const payload = await fetchEndpointPayload(url);
+      const latencyMs = Date.now() - startedAt;
+      try {
+        const parsed = parseRssFeed(payload, { name: "RSSHub" });
+        const count = Array.isArray(parsed) ? parsed.length : 0;
+        if (count === 0) {
+          return {
+            ok: false,
+            latencyMs,
+            base: targetBase,
+            message: "接口连通但 RSS 没有条目，可能是路由失效或上游限流"
+          };
+        }
+        await recordBaseSuccess(targetBase);
+        return {
+          ok: true,
+          latencyMs,
+          base: targetBase,
+          message: `OK · 共 ${count} 条数据`
+        };
+      } catch (parseErr) {
+        return {
+          ok: false,
+          latencyMs,
+          base: targetBase,
+          message: `响应不是合法 RSS：${shortMessage(parseErr)}`
+        };
+      }
+    }
+
     const res = await fetchWithTimeout(url, {
       headers: { "User-Agent": UA, Accept: "application/json" }
     });
@@ -631,7 +699,6 @@ export async function testHotTopicsBackend(kind, baseUrl) {
     if (!json) {
       return { ok: false, latencyMs, base: targetBase, message: "响应不是合法 JSON" };
     }
-    // NewsNow 失败结构：{ error: true, statusCode, message }
     if (json.error === true || (json.statusCode && json.statusCode >= 400)) {
       const upstreamMsg = String(json.message || json.statusMessage || `HTTP ${json.statusCode}`);
       return {
@@ -641,8 +708,7 @@ export async function testHotTopicsBackend(kind, baseUrl) {
         message: `上游失败：${upstreamMsg.slice(0, 80)}`
       };
     }
-    // NewsNow 返回 items[]，DailyHotApi 返回 data[]，都覆盖
-    const items = kind === "newsnow" ? json?.items : json?.data;
+    const items = json?.items;
     const count = Array.isArray(items) ? items.length : 0;
     if (count === 0) {
       return {

@@ -859,176 +859,6 @@ console.log("\n运行 onboarding 任务清单单测 …");
   delete globalThis.chrome;
 }
 
-// 8) agent-runner relevance 评分 / 综合排序
-console.log("\n运行 agent-runner 排序单测 …");
-const { scoreHits } = await import("../src/shared/agent/agent-runner.js");
-
-{
-  // 同等热度下，验证主题词命中条排到不相关条之前
-  // 注：权重 0.5×rel + 0.4×hot 意味着如果热度差距非常悬殊（如 100 vs 1000），
-  // 0 relevance 的高热条仍可能盖过中相关度低热条；
-  // 这里用"同等热度"确保单测稳定，反映 relevance 真正生效的核心场景。
-  const hits = [
-    {
-      platformId: "x",
-      title: "AI 笔记软件评测",
-      summary: "对比了 5 款 AI 笔记，重点看付费门槛",
-      hotValue: 500,
-      publishedAt: ""
-    },
-    {
-      platformId: "reddit",
-      title: "今日美股大盘走势",
-      summary: "和 AI 完全无关",
-      hotValue: 500,
-      publishedAt: ""
-    },
-    {
-      platformId: "xhs",
-      title: "AI 笔记软件 2025 推荐",
-      summary: "深度评测 + 上手 demo",
-      hotValue: 500,
-      publishedAt: ""
-    }
-  ];
-  const sorted = scoreHits(hits, "AI 笔记软件");
-  // 同等热度下，命中标题的两条应在前，不相关条应在末位
-  assert(sorted[0].title.includes("AI 笔记软件"), `第一条应包含主题词，实际 ${sorted[0].title}`);
-  assert(
-    sorted[sorted.length - 1].title.includes("美股"),
-    `末位应是不相关条，实际 ${sorted[sorted.length - 1].title}`
-  );
-  // 每条 hit 都被写入 relevance 字段
-  for (const hit of sorted) {
-    assert(typeof hit.relevance === "number", `relevance 应为数字，实际 ${typeof hit.relevance}`);
-    assert(hit.relevance >= 0 && hit.relevance <= 1, `relevance 应在 [0,1]，实际 ${hit.relevance}`);
-  }
-  // 不相关条的 relevance 应该 < 命中条
-  const unrelated = sorted.find((h) => h.title.includes("美股"));
-  const related = sorted.find((h) => h.title.includes("AI 笔记软件 2025"));
-  assert(
-    unrelated.relevance < related.relevance,
-    `不相关条 relevance 应低于命中条，分别 ${unrelated.relevance} / ${related.relevance}`
-  );
-}
-
-// recency 兜底：缺时间戳应给中性 0.3，不会因解析失败炸掉
-{
-  const sorted = scoreHits(
-    [
-      { platformId: "x", title: "测试", summary: "", hotValue: 50 }
-    ],
-    "测试"
-  );
-  assert(sorted.length === 1, "单条排序应正常返回");
-  assert(typeof sorted[0]._score === "number", "_score 应为数字");
-}
-
-// 9) agent-store task-history（add / pin / sort / 滚动覆盖）
-console.log("\n运行 agent-store task-history 单测 …");
-{
-  // mock 一份内存版 chrome.storage.local
-  const mem = new Map();
-  globalThis.chrome = {
-    storage: {
-      local: {
-        async get(key) {
-          if (typeof key === "string") {
-            return mem.has(key) ? { [key]: mem.get(key) } : {};
-          }
-          if (Array.isArray(key)) {
-            const out = {};
-            for (const k of key) if (mem.has(k)) out[k] = mem.get(k);
-            return out;
-          }
-          // 全量
-          const out = {};
-          for (const [k, v] of mem) out[k] = v;
-          return out;
-        },
-        async set(obj) {
-          for (const [k, v] of Object.entries(obj || {})) mem.set(k, v);
-        },
-        async remove(key) {
-          if (typeof key === "string") mem.delete(key);
-          else if (Array.isArray(key)) key.forEach((k) => mem.delete(k));
-        }
-      }
-    }
-  };
-
-  const store = await import("../src/shared/agent/agent-store.js");
-
-  // 干净起步
-  await store.clearAgentTasks({ keepPinned: false });
-  let list = await store.listAgentTasks();
-  assert(list.length === 0, "初始历史应为空");
-
-  // 单条写入应可读，hits 字段被裁到 30 条以内、关键字段保留
-  const big = Array.from({ length: 50 }, (_, i) => ({
-    platformId: "x",
-    platformName: "X",
-    title: `t${i}`,
-    url: `https://x/${i}`,
-    hotValue: 100 + i,
-    summary: "x".repeat(500), // 验证 cutString
-    relevance: 0.5
-  }));
-  const saved = await store.addAgentTask({
-    query: "topic-1",
-    options: { platforms: ["x"], finalLimit: 10, enableBrief: true },
-    hits: big,
-    brief: { themeSummary: "ok" }
-  });
-  assert(saved && saved.id, "addAgentTask 应返回带 id 的 slim task");
-  assert(saved.hits.length === 30, `hits 应被裁到 30，实际 ${saved.hits.length}`);
-  assert(saved.hits[0].summary.length <= 241, "summary 应被 cut 到 240 字内");
-  assert(saved.options.platforms[0] === "x", "options.platforms 应被正确克隆");
-
-  // 写超过 20 条，只留最近 20（钉选不计数）
-  for (let i = 0; i < 25; i++) {
-    await store.addAgentTask({ query: `q${i}`, hits: [{ platformId: "x", title: `h${i}` }] });
-  }
-  list = await store.listAgentTasks();
-  // 上面写了 1（topic-1） + 25 条，但有滚动覆盖，最多保留 20
-  assert(list.length === 20, `滚动后应保留 20 条，实际 ${list.length}`);
-
-  // 钉选一条，再写 25 条，钉选的应该还在
-  const pinTarget = list[0];
-  await store.pinAgentTask(pinTarget.id, true);
-  for (let i = 0; i < 25; i++) {
-    await store.addAgentTask({ query: `extra-${i}`, hits: [] });
-  }
-  list = await store.listAgentTasks();
-  const stillPinned = list.find((t) => t.id === pinTarget.id);
-  assert(stillPinned && stillPinned.isPinned, "钉选的任务在滚动后仍应保留");
-  // 钉选的应该排在最前
-  assert(list[0].id === pinTarget.id, "钉选任务应排在第一位");
-
-  // remove
-  await store.removeAgentTask(pinTarget.id);
-  list = await store.listAgentTasks();
-  assert(!list.find((t) => t.id === pinTarget.id), "removeAgentTask 后应找不到该任务");
-
-  // clear keepPinned 默认 true：钉选任务保留，其余清空
-  // 先再钉一条
-  if (list[0]) await store.pinAgentTask(list[0].id, true);
-  await store.clearAgentTasks();
-  list = await store.listAgentTasks();
-  assert(
-    list.every((t) => t.isPinned),
-    "clearAgentTasks 默认应保留钉选任务"
-  );
-
-  // clearAgentTasks({ keepPinned: false }) 全清
-  await store.clearAgentTasks({ keepPinned: false });
-  list = await store.listAgentTasks();
-  assert(list.length === 0, "clearAgentTasks({ keepPinned: false }) 应清空所有");
-
-  // 还原全局 chrome（避免污染后续 test）
-  delete globalThis.chrome;
-}
-
 // =====================================================================
 // AI 模板生成器 v0.4 · 问卷 schema + 模板组装 + 主题元数据
 // =====================================================================
@@ -1734,6 +1564,68 @@ console.log("\n运行 classifyError 错误分类单测 …");
     !/\d+\.\d+\.\d+\.\d+/.test(c10.message),
     "无 IP 时 message 不应该出现任何 IP 残留"
   );
+
+  // —— 微信 invalid media_id（errcode 40007）：必须把 hint 诊断码透出来 —— //
+  // 完全照 40164 IP 透传的契约模式。3 个 case 对应 wechat.js / 字符串兜底 / 无 hint 极端兜底。
+  // case A：error 对象自带 detectedMediaIdHint（wechat.js buildWechatError 主路径）
+  const midErr = new Error(
+    "公众号拒绝了草稿里的封面或图片素材 ID（40007）。\nerrcode=40007 · errmsg=invalid media_id hint: [fbk5ma021425-1] rid: 69ed8aad-06b2948c-21cc5eea"
+  );
+  midErr.detectedMediaIdHint = "fbk5ma021425-1";
+  const m1 = classifyError(midErr);
+  assert(
+    m1.code === ErrorCode.WECHAT_INVALID_MEDIA_ID,
+    "40007 应分类为 WECHAT_INVALID_MEDIA_ID"
+  );
+  assert(
+    m1.message.includes("fbk5ma021425-1"),
+    "40007 message 必须含 hint 诊断码，不能再吞掉这条关键信息"
+  );
+  assert(
+    m1.detectedMediaIdHint === "fbk5ma021425-1",
+    "40007 返回结构应带 detectedMediaIdHint 字段，给上层 UI / 客服工单用"
+  );
+  assert(m1.retryable === true, "40007 应标记 retryable=true（重传封面通常能解决）");
+
+  // case B：error 没挂 detectedMediaIdHint，但 raw message 含 errmsg → 兜底从字符串里抽
+  const m2 = classifyError(
+    new Error(
+      "公众号发布失败：errcode=40007 · errmsg=invalid media_id hint: [a1b2c3d4-99] rid: xxx"
+    )
+  );
+  assert(
+    m2.code === ErrorCode.WECHAT_INVALID_MEDIA_ID,
+    "兜底路径仍应分类为 WECHAT_INVALID_MEDIA_ID"
+  );
+  assert(
+    m2.detectedMediaIdHint === "a1b2c3d4-99",
+    `兜底应能从 raw message 里抽出 hint，实际拿到：${m2.detectedMediaIdHint}`
+  );
+  assert(
+    m2.message.includes("a1b2c3d4-99"),
+    "兜底路径也必须把 hint 拼进 message"
+  );
+
+  // case C：errmsg 无 hint（极端 fallback）→ 走原通用文案，不能崩
+  const m3 = classifyError(new Error("invalid media_id"));
+  assert(
+    m3.code === ErrorCode.WECHAT_INVALID_MEDIA_ID,
+    "纯关键字也能识别 40007"
+  );
+  assert(!m3.detectedMediaIdHint, "无 hint 时不应返回 detectedMediaIdHint 字段");
+  assert(
+    m3.message.includes("封面") || m3.message.includes("素材"),
+    "无 hint 时回落到原通用文案（提示用户重传封面）"
+  );
+
+  // case D：errcode 顺序不应让 40007 跟 40164 混淆（双重防御）
+  const m4 = classifyError(
+    new Error("errcode=40007 errmsg=invalid media_id hint: [xxx-1]")
+  );
+  assert(
+    m4.code === ErrorCode.WECHAT_INVALID_MEDIA_ID,
+    "errcode=40007 不应被任何其他分支拦截（IP / 认证账号都不能误吞）"
+  );
 }
 
 // 测 wechat.js 的 buildWechatError + extractWechatIpFromErrmsg：root 处的 IP 提取逻辑
@@ -1797,6 +1689,157 @@ console.log("\n运行 wechat.js buildWechatError IP 提取单测 …");
   assert(e4.errcode === 40164, "errcode 仍透传");
   assert(!e4.detectedIp, "无可解析 IP 时 detectedIp 为空");
   assert(e4.userMessage.includes("白名单"), "无 IP 时仍回落到 catalog 静态文案，不能崩");
+
+  // —— 40007 invalid media_id：同 40164 的「关键诊断信息必须挂字段透传」契约 —— //
+  const { extractWechatMediaIdHintFromErrmsg } = await import("../src/shared/wechat.js");
+
+  // 工具函数：3 种真实 errmsg 形态都能抽出 hint
+  assert(
+    extractWechatMediaIdHintFromErrmsg(
+      "invalid media_id hint: [fbk5ma021425-1] rid: 69ed8aad-06b2948c-21cc5eea"
+    ) === "fbk5ma021425-1",
+    "extractWechatMediaIdHintFromErrmsg 应能从典型 errmsg 解析 hint"
+  );
+  assert(
+    extractWechatMediaIdHintFromErrmsg("hint:[abcdef]") === "abcdef",
+    "去空格 / 大写不敏感的 hint: 形态也应被识别"
+  );
+  assert(
+    extractWechatMediaIdHintFromErrmsg("Hint: [a1b2c3d4-99]") === "a1b2c3d4-99",
+    "Hint 大小写不敏感"
+  );
+  // 无 hint / 空 errmsg → 空字符串，不抛错
+  assert(extractWechatMediaIdHintFromErrmsg("invalid media_id") === "", "无 hint 应返回空字符串");
+  assert(extractWechatMediaIdHintFromErrmsg("") === "", "空 errmsg 应返回空字符串");
+  assert(extractWechatMediaIdHintFromErrmsg(null) === "", "null errmsg 应返回空字符串");
+
+  // buildWechatError(40007 + hint)：err.detectedMediaIdHint 正确 + userMessage 含 catalog 友好文案 + hint 拼进 message
+  const m1 = buildWechatError(
+    {
+      errcode: 40007,
+      errmsg: "invalid media_id hint: [fbk5ma021425-1] rid: 69ed8aad-06b2948c-21cc5eea"
+    },
+    { status: 200, headers: { get: () => null } },
+    "创建公众号草稿失败"
+  );
+  assert(m1.errcode === 40007, "errcode 透传");
+  assert(
+    m1.detectedMediaIdHint === "fbk5ma021425-1",
+    "buildWechatError 应把 hint 挂到 err.detectedMediaIdHint"
+  );
+  assert(
+    m1.userMessage.includes("封面") || m1.userMessage.includes("素材"),
+    "userMessage 必须用 catalog 的友好文案（提示用户重传封面），而不是裸 errmsg"
+  );
+  assert(
+    m1.userMessage.includes("fbk5ma021425-1"),
+    "userMessage 必须含 hint 诊断码（让客服工单可定位）"
+  );
+  assert(
+    m1.message.includes("fbk5ma021425-1"),
+    "Error.message 也必须含 hint（避免下游 classifyError 拿不到）"
+  );
+  assert(m1.category === "draft", "40007 分类应为 draft（草稿字段相关）");
+
+  // buildWechatError(40007 但 errmsg 缺 hint)：detectedMediaIdHint 为空、不抛错
+  const m2 = buildWechatError(
+    { errcode: 40007, errmsg: "invalid media_id" },
+    { status: 200, headers: { get: () => null } },
+    "创建公众号草稿失败"
+  );
+  assert(m2.errcode === 40007, "errcode 仍透传");
+  assert(!m2.detectedMediaIdHint, "无可解析 hint 时 detectedMediaIdHint 为空");
+  assert(
+    m2.userMessage.includes("封面") || m2.userMessage.includes("素材"),
+    "无 hint 时仍回落到 catalog 友好文案，不能崩"
+  );
+
+  // buildWechatError(其他 errcode)：不应带 detectedMediaIdHint（仅 40007 专用）
+  const m3 = buildWechatError(
+    { errcode: 40125, errmsg: "invalid appsecret hint: [abc]" },
+    { status: 200, headers: { get: () => null } },
+    "测试失败"
+  );
+  assert(!m3.detectedMediaIdHint, "非 40007 错误不应有 detectedMediaIdHint 字段（即便 errmsg 凑巧含 hint）");
+}
+
+// —— publishToWechat：封面上传失败必须立即抛错（不再 silently 让 thumb_media_id 为空字符串撞 40007）—— //
+console.log("\n运行 publishToWechat 封面失败立即抛错 单测 …");
+{
+  const { publishToWechat } = await import("../src/shared/wechat.js");
+
+  const originalFetch = globalThis.fetch;
+  // 模拟一个最小可重入的 fetch 序列：
+  //   call 1: getAccessToken → 200 + access_token
+  //   call 2: fetchImageBlob 拉封面 → 404（迫使封面 try 块抛错）
+  // 期望：publishToWechat 立即抛错，message 含「封面」字样、不再走到 createDraft 撞 40007。
+  let fetchCallCount = 0;
+  globalThis.fetch = async (urlString) => {
+    fetchCallCount += 1;
+    const url = String(urlString);
+    if (/cgi-bin\/token|\/token/.test(url) && /grant_type=client_credential/.test(url)) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ access_token: "FAKE_TOKEN", expires_in: 7200 }),
+        blob: async () => new Blob([""])
+      };
+    }
+    return {
+      ok: false,
+      status: 404,
+      headers: { get: () => null },
+      json: async () => ({}),
+      blob: async () => new Blob([""])
+    };
+  };
+
+  let coverThrown = null;
+  try {
+    await publishToWechat(
+      { wechatAppId: "wx_test_app_id", wechatAppSecret: "test_secret" },
+      {
+        publishMode: "draft",
+        articles: [
+          {
+            meta: { title: "测试标题", author: "", digest: "" },
+            html: "<p>正文</p>",
+            inlineImages: [],
+            cover: { src: "https://example.com/missing-cover.png", filename: "cover-1.png" }
+          }
+        ]
+      }
+    );
+  } catch (err) {
+    coverThrown = err;
+  }
+
+  assert(coverThrown, "封面下载失败必须立即抛错，不能 silently 走到 createDraft");
+  assert(
+    /封面/.test(coverThrown.message),
+    `抛出的 Error message 必须明确指出是封面失败，实际：${coverThrown.message}`
+  );
+  assert(
+    /第\s*1\s*篇/.test(coverThrown.message),
+    "Error message 必须含「第 1 篇」定位（多文章时尤其重要）"
+  );
+  assert(
+    coverThrown.failedCover && coverThrown.failedCover.type === "cover",
+    "Error 必须挂 failedCover 详情对象（articleIndex/src/error 等），让 UI 能做差异化反馈"
+  );
+  // 关键反例：旧 silent failure 链下，message 会是 "invalid media_id" 来自 add_draft；新链路根本走不到。
+  assert(
+    !/invalid\s*media_id|40007/i.test(coverThrown.message),
+    "新链路绝不能让用户看到模糊的「invalid media_id / 40007」（那意味着 silent failure 链回归）"
+  );
+  // 关键 control flow 断言：fetch 只调了 2 次（getAccessToken + cover 下载），没有走到 createDraft / uploadPermanentImage 等后续接口
+  assert(
+    fetchCallCount === 2,
+    `应在第 2 次 fetch（封面下载）失败时立即终止，实际调了 ${fetchCallCount} 次`
+  );
+
+  globalThis.fetch = originalFetch;
 }
 
 // —— P1.3 · 封面救济：HTML / state / publish / wechat 四处的兜底链 —— //
@@ -1893,6 +1936,604 @@ console.log("\n运行 封面救济链路 单测 …");
   assert(
     wsJs.includes('coverUploadInput: document.querySelector("#coverUploadInput")'),
     "workspace.js controls 必须缓存 coverUploadInput 引用"
+  );
+}
+
+// =====================================================================
+// 热点页改写模板可见性 chip · 防回归
+//   背景：用户经常忘了选模板就直接点 ✨ 抓取并改写，workspace 自动用上一次
+//   随机模板，浪费 AI 配额。修复后热点页顶部新增一个 .hot-rewrite-template-bar
+//   chip，展示当前活跃模板并允许就地切换；这里锁死 HTML / JS 关键钩子，
+//   避免后续重构悄悄把 chip 干掉、把 setActiveTemplateId import 砍掉。
+// =====================================================================
+console.log("\n运行 热点页改写模板可见性 chip 防回归 …");
+{
+  const hotHtml = fs.readFileSync(
+    path.join(root, "src/pages/hot-topics.html"),
+    "utf8"
+  );
+  assert(
+    hotHtml.includes('id="hotRewriteTemplateSelect"'),
+    "hot-topics.html 必须保留 #hotRewriteTemplateSelect select，否则用户在热点页看不到当前改写模板"
+  );
+  assert(
+    hotHtml.includes('data-el="rewriteTemplateBar"'),
+    "hot-topics.html 必须保留 data-el=\"rewriteTemplateBar\" 钩子，便于 JS 定位 chip 容器"
+  );
+  assert(
+    hotHtml.includes("点 <strong>「抓取并改写」</strong> 时会用这个模板"),
+    "hot-topics.html 必须保留「点「抓取并改写」时会用这个模板」文案，让用户一眼明白这个 chip 影响什么"
+  );
+  assert(
+    hotHtml.includes('data-act="manage-templates"'),
+    "hot-topics.html 必须保留「管理模板」链接（data-act=manage-templates），给用户兜底入口"
+  );
+
+  const hotJs = fs.readFileSync(
+    path.join(root, "src/pages/hot-topics.js"),
+    "utf8"
+  );
+  assert(
+    /import\s*\{[^}]*setActiveTemplateId[^}]*\}\s*from\s*["']\.\.\/shared\/storage\.js["']/.test(
+      hotJs
+    ),
+    "hot-topics.js 必须 import setActiveTemplateId（防止有人把 chip 改回只读，又退回到老的「点了才知道用错模板」体感）"
+  );
+  assert(
+    /import\s*\{[^}]*getActiveTemplateId[^}]*\}\s*from\s*["']\.\.\/shared\/storage\.js["']/.test(
+      hotJs
+    ),
+    "hot-topics.js 必须 import getActiveTemplateId，否则 chip 的初始选中态读不出来"
+  );
+  assert(
+    hotJs.includes("initRewriteTemplateBar"),
+    "hot-topics.js 必须有 initRewriteTemplateBar() 函数，且要有调用点（否则 chip 只是死 HTML）"
+  );
+  assert(
+    /chrome\.storage\.onChanged/.test(hotJs),
+    "hot-topics.js 必须监听 chrome.storage.onChanged，options/workspace 切换模板时热点页要自动同步"
+  );
+}
+
+// =====================================================================
+// 热点接口冷却 · forceRefresh 逃生口 + NewsNow 上游错误不惩罚 base · 防回归
+//   背景：用户工单「拉取失败：NewsNow: 上次失败后冷却中（10 分钟）。所有候选后端
+//   都在冷却」——根因有 3 条：① 用户点「🔄 强制刷新」时 forceRefresh=true 但代码
+//   仍然走冷却闸门 → 没有逃生口；② NewsNow 200 OK 但上游某网站反爬时把整个
+//   hot.inkgold.info base 当成失败 → 一次访问 zhihu/weibo/baidu 就把整个 NewsNow
+//   冷却，剩下 30+ 工作中的源被一并锁；③ 错误文案没指路（「测试连接」失败时还是
+//   被困住）。这里锁死修复后的契约：
+//     - forceRefresh=true 必须绕过 isBaseCoolingDown 闸门
+//     - fetchNewsNowHot 在 json.error===true / json.statusCode>=400 时抛的错必须
+//       挂 err.upstreamPerSource = true，让外层不计入 recordBaseFailure
+//     - 全冷却时的 advice 文案必须明确告诉用户「点 🔄 强制刷新」可以立即重试
+// =====================================================================
+console.log("\n运行 热点接口 forceRefresh 逃生口 + 上游错误不惩罚 base 单测 …");
+{
+  const hotJs = fs.readFileSync(
+    path.join(root, "src/shared/hot-topics.js"),
+    "utf8"
+  );
+
+  // (1) 主链路三段（newsNow / direct / rsshub）的 isBaseCoolingDown 检查必须配 !forceRefresh 守卫
+  //     用 multiline 抓「!forceRefresh && (await isBaseCoolingDown(...))」三处
+  const cooldownGuardPattern = /!forceRefresh\s*&&\s*\(await\s+isBaseCoolingDown\(/g;
+  const cooldownGuards = (hotJs.match(cooldownGuardPattern) || []).length;
+  assert(
+    cooldownGuards >= 4, // newsNow + bilibili-direct + rsshub + reddit = 4
+    `热点接口主链路所有冷却闸门必须配 !forceRefresh 守卫，期望 ≥ 4 处，实际 ${cooldownGuards} 处`
+  );
+
+  // (2) NewsNow 上游错误必须挂 err.upstreamPerSource = true（外层 catch 据此跳过 recordBaseFailure）
+  assert(
+    /err\.upstreamPerSource\s*=\s*true/.test(hotJs),
+    "fetchNewsNowHot 抛上游每源错误时必须挂 err.upstreamPerSource = true"
+  );
+
+  // (3) 主链路 catch 必须检查 e.upstreamPerSource 决定是否 recordBaseFailure
+  const catchSkipsBaseFailurePattern = /if\s*\(\s*!\s*e\?\.\s*upstreamPerSource\s*\)\s*\{\s*\n\s*await\s+recordBaseFailure/g;
+  const catchSkipCount = (hotJs.match(catchSkipsBaseFailurePattern) || []).length;
+  assert(
+    catchSkipCount >= 3, // newsNow + bilibili-direct + rsshub = 3
+    `主链路三段 catch 必须用 !e.upstreamPerSource 守卫 recordBaseFailure，期望 ≥ 3 处，实际 ${catchSkipCount} 处`
+  );
+
+  // (4) 全冷却 advice 文案必须包含「强制刷新」逃生口指引
+  assert(
+    hotJs.includes("「🔄 强制刷新」") || hotJs.includes("点页面顶部的「🔄 强制刷新」"),
+    "全冷却 advice 必须告诉用户点「🔄 强制刷新」可以绕过冷却立即重试"
+  );
+
+  // (5) 端到端：在 node 环境下（chrome.storage 不可用，hot-topics-cache 走内存 Map），
+  //     先往 hot.inkgold.info 喂 3 次失败把它打进冷却，然后用 forceRefresh=true 调
+  //     fetchHotTopics 验证：mock fetch 必须真的被调用一次（没被冷却闸门挡掉）。
+  const cacheMod = await import("../src/shared/hot-topics-cache.js");
+  const hotMod = await import("../src/shared/hot-topics.js");
+
+  await cacheMod._resetForTest();
+
+  const NEWSNOW_BASE = "https://hot.inkgold.info/";
+  for (let i = 0; i < cacheMod.FAIL_THRESHOLD; i++) {
+    await cacheMod.recordBaseFailure(NEWSNOW_BASE, "test seed failure");
+  }
+  assert(
+    await cacheMod.isBaseCoolingDown(NEWSNOW_BASE),
+    "种子失败后 hot.inkgold.info 必须进入冷却（前置条件）"
+  );
+
+  // mock fetch：按 URL host 区分。NewsNow 路径返回成功 payload，
+  // RSSHub fallback 路径（rsshub.app）返回 503 让它自然失败，避免污染主断言。
+  const originalFetch = globalThis.fetch;
+  const fetchHitLog = [];
+  globalThis.fetch = async (urlString) => {
+    const url = String(urlString);
+    fetchHitLog.push(url);
+    if (url.startsWith("https://hot.inkgold.info/")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: "success",
+          id: "zhihu",
+          items: [
+            { id: "i1", title: "测试热点 1", url: "https://example.com/1" },
+            { id: "i2", title: "测试热点 2", url: "https://example.com/2" }
+          ]
+        })
+      };
+    }
+    // 其它（如 RSSHub 兜底）：返回 503，避免无关路径污染
+    return { ok: false, status: 503, json: async () => ({}), text: async () => "" };
+  };
+  const newsnowHits = () => fetchHitLog.filter((u) => u.startsWith("https://hot.inkgold.info/")).length;
+
+  // forceRefresh=false 时 NewsNow 必须被冷却闸门挡住（不发起对 hot.inkgold.info 的 fetch）
+  await cacheMod.clearCachedPayload();
+  await hotMod.fetchHotTopics("zhihu", { forceRefresh: false });
+  assert(
+    newsnowHits() === 0,
+    `forceRefresh=false + base 冷却时，对 hot.inkgold.info 的 fetch 必须为 0 次，实际 ${newsnowHits()} 次`
+  );
+
+  // forceRefresh=true 必须绕过冷却，对 hot.inkgold.info 至少发一次 fetch
+  const beforeNewsnowHits = newsnowHits();
+  const forcedRes = await hotMod.fetchHotTopics("zhihu", { forceRefresh: true });
+  assert(
+    newsnowHits() > beforeNewsnowHits,
+    "forceRefresh=true 必须绕过冷却闸门，对 hot.inkgold.info 触发真实 fetch"
+  );
+  assert(
+    forcedRes.ok && forcedRes.payload?.items?.length === 2,
+    "forceRefresh=true 成功后必须返回 ok=true 且 payload.items 长度=2"
+  );
+
+  // 强制刷新成功后，base 健康度应被 recordBaseSuccess 自动清零
+  assert(
+    !(await cacheMod.isBaseCoolingDown(NEWSNOW_BASE)),
+    "forceRefresh=true 强刷成功后必须自动清掉冷却（recordBaseSuccess）"
+  );
+
+  // (6) 上游每源错误（json.error=true）不应惩罚 base
+  await cacheMod._resetForTest();
+  globalThis.fetch = async (urlString) => {
+    const url = String(urlString);
+    // 只让 NewsNow 路径返回上游每源错误；RSSHub 等其它兜底通道返回 503，
+    // 避免它们的失败混进 base 健康度断言（rsshub.app 与 hot.inkgold.info 是两个 origin）。
+    if (url.startsWith("https://hot.inkgold.info/")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          error: true,
+          statusCode: 500,
+          message: "上游 zhihu 反爬：HTTP 403"
+        })
+      };
+    }
+    return { ok: false, status: 503, json: async () => ({}), text: async () => "" };
+  };
+
+  for (let i = 0; i < cacheMod.FAIL_THRESHOLD; i++) {
+    await hotMod.fetchHotTopics("zhihu", { forceRefresh: true });
+  }
+  assert(
+    !(await cacheMod.isBaseCoolingDown(NEWSNOW_BASE)),
+    "NewsNow 上游每源错误（json.error=true）连续 3 次不应让整个 hot.inkgold.info base 进入冷却（关键反回归点：上次的 bug 就是这里把整个 base 拖下水）"
+  );
+
+  // 对比：真实 HTTP 错（fetchNewsNowHot 第一行 throw `HTTP ${status}`）必须计 base
+  await cacheMod._resetForTest();
+  globalThis.fetch = async (urlString) => {
+    const url = String(urlString);
+    if (url.startsWith("https://hot.inkgold.info/")) {
+      return { ok: false, status: 503, json: async () => ({}) };
+    }
+    return { ok: false, status: 503, json: async () => ({}), text: async () => "" };
+  };
+  for (let i = 0; i < cacheMod.FAIL_THRESHOLD; i++) {
+    await hotMod.fetchHotTopics("zhihu", { forceRefresh: true });
+  }
+  assert(
+    await cacheMod.isBaseCoolingDown(NEWSNOW_BASE),
+    "NewsNow 真实 HTTP 503 连续 3 次必须把 base 打进冷却（健康度检测仍生效）"
+  );
+
+  globalThis.fetch = originalFetch;
+  await cacheMod._resetForTest();
+}
+
+// =====================================================================
+// AI 选题规划（topic-planner）纯函数 + UI 钩子防回归
+//   背景：topic-planner.js 是 8 维评分 + 多样性筛选 + AI 抗幻觉的核心，
+//   一旦评分公式或 itemId 校验改坏，前端 UI 看不出来但选题质量直接崩。
+//   smoke 这里只跑「不依赖 chrome.* / 不依赖网络」的纯函数路径。
+// =====================================================================
+console.log("\n运行 AI 选题规划（topic-planner）纯函数 + UI 钩子防回归 …");
+{
+  const planner = await import("../src/shared/topic-planner.js");
+  const {
+    normalizeCandidates,
+    hardFilterCandidates,
+    scoreCandidates,
+    applyDiversityFilter,
+    resolveAutoSourceIds,
+    buildTopicDirectorMessages,
+    parseTopicDirectorOutput,
+    buildOutlineCapture
+  } = planner;
+
+  // 模拟一份 HOT_SOURCE_META 子集（与 src/shared/hot-topics.js 字段一致）
+  const fakeMeta = {
+    zhihu: { id: "zhihu", label: "知乎", category: "china" },
+    weibo: { id: "weibo", label: "微博", category: "china" },
+    "36kr": { id: "36kr", label: "36氪", category: "tech" },
+    sspai: { id: "sspai", label: "少数派", category: "tech" },
+    "arxiv-ai": { id: "arxiv-ai", label: "arXiv AI", category: "ai" }
+  };
+
+  const fetchedAt = new Date().toISOString();
+  const sourcePayloads = [
+    {
+      sourceId: "zhihu",
+      label: "知乎",
+      fetchedAt,
+      items: [
+        { id: "z1", title: "GPT-5 发布会现场实录", url: "https://zhuanlan.zhihu.com/p/1" },
+        { id: "z2", title: "震惊！明星塌房全网炸锅", url: "https://zhuanlan.zhihu.com/p/2" },
+        { id: "z3", title: "约炮兼职日赚千元", url: "https://zhuanlan.zhihu.com/p/3" },
+        { id: "z4", title: "GPT-5 发布会现场实录", url: "https://zhuanlan.zhihu.com/p/dup" }
+      ]
+    },
+    {
+      sourceId: "36kr",
+      label: "36氪",
+      fetchedAt,
+      items: [
+        { id: "k1", title: "OpenAI 推出 GPT-5：核心能力深度解读", url: "https://36kr.com/a" },
+        { id: "k2", title: "AI Agent 创业公司融资 5000 万美元", url: "https://36kr.com/b" }
+      ]
+    },
+    {
+      sourceId: "sspai",
+      label: "少数派",
+      fetchedAt,
+      items: [
+        { id: "s1", title: "如何用 GPT-5 做日常笔记的教程指南", url: "https://sspai.com/p/1" }
+      ]
+    }
+  ];
+
+  // 1) normalizeCandidates 拍平 + 字段齐全
+  const normalized = normalizeCandidates(sourcePayloads, fakeMeta);
+  assert(
+    normalized.length === 7,
+    `normalizeCandidates 期望摊平 7 条，实际 ${normalized.length}`
+  );
+  for (const item of normalized) {
+    assert(typeof item.id === "string" && item.id, "candidate.id 必须非空字符串");
+    assert(item.duplicateGroupId, "candidate.duplicateGroupId 必须存在");
+    assert(typeof item.hasUrl === "boolean", "candidate.hasUrl 必须是 boolean");
+    assert(
+      typeof item.sourceQuality === "number" && item.sourceQuality >= 0 && item.sourceQuality <= 1,
+      `sourceQuality 必须是 0~1，实际 ${item.sourceQuality}`
+    );
+  }
+
+  // 2) hardFilterCandidates：blacklist + user exclusions + dedup
+  const profile = {
+    contentPillars: ["tech_ai"],
+    purpose: "expertise",
+    articleTypes: ["deep_analysis", "tutorial"],
+    audiences: ["practitioner"],
+    tone: "professional",
+    risk: "normal",
+    exclusions: ["celebrity"],
+    excludeKeywords: ["融资"],
+    outputCount: 3
+  };
+  const { kept, rejected } = hardFilterCandidates(normalized, profile);
+  // z2（明星塌房 → 命中 user_exclusion+blacklist）应被剔除
+  assert(
+    !kept.find((c) => c.id === "z2"),
+    "hardFilterCandidates 必须剔除明星塌房（用户 exclusions celebrity）"
+  );
+  // z3（约炮兼职 → 命中内置黑名单）应被剔除
+  assert(
+    !kept.find((c) => c.id === "z3"),
+    "hardFilterCandidates 必须剔除「约炮/兼职日赚」内置黑名单"
+  );
+  // k2（融资 → 命中 user excludeKeywords）应被剔除
+  assert(
+    !kept.find((c) => c.id === "k2"),
+    "hardFilterCandidates 必须按用户 excludeKeywords 剔除「融资」"
+  );
+  // z1 与 z4 同标题，dedup 后只剩一条
+  const gptCount = kept.filter((c) => c.title.startsWith("GPT-5 发布会现场实录")).length;
+  assert(
+    gptCount === 1,
+    `重复标题应只保留 1 条，实际 ${gptCount}`
+  );
+  assert(rejected.length >= 3, "rejected 数组必须记录被剔除原因");
+
+  // 3) scoreCandidates：worthScore in [0,1] + breakdown 完整
+  const scored = scoreCandidates(kept, profile, { now: Date.parse(fetchedAt) + 60_000 });
+  for (const item of scored) {
+    assert(
+      typeof item.worthScore === "number" && item.worthScore >= 0 && item.worthScore <= 1,
+      `worthScore 必须 ∈ [0,1]，实际 ${item.worthScore} on ${item.id}`
+    );
+    const dims = [
+      "topicFit",
+      "writeability",
+      "readerValue",
+      "timeliness",
+      "heat",
+      "novelty",
+      "sourceQuality",
+      "riskControl"
+    ];
+    for (const d of dims) {
+      assert(
+        typeof item.breakdown?.[d] === "number" &&
+          item.breakdown[d] >= 0 &&
+          item.breakdown[d] <= 1,
+        `breakdown.${d} 必须 ∈ [0,1]，实际 ${item.breakdown?.[d]}`
+      );
+    }
+  }
+  // tech_ai pillar + tutorial 类型 → s1（sspai 教程指南）应有更高 topicFit
+  const sspaiScore = scored.find((c) => c.id === "s1");
+  const k1Score = scored.find((c) => c.id === "k1");
+  assert(
+    sspaiScore && k1Score,
+    "scoreCandidates 必须对 s1/k1 都打分"
+  );
+  // sspai 教程类标题应该 topicFit ≥ 0.65（命中 article type tutorial）
+  assert(
+    sspaiScore.breakdown.topicFit >= 0.6,
+    `sspai 教程标题 topicFit 期望 ≥ 0.6，实际 ${sspaiScore.breakdown.topicFit}`
+  );
+
+  // 4) applyDiversityFilter：单平台 cap + outputCount 兜底
+  const scoredMany = [];
+  for (let i = 0; i < 30; i++) {
+    scoredMany.push({
+      id: `z${i}`,
+      source: "zhihu",
+      sourceLabel: "知乎",
+      rank: i + 1,
+      title: `知乎话题 ${i}`,
+      url: `https://zhuanlan.zhihu.com/${i}`,
+      subtitle: "",
+      hasUrl: true,
+      sourceQuality: 0.65,
+      categoryGuess: "china",
+      duplicateGroupId: `g${i}`,
+      worthScore: 1 - i * 0.01
+    });
+  }
+  for (let i = 0; i < 6; i++) {
+    scoredMany.push({
+      id: `k${i}`,
+      source: "36kr",
+      sourceLabel: "36氪",
+      rank: i + 1,
+      title: `36氪 ${i}`,
+      url: `https://36kr.com/${i}`,
+      subtitle: "",
+      hasUrl: true,
+      sourceQuality: 0.88,
+      categoryGuess: "tech",
+      duplicateGroupId: `kg${i}`,
+      worthScore: 0.7 - i * 0.01
+    });
+  }
+  const top10 = applyDiversityFilter(scoredMany, { outputCount: 10 }, { topN: 10 });
+  assert(top10.length === 10, `applyDiversityFilter topN=10 期望 10 条，实际 ${top10.length}`);
+  // 第一轮贪心阶段单平台 cap=ceil(10*0.4)=4；当候选不够 desired 时第二轮会放宽 cap
+  // 兜底，所以这里只断言「弱多样性」：至少包含 ≥2 个平台，且至少 4 条来自 36kr
+  // （这样能保证 36kr 在第一轮全部被纳入了）。
+  const platforms = new Set(top10.map((c) => c.source));
+  assert(
+    platforms.size >= 2,
+    `多样性筛选必须包含 ≥2 个平台，实际 ${[...platforms].join(",")}`
+  );
+  const krPicked = top10.filter((c) => c.source === "36kr").length;
+  assert(
+    krPicked >= 4,
+    `36kr 候选仅 6 条，平台 cap=4 应该让前 4 条都进 selected，实际 ${krPicked}`
+  );
+  // 单平台第一轮 cap=4；兜底阶段会放宽，但仍应确保 zhihu 不会把整个结果池吃完（≤7 条）
+  const zhihuPicked = top10.filter((c) => c.source === "zhihu").length;
+  assert(
+    zhihuPicked <= 7,
+    `兜底放宽后 zhihu 仍应 ≤ 7 条（防止单平台彻底压制），实际 ${zhihuPicked}`
+  );
+
+  // 5) resolveAutoSourceIds：按 contentPillars 推断
+  const autoSources = resolveAutoSourceIds(profile, fakeMeta, { maxSources: 10 });
+  assert(
+    autoSources.includes("36kr") || autoSources.includes("sspai") || autoSources.includes("arxiv-ai"),
+    "tech_ai pillar 应该至少推一个 tech 或 ai 类源"
+  );
+  assert(
+    !autoSources.includes("zhihu"),
+    "tech_ai pillar 不应自动推 zhihu（china 类）"
+  );
+
+  // 6) buildTopicDirectorMessages：JSON Schema + reroll 模式
+  const planMsgs = buildTopicDirectorMessages(
+    profile,
+    scored,
+    { reroll: null }
+  );
+  assert(planMsgs.length === 2, "buildTopicDirectorMessages 必须返回 2 条 message");
+  assert(
+    planMsgs[0].role === "system" && planMsgs[1].role === "user",
+    "messages 顺序必须是 system → user"
+  );
+  assert(
+    planMsgs[0].content.includes("candidatePool"),
+    "system prompt 必须强约束「只能从 candidatePool 里挑」"
+  );
+  const rerollMsgs = buildTopicDirectorMessages(
+    profile,
+    scored.slice(0, 1),
+    { reroll: { itemId: scored[0].id, previousAngle: "上次角度" } }
+  );
+  assert(
+    rerollMsgs[0].content.includes("换一个角度"),
+    "reroll 模式下 system prompt 必须显式说明「换一个角度」"
+  );
+  assert(
+    rerollMsgs[0].content.includes(scored[0].id),
+    `reroll 模式下 system prompt 必须包含 itemId=${scored[0].id}`
+  );
+
+  // 7) parseTopicDirectorOutput：抗幻觉
+  const validId = scored[0].id;
+  const goodJson = JSON.stringify({
+    strategySummary: "策略说明",
+    recommendedTopics: [
+      {
+        itemId: validId,
+        originalTitle: scored[0].title,
+        scoreReason: "理由",
+        recommendedAngle: "角度",
+        articleType: "deep_analysis",
+        outline: ["开头", "中段", "收尾"],
+        titleCandidates: ["标题 A", "标题 B"],
+        riskNotes: "无明显风险",
+        confidence: 0.8
+      },
+      {
+        itemId: "fake-hallucinated-id",
+        originalTitle: "我编的",
+        scoreReason: "",
+        recommendedAngle: "",
+        articleType: "story",
+        outline: ["x"],
+        titleCandidates: ["y"],
+        riskNotes: "",
+        confidence: 0.5
+      }
+    ],
+    rejectedPatterns: ["明星八卦", "纯吃瓜"]
+  });
+  const parsed = parseTopicDirectorOutput(goodJson, scored);
+  assert(parsed.ok, `parseTopicDirectorOutput 应解析成功，原因：${parsed.reason}`);
+  assert(
+    parsed.recommendedTopics.length === 1,
+    `抗幻觉：fake-hallucinated-id 必须被剔除，期望 1 条，实际 ${parsed.recommendedTopics.length}`
+  );
+  assert(
+    parsed.diagnostics.droppedReasons.some((r) => r.startsWith("hallucinated_itemId:")),
+    "diagnostics 必须记录 hallucinated_itemId 原因"
+  );
+  assert(
+    parsed.recommendedTopics[0].suggestedTemplateId === "preset-deep-analysis",
+    `articleType=deep_analysis 应映射到 preset-deep-analysis，实际 ${parsed.recommendedTopics[0].suggestedTemplateId}`
+  );
+
+  // 容忍 ```json fence 包裹
+  const fenced = "```json\n" + goodJson + "\n```";
+  const parsedFenced = parseTopicDirectorOutput(fenced, scored);
+  assert(parsedFenced.ok, "parseTopicDirectorOutput 必须容忍 ```json fence 包裹");
+
+  // 不合法 JSON 必须返回 ok=false 但不抛
+  const bad = parseTopicDirectorOutput("not a json", scored);
+  assert(!bad.ok, "非法 JSON 必须返回 ok=false");
+
+  // 8) buildOutlineCapture：kind=outline + blocks
+  const outlineCap = buildOutlineCapture(parsed.recommendedTopics[0], profile);
+  assert(outlineCap.kind === "outline", "buildOutlineCapture 必须输出 kind=outline");
+  assert(
+    Array.isArray(outlineCap.blocks) && outlineCap.blocks.length >= 3,
+    "buildOutlineCapture blocks 至少含切口 + 提纲标题 + 至少 1 个提纲项"
+  );
+  assert(
+    outlineCap.plannerMeta?.itemId === validId,
+    "outline capture 必须保留 itemId 以便 workspace 端追溯"
+  );
+  assert(
+    outlineCap.plannerMeta?.suggestedTemplateId === "preset-deep-analysis",
+    "outline capture plannerMeta 必须保留 suggestedTemplateId"
+  );
+
+  // 9) UI 入口防回归：hot-topics.html 必须挂入口、引用 topic-planner-ui.js
+  const hotHtml = fs.readFileSync(
+    path.join(root, "src/pages/hot-topics.html"),
+    "utf8"
+  );
+  assert(
+    hotHtml.includes('data-el="topicPlannerEntry"'),
+    "hot-topics.html 必须保留 [data-el=topicPlannerEntry]，topic-planner-ui.js 才能找到挂载点"
+  );
+  assert(
+    hotHtml.includes('data-act="open-topic-planner"'),
+    "hot-topics.html 必须保留「📍 AI 智能选题」按钮（data-act=open-topic-planner）"
+  );
+  assert(
+    hotHtml.includes("topic-planner-ui.js"),
+    "hot-topics.html 必须 <script src> 引入 topic-planner-ui.js，否则 UI 不挂载"
+  );
+
+  // 10) service-worker 必须监听 PLAN_TOPICS / IMPORT_OUTLINE_DRAFT 两个 message
+  const swJs = fs.readFileSync(
+    path.join(root, "src/background/service-worker.js"),
+    "utf8"
+  );
+  assert(
+    swJs.includes('case "PLAN_TOPICS"'),
+    "service-worker 必须有 case \"PLAN_TOPICS\" 走 runTopicPlanning"
+  );
+  assert(
+    swJs.includes('case "IMPORT_OUTLINE_DRAFT"'),
+    "service-worker 必须有 case \"IMPORT_OUTLINE_DRAFT\" 接收 outline capture 落到 session.lastCapture"
+  );
+  assert(
+    swJs.includes("runTopicPlanning"),
+    "service-worker 必须实现 runTopicPlanning 编排函数"
+  );
+
+  // 11) license / usage-stats 必须把 ai.topicPlanner / topicPlanner 挂上配额体系
+  const licJs = fs.readFileSync(path.join(root, "src/shared/license.js"), "utf8");
+  assert(
+    licJs.includes('"ai.topicPlanner"'),
+    "license.js PAID_FEATURES 必须包含 ai.topicPlanner，否则 free 闸门不工作"
+  );
+  const usageJs = fs.readFileSync(
+    path.join(root, "src/shared/usage-stats.js"),
+    "utf8"
+  );
+  assert(
+    usageJs.includes('"topicPlanner"'),
+    "usage-stats USAGE_KINDS 必须包含 topicPlanner，否则 free 试用计数不被记账"
+  );
+  const serverJs = fs.readFileSync(path.join(root, "server/worker.js"), "utf8");
+  assert(
+    serverJs.includes('"ai.topicPlanner"'),
+    "server/worker.js PAID_FEATURE_KEYS 必须包含 ai.topicPlanner，license 校验时才会下发该 feature flag"
   );
 }
 

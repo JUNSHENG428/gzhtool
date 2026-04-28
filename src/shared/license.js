@@ -26,6 +26,8 @@
  * 不会因为授权模块联网失败而崩溃。
  */
 
+import { ensureOptionalHostPermission } from "./host-permissions.js";
+
 const STORAGE_LICENSE = "wechatWriterLicense";
 const STORAGE_AUTH = "wechatWriterLicenseAuth";
 const STORAGE_DEVICE = "wechatWriterLicenseDevice";
@@ -100,6 +102,16 @@ export const PAID_FEATURES = Object.freeze({
     name: "去 AI 味增强",
     tier: "pro",
     hint: "Pro 启用 turnitin-humanizer 风格的二次润色，更难被 AI 检测。"
+  },
+  // AI 选题规划：把热点候选池跑完「硬过滤 + 8 维评分 + 多样性筛选」之后，
+  // 再让用户配置的 LLM 当「选题总监」给出推荐角度 + 提纲 + 标题 + 风险提示。
+  // Free：每天 1 次试用，且只能看 1 条推荐（用来体验流程，证明值得升 Pro）。
+  // Pro：不限次数，按用户问卷里选的 outputCount（3/5/10）出全量推荐。
+  "ai.topicPlanner": {
+    name: "AI 选题规划",
+    tier: "pro",
+    quota: { free: 1, pro: -1 },
+    hint: "免费版每天可试用 1 次「AI 智能选题」并只展示 1 条推荐；Pro 不限次，按你设置的数量（3/5/10）出全量选题方案。"
   }
 });
 
@@ -258,6 +270,7 @@ async function apiFetch(path, { method = "GET", body, token, signal } = {}) {
   const base = await getApiBase();
   const headers = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  await ensureOptionalHostPermission(base, "会员授权接口");
   const res = await fetch(`${base}${path}`, {
     method,
     headers,
@@ -620,16 +633,27 @@ export async function checkLicense(featureKey) {
 }
 
 /**
- * 检查"今日改写次数"配额。
+ * 检查"今日某动作次数"配额。
  * 与 src/shared/usage-stats.js 联动 —— 直接动态 import 避免循环依赖。
  * 返回 { ok, used, limit, remaining, hint }；limit=-1 表示无限。
+ *
+ * @param {string} kind   usage-stats USAGE_KINDS 之一（rewrite / topicPlanner / ...）
+ * @param {object} [opts]
+ * @param {number} [opts.limit] 显式覆盖免费版限额（如 ai.topicPlanner 限 1 次/天）
+ * @param {string} [opts.featureKey] 配额耗尽时给的 hint 来自哪个 PAID_FEATURES（提示更精准）
  */
-export async function checkDailyQuota(kind = "rewrite") {
+export async function checkDailyQuota(kind = "rewrite", opts = {}) {
   const state = await getLicenseState({ refresh: true });
   if (state.effectivePlan === "pro") {
     return { ok: true, used: 0, limit: -1, remaining: -1, hint: "" };
   }
-  const limit = state.dailyQuota > 0 ? state.dailyQuota : FREE_DAILY_REWRITE_QUOTA;
+  // 显式 limit > license.dailyQuota > FREE_DAILY_REWRITE_QUOTA 兜底
+  const limit =
+    Number.isFinite(opts.limit) && opts.limit > 0
+      ? opts.limit
+      : state.dailyQuota > 0
+        ? state.dailyQuota
+        : FREE_DAILY_REWRITE_QUOTA;
   let used = 0;
   try {
     const mod = await import("./usage-stats.js");
@@ -638,13 +662,27 @@ export async function checkDailyQuota(kind = "rewrite") {
   } catch {
     used = 0;
   }
+  // 不同动作的 hint 文案不一样：通用 fallback 沿用「AI 改写」，
+  // 但 ai.topicPlanner / 未来其他 quota-gated 动作可以通过 opts.featureKey 拿到自己 PAID_FEATURES.hint
+  const featureHint =
+    opts.featureKey && PAID_FEATURES[opts.featureKey]?.hint
+      ? PAID_FEATURES[opts.featureKey].hint
+      : "";
+  const actionLabel =
+    kind === "topicPlanner"
+      ? "AI 选题规划"
+      : kind === "rewrite"
+        ? "AI 改写"
+        : kind;
   if (used >= limit) {
     return {
       ok: false,
       used,
       limit,
       remaining: 0,
-      hint: `今天已用完免费版的 ${limit} 次 AI 改写额度，明日 0 点重置；升级 Pro 即刻无限。`
+      hint:
+        featureHint ||
+        `今天已用完免费版的 ${limit} 次${actionLabel}额度，明日 0 点重置；升级 Pro 即刻无限。`
     };
   }
   return {
@@ -652,7 +690,7 @@ export async function checkDailyQuota(kind = "rewrite") {
     used,
     limit,
     remaining: limit - used,
-    hint: `免费版今日剩余 ${limit - used}/${limit} 次 AI 改写`
+    hint: `免费版今日剩余 ${limit - used}/${limit} 次${actionLabel}`
   };
 }
 
@@ -679,6 +717,33 @@ export async function checkAccountLimit(currentCount = 0) {
     current: currentCount,
     limit,
     hint: `免费版可绑定 ${limit} 个公众号，当前已绑 ${currentCount} 个`
+  };
+}
+
+/**
+ * 「去 AI 味」二次润色 pass 闸门（ai.deAiBoost）。
+ *
+ * 调用方：service-worker.js REWRITE_ARTICLE 决定是否调用 runHumanizePass。
+ *
+ * 行为：
+ *  - 当 user 是 Pro：放行（ok=true，plan="pro"）
+ *  - 当 user 是免费版：拒绝（ok=false，plan="free"），UI 应该静默回退到主 pass 结果，
+ *    不弹错误窗（这是一个"加强"功能而不是必备功能）；只在 settings UI 上提示一次。
+ *
+ * 设计说明：
+ *  与 checkTemplateAccess 不同，这里不返回 errorCode，因为我们希望免费版用户
+ *  即使开了 humanizeEnabled 也能正常拿到主 pass 结果（仅缺少二次润色），不阻塞
+ *  整篇改写流程。service-worker 只在 ok=true 时才调用 runHumanizePass。
+ */
+export async function checkDeAiBoostAccess() {
+  const state = await getLicenseState({ refresh: false });
+  if (state.effectivePlan === "pro") {
+    return { ok: true, plan: "pro", hint: "" };
+  }
+  return {
+    ok: false,
+    plan: "free",
+    hint: PAID_FEATURES["ai.deAiBoost"].hint
   };
 }
 

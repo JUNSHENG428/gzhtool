@@ -41,6 +41,8 @@ const SELECTORS = {
   defaultAudience: "#templateDefaultAudience",
   temperature: "#templateTemperature",
   model: "#templateModel",
+  useVoiceSample: "#templateUseVoiceSample",
+  humanizePassAllowed: "#templateHumanizePassAllowed",
   badge: "#templateBadge",
   liveMeta: "#templateLiveMeta",
   systemStats: "#templateSystemStats",
@@ -135,7 +137,9 @@ function bindEvents() {
     els.defaultCta,
     els.defaultAudience,
     els.temperature,
-    els.model
+    els.model,
+    els.useVoiceSample,
+    els.humanizePassAllowed
   ];
   const debouncedSave = debounce(async () => {
     if (!_selectedId) return;
@@ -217,6 +221,18 @@ function selectTemplate(id) {
     els.temperature.value = template.temperature != null ? String(template.temperature) : "";
   }
   if (els.model) els.model.value = template.model || "";
+  if (els.useVoiceSample) {
+    // 老模板里没有这字段时按 "auto" 显示，保证向后兼容
+    const policy = String(template.useVoiceSample || "auto");
+    els.useVoiceSample.value = ["auto", "force-on", "force-off"].includes(policy)
+      ? policy
+      : "auto";
+  }
+  if (els.humanizePassAllowed) {
+    // 老模板里没有 humanizePassAllowed 时按 true（允许）显示
+    els.humanizePassAllowed.value =
+      template.humanizePassAllowed === false ? "false" : "true";
+  }
   updateTemplateMeta(template);
 }
 
@@ -238,6 +254,12 @@ function saveCurrentFormToTemplate() {
   const tempVal = els.temperature?.value.trim();
   template.temperature = tempVal === "" || tempVal == null ? null : Number(tempVal);
   template.model = els.model?.value.trim() || "";
+  // 「我的文风」/「去 AI 味」相关模板字段：注入策略 + 二次润色开关
+  const policy = String(els.useVoiceSample?.value || "auto");
+  template.useVoiceSample = ["auto", "force-on", "force-off"].includes(policy)
+    ? policy
+    : "auto";
+  template.humanizePassAllowed = els.humanizePassAllowed?.value !== "false";
 }
 
 async function createNewTemplate() {
@@ -281,7 +303,9 @@ async function createNewTemplate() {
       audience: ""
     },
     temperature: null,
-    model: ""
+    model: "",
+    useVoiceSample: "auto",
+    humanizePassAllowed: true
   };
   _templates.push(newTemplate);
   await savePromptTemplates(_templates);

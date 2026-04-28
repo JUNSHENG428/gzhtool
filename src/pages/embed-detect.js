@@ -1,7 +1,7 @@
 /**
  * Embed 模式检测（共用小工具）
  *
- * 当独立页（hot-topics.html / agent.html / 其它 src/pages/*.html）
+ * 当独立页（hot-topics.html / 其它 src/pages/*.html）
  * 被 workspace.html 以 `?embed=1` 参数加载到 iframe 时，把
  * data-embed="1" 写到 <html> / <body>，触发 page.css 中的嵌入态样式
  * （隐藏 topbar / hero / skip-link，背景透明，收紧 padding）。

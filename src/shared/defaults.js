@@ -3,8 +3,127 @@ export const STORAGE_KEYS = {
   session: "wechatWriterSession",
   draftHistory: "__draft_history",
   promptTemplates: "wechatWriterPromptTemplates",
-  activeTemplateId: "wechatWriterActiveTemplateId"
+  activeTemplateId: "wechatWriterActiveTemplateId",
+  // AI 选题规划：用户画像问卷答案（每次打开「AI 智能选题」回填）+ 上次规划缓存
+  topicProfile: "wechatWriterTopicProfile",
+  topicPlanCache: "wechatWriterTopicPlanCache",
+  // 「我的文风」样本库。单独走一个 key 而不挤进 settings，
+  // 因为 raw 字段可能存几千字原文，混在 settings 里每次保存都要全量重写整个 settings，
+  // 不必要地放大 chrome.storage.local 的 IO；选中态（activeVoiceSampleId）仍然在 settings 里。
+  voiceSamples: "wechatWriterVoiceSamples"
 };
+
+// =====================================================================
+// AI 选题规划（topic-planner）相关常量
+// =====================================================================
+
+/**
+ * 选题画像问卷的「内容领域」选项 → HOT_SOURCE_META.category 的映射。
+ * 用户在画像里勾选「科技 AI」时，自动从 hot-topics-sources.js 的 category="tech"+"ai" 源里
+ * 抽 6-8 个默认源进入候选池；用户也可以手动覆盖。
+ *
+ * 没列在这里的领域（如「情感故事」）退化为「china」综合社区源 + 用户手动添加。
+ */
+export const TOPIC_PROFILE_CATEGORIES = Object.freeze({
+  tech_ai: { label: "科技 AI", sourceCategories: ["tech", "ai"] },
+  finance: { label: "财经商业", sourceCategories: ["finance", "tech"] },
+  knowledge: { label: "知识科普", sourceCategories: ["tech", "ai", "china"] },
+  lifestyle: { label: "生活方式", sourceCategories: ["china", "video"] },
+  emotional: { label: "情感故事", sourceCategories: ["china"] },
+  culture: { label: "文化评论", sourceCategories: ["china", "world"] },
+  local: { label: "本地资讯", sourceCategories: ["china", "world"] }
+});
+
+export const TOPIC_PROFILE_PURPOSES = Object.freeze([
+  { id: "growth", label: "涨粉" },
+  { id: "conversion", label: "转化" },
+  { id: "expertise", label: "建立专业感" },
+  { id: "discussion", label: "引发讨论" },
+  { id: "search", label: "长期搜索流量" }
+]);
+
+export const TOPIC_PROFILE_ARTICLE_TYPES = Object.freeze([
+  { id: "news_brief", label: "热点评论" },
+  { id: "deep_analysis", label: "深度解读" },
+  { id: "tutorial", label: "教程拆解" },
+  { id: "warning", label: "避坑指南" },
+  { id: "review", label: "测评对比" },
+  { id: "story", label: "故事化表达" }
+]);
+
+export const TOPIC_PROFILE_AUDIENCES = Object.freeze([
+  { id: "beginner", label: "小白" },
+  { id: "practitioner", label: "从业者" },
+  { id: "manager", label: "管理者" },
+  { id: "creator", label: "创作者" },
+  { id: "student", label: "学生" },
+  { id: "family", label: "家庭用户" }
+]);
+
+export const TOPIC_PROFILE_TONES = Object.freeze([
+  { id: "restrained", label: "克制分析" },
+  { id: "sharp", label: "犀利评论" },
+  { id: "warm", label: "温暖故事" },
+  { id: "casual", label: "轻松口语" },
+  { id: "professional", label: "专业科普" }
+]);
+
+export const TOPIC_PROFILE_RISK_LEVELS = Object.freeze([
+  { id: "conservative", label: "保守", weight: 0.2 },
+  { id: "normal", label: "正常", weight: 0.5 },
+  { id: "bold", label: "敢写争议", weight: 0.85 }
+]);
+
+export const TOPIC_PROFILE_EXCLUSIONS = Object.freeze([
+  { id: "celebrity", label: "娱乐八卦" },
+  { id: "politics", label: "政治敏感" },
+  { id: "vulgar", label: "低俗争议" },
+  { id: "negative", label: "纯负面" },
+  { id: "ad", label: "广告软文" }
+]);
+
+export const TOPIC_PROFILE_OUTPUT_COUNTS = Object.freeze([3, 5, 10]);
+
+/**
+ * 推荐文章类型 → 默认 prompt template id 的映射。
+ * 用户没主动选择改写模板时，按 AI 选题总监建议的 articleType 自动绑定。
+ * 用户在热点页 chip 已经选了模板 → 优先用用户选的，AI 建议仅提示不强改。
+ */
+export const ARTICLE_TYPE_TO_TEMPLATE = Object.freeze({
+  news_brief: "preset-news-brief",
+  deep_analysis: "preset-deep-analysis",
+  tutorial: "preset-tutorial",
+  warning: "preset-news-brief",      // 避坑指南没有专门预设，新闻速读最近
+  review: "preset-deep-analysis",     // 测评对比退到深度解读
+  story: "preset-storytelling"
+});
+
+/**
+ * 选题画像默认值。所有字段在用户首次打开「AI 智能选题」时为空，
+ * 用户保存后落到 chrome.storage.local 的 wechatWriterTopicProfile。
+ *
+ * 字段说明：
+ *  - contentPillars / articleTypes / audiences / exclusions：多选，存 id 数组
+ *  - purpose / tone：单选，存 id 字符串
+ *  - risk：单选 conservative / normal / bold（默认 normal）
+ *  - outputCount：3 / 5 / 10（默认 5）
+ *  - manualSourceIds：用户在「自动选源」基础上手动加入的源 id 数组（覆盖默认）
+ *  - excludeKeywords：自定义排除词（除上面 5 个预设大类外的关键词，逗号分隔的字符串数组）
+ *  - updatedAt：最近一次保存时间（ms），用于 UI 显示「上次规划：YYYY-MM-DD HH:mm」
+ */
+export const DEFAULT_TOPIC_PROFILE = Object.freeze({
+  contentPillars: [],
+  purpose: "",
+  articleTypes: [],
+  audiences: [],
+  tone: "",
+  risk: "normal",
+  exclusions: [],
+  excludeKeywords: [],
+  manualSourceIds: [],
+  outputCount: 5,
+  updatedAt: 0
+});
 
 export const DEFAULT_SETTINGS = {
   productName: "润笔",
@@ -15,6 +134,28 @@ export const DEFAULT_SETTINGS = {
   apiKey: "",
   model: "gpt-4.1-mini",
   temperature: 0.8,
+  // OpenAI 兼容的高级生成参数。空字符串 = 不下发该字段，让服务端用默认值。
+  // 经验值（推荐去 AI 味档位）：top_p 0.92 / frequency_penalty 0.5 / presence_penalty 0.3。
+  // 留空兼容旧服务（如某些自部署 Ollama / vLLM 网关只接受 temperature）。
+  topP: "",
+  frequencyPenalty: "",
+  presencePenalty: "",
+  // 「去 AI 味」二次润色 pass。默认开启，PRO 用户实际生效；
+  // 免费版即使 humanizeEnabled=true 也会被 license 闸门拒绝，回退主 pass 结果。
+  humanizeEnabled: true,
+  // 强度档位：
+  //  - light：只重写 lint 命中权重最高的 1 段，省时省 token
+  //  - medium：重写所有 lint 命中段 + lead；零命中时退化成全段（默认）
+  //  - strong：全段 + lead，且强制注入 voice sample
+  humanizeIntensity: "medium",
+  // 主 pass lint 分数 ≥ 此阈值时整篇跳过二次润色 pass，避免给"已经够干净"的稿子白花钱。
+  // 阈值 85 = 主 pass 命中 ≤ 1 条 error 或 ≤ 3 条 warn。设 100 则始终跑 S2，0 则永不跳过。
+  humanizeSkipScore: 85,
+  // humanize-pass 段级并发上限。默认 6 在 OpenAI / Anthropic / DeepSeek / 阿里 DashScope 等
+  // 主流服务上安全；自部署 vLLM/Ollama 限流时调到 1–2 即可回退顺序执行。
+  humanizeMaxConcurrency: 6,
+  // 当前激活的「我的文风」样本 id；空字符串 = 不注入。
+  activeVoiceSampleId: "",
   defaultAudience: "关注商业、效率和 AI 工具的公众号读者",
   defaultTone: "专业、可信、像有判断的编辑在写",
   defaultLength: "medium",
@@ -50,7 +191,6 @@ export const DEFAULT_SETTINGS = {
   // 每次成功调用 sendall(is_to_all=true) +1，进入新自然月时由 UI 自动 reset 到 0。
   wechatSendAllUsageMonth: "",
   wechatSendAllUsageCount: 0,
-  hotTopicsDailyHotBase: "",
   hotTopicsNewsnowBase: "",
   // DrissionPage 增强抓取（可选）。需要本地启动一个 helper 服务，
   // 走 Chromium 真实环境抓取，可绕过部分前端反爬/懒加载页面。
@@ -675,7 +815,9 @@ ${COMMON_USER_PAYLOAD}`,
       audience: "关注行业动态、希望快速获取资讯的读者"
     },
     temperature: 0.55,
-    model: ""
+    model: "",
+    useVoiceSample: "force-off",
+    humanizePassAllowed: true
   },
   {
     id: "preset-tutorial",
@@ -706,6 +848,8 @@ ${COMMON_USER_PAYLOAD}`,
       audience: "希望按步骤动手实践的开发者或工具用户"
     },
     temperature: 0.5,
-    model: ""
+    model: "",
+    useVoiceSample: "force-off",
+    humanizePassAllowed: false
   }
 ];

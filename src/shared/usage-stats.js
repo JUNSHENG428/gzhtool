@@ -7,10 +7,10 @@
  * 结构：
  *   {
  *     byDay: {
- *       "2026-04-22": { capture: 3, rewrite: 5, publish: 1, agentImport: 2 },
+ *       "2026-04-22": { capture: 3, rewrite: 5, publish: 1, topicPlanner: 1 },
  *       ...
  *     },
- *     total: { capture: 120, rewrite: 88, publish: 14, agentImport: 9 },
+ *     total: { capture: 120, rewrite: 88, publish: 14, topicPlanner: 9 },
  *     updatedAt: "2026-04-22T08:11:00.000Z"
  *   }
  *
@@ -27,7 +27,7 @@ export const USAGE_KINDS = Object.freeze([
   "capture",      // 抓取（不论 selection / readable / raw / 后台抓）
   "rewrite",      // AI 改写
   "publish",      // 推送公众号（草稿 / 发布）
-  "agentImport"   // AI 选题代笔一键入库
+  "topicPlanner" // AI 选题规划：免费版每天 1 次试用
 ]);
 
 function todayKey(date = new Date()) {

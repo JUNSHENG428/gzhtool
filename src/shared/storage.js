@@ -134,6 +134,14 @@ function normalizeStoredTemplate(stored) {
       stored.temperature === undefined || stored.temperature === null || stored.temperature === ""
         ? null
         : Number(stored.temperature),
-    model: stored.model || ""
+    model: stored.model || "",
+    useVoiceSample: ["auto", "force-on", "force-off"].includes(stored.useVoiceSample)
+      ? stored.useVoiceSample
+      : "auto",
+    humanizePassAllowed: stored.humanizePassAllowed === false ? false : true,
+    humanizeProfile:
+      stored.humanizeProfile && typeof stored.humanizeProfile === "object"
+        ? stored.humanizeProfile
+        : null
   };
 }

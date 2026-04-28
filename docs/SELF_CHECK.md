@@ -97,7 +97,7 @@ node scripts/cws-mcheck.mjs     # 待我写：Playwright 加载扩展验启动�
 
 ## 3 · Options（设置页）
 
-> 12 个 section（侧栏 quicknav 锚点）：上手 / AI / 品牌 / 改写 / Prompt / 直连 / 多账号 / DrissionPage / 热点 / Agent / 会员激活 / 数据
+> 10 个 section（侧栏 quicknav 锚点）：上手 / AI / 改写 / Prompt / 直连 / 多账号 / DrissionPage / 热点 / 会员激活 / 数据
 
 | # | 检查项 | 标签 | 期望 |
 |---|---|---|---|
@@ -113,22 +113,21 @@ node scripts/cws-mcheck.mjs     # 待我写：Playwright 加载扩展验启动�
 | 3.10 | 多公众号管理：免费 ≤2 个、Pro 无限 | 🤖 | 第 3 个被闸门拦下 |
 | 3.11 | DrissionPage helper 配置能填，"测试连接"按钮工作 | 👤 | 填对 URL 后显示 "/health 200" |
 | 3.12 | 热点信息源开关 12 个都能切 | 🤖 | 开关状态持久化 |
-| 3.13 | Agent 默认值（平台/并发/抖动）能保存 | 🤖 | reload 后值还在 |
-| 3.14 | 会员激活：未登录时显示"注册/登录" | 🤖 | 显示登录 form |
-| 3.15 | 会员激活：fake-pro 后显示 user / key / 设备 / 到期 | 🤖 | 显示 dev@docuearn.com |
-| 3.16 | 数据导出：按钮点击下载 JSON | 🤖 | download 触发 |
-| 3.17 | 全清数据：二次确认 + 清空 storage | 🤖 | confirm 后 storage 空 |
+| 3.13 | 会员激活：未登录时显示"注册/登录" | 🤖 | 显示登录 form |
+| 3.14 | 会员激活：fake-pro 后显示 user / key / 设备 / 到期 | 🤖 | 显示 dev@docuearn.com |
+| 3.15 | 数据导出：按钮点击下载 JSON | 🤖 | download 触发 |
+| 3.16 | 全清数据：二次确认 + 清空 storage | 🤖 | confirm 后 storage 空 |
 
 ---
 
-## 4 · Workspace（工作台 · 7 个视图）
+## 4 · Workspace（工作台 · 6 个视图）
 
-> hash 路由：#dashboard / #capture / #layout / #publish / #hot / #agent / #member
+> hash 路由：#dashboard / #capture / #layout / #publish / #hot / #member
 
 | # | 检查项 | 标签 | 期望 |
 |---|---|---|---|
 | 4.1 | 默认 hash 是 #dashboard，左侧 nav active 项正确 | 🤖 | nav-item.active 是「工作台」 |
-| 4.2 | 7 个 hash 切换都能正确显示对应 view | 🤖 | data-view[data-active=true] 唯一 |
+| 4.2 | 6 个 hash 切换都能正确显示对应 view | 🤖 | data-view[data-active=true] 唯一 |
 | 4.3 | dashboard 卡片显示真实统计（草稿/账号/今日改写/本月发布） | 🔀 | 数字与 storage 对应 |
 | 4.4 | dashboard "最近草稿"列表点击恢复编辑 | 👤 | 跳到 #layout 并预填 |
 | 4.5 | capture 页面：粘贴 URL → 抓取按钮工作 | 👤 | 进度反馈 + 完成后显示结果 |
@@ -140,9 +139,8 @@ node scripts/cws-mcheck.mjs     # 待我写：Playwright 加载扩展验启动�
 | 4.11 | publish 页面多账号 checkbox 可勾选 | 🤖 | state 跟随 |
 | 4.12 | publish "推到 N 个账号草稿箱"按钮工作 | 👤 | 显示成功 toast，公众号后台能看到草稿 |
 | 4.13 | hot 页面与 hot-topics.html 显示一致 | 🤖 | 列表非空 |
-| 4.14 | agent 页面：未激活时拦截、Pro 后可用 | 🔀 | 同 §6 |
-| 4.15 | member 页面 4 个卡正确渲染（hero/quota/features/actions） | 🤖 | 节点齐全、license 状态正确 |
-| 4.16 | member 页面 license 状态变化时实时更新（subscribe） | 🤖 | 在 SW 改 license → member 自动重渲 |
+| 4.14 | member 页面 4 个卡正确渲染（hero/quota/features/actions） | 🤖 | 节点齐全、license 状态正确 |
+| 4.15 | member 页面 license 状态变化时实时更新（subscribe） | 🤖 | 在 SW 改 license → member 自动重渲 |
 
 ---
 
@@ -231,16 +229,15 @@ node scripts/cws-mcheck.mjs     # 待我写：Playwright 加载扩展验启动�
 
 ---
 
-## 10 · AI 选题代笔（Agent · Pro）
+## 10 · AI 智能选题（Topic Planner · Pro）
 
 | # | 检查项 | 标签 | 期望 |
 |---|---|---|---|
-| 10.1 | 未激活 Pro 时进入 agent 页：显示升级引导 | 🤖 | upgrade modal |
-| 10.2 | fake-pro 后：平台勾选 / 上限 / 并发 / 抖动 控件可用 | 🤖 | DOM 完整 |
-| 10.3 | 凭据检查：未登录的平台自动跳过 | 🤖 | mock cookie 缺失 |
-| 10.4 | 跑一次 agent：进度反馈 + 任务历史保存 | 🔀 | 用 mock LLM 跑全程 |
-| 10.5 | 任务历史 pin / unpin / delete 都正常 | 🤖 | storage 同步 |
-| 10.6 | 选题总结开关：开启后多调一次 LLM | 🤖 | mock LLM 调用次数 |
+| 10.1 | 未激活 Pro 时点击「AI 智能选题」：显示升级/试用提示 | 🤖 | upgrade modal 或免费 1 次 |
+| 10.2 | fake-pro 后：8 道画像题可填写、保存、回填 | 🤖 | DOM 完整 + storage 同步 |
+| 10.3 | 生成候选：算法过滤 + AI 选题总监返回推荐卡 | 🔀 | mock 热点 + mock LLM |
+| 10.4 | 推荐卡「确认抓取改写 / 仅入库 / 用提纲开稿 / 换角度」闭环 | 🔀 | workspace import 正常 |
+| 10.5 | reroll 不编造 itemId，候选必须来自 candidatePool | 🤖 | parseTopicDirectorOutput 白名单校验 |
 
 ---
 
@@ -269,7 +266,6 @@ node scripts/cws-mcheck.mjs     # 待我写：Playwright 加载扩展验启动�
 | 12.3 | Alt+Shift+W | 直接打开编辑台 | |
 | 12.4 | Alt+Shift+H | 打开热点捕捉器 | |
 | 12.5 | (手动绑) open_options | 打开设置页 | |
-| 12.6 | (手动绑) open_agent | 打开 AI 选题代笔 | |
 
 ---
 
@@ -306,8 +302,8 @@ node scripts/cws-mcheck.mjs     # 待我写：Playwright 加载扩展验启动�
 
 | # | 检查项 | 标签 | 期望 |
 |---|---|---|---|
-| 15.1 | 所有外部域名都在 host_permissions 范围内 | 🤖 | grep fetch URL |
-| 15.2 | 不读取 cookie value，只读 cookie name | 🤖 | grep `chrome.cookies.get` 看 callback 是否访问 .value |
+| 15.1 | 固定外部域名在 host_permissions；动态 URL 在 optional_host_permissions 前有运行时申请 | 🤖 | grep fetch URL + `ensureOptionalHostPermission` |
+| 15.2 | 不声明 cookies 权限、不读取平台 cookie | 🤖 | 源码不应出现 cookies API 业务调用 |
 | 15.3 | API key 不发到我们的服务器 | 🤖 | grep fetch 路径，确保 key 只发到用户配置端点 |
 | 15.4 | License 激活时只上传 email + license + 设备指纹 | 🤖 | 拦截 /api/license/verify body |
 | 15.5 | 推送公众号用浏览器原生登录态，不上传账号密码 | 🤖 | grep wechat.js |
