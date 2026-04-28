@@ -19,6 +19,7 @@ desktop/
 │   ├── version.py                  桌面助手版本号（独立于浏览器扩展）
 │   ├── server.py                   HTTP helper + DrissionRuntime 核心逻辑
 │   ├── gui.py                      Tkinter 极简 GUI
+│   ├── ui_theme.py                 主题色与 ttk 样式（与扩展 design-tokens 气质对齐；零 Web 依赖）
 │   └── updater.py                  GitHub Release API 检查更新
 ├── build/
 │   ├── runbi-helper.spec           PyInstaller spec（mac + win 通用）
@@ -29,6 +30,14 @@ desktop/
     ├── icon.ico                    win exe 图标
     └── icon-sources/               1024x1024 png 源
 ```
+
+---
+
+## GUI 与主题（为何不用 Web 前端）
+
+- **技术选型**：主界面是 **标准库 Tkinter + ttk**，不内嵌 WebView、不随包带 HTML/CSS/CEF。目的是 **PyInstaller 包体小、依赖少、跨平台路径简单**，与 `helper_app/gui.py` 文件头注释一致。
+- **主题实现**：`helper_app/ui_theme.py` 集中定义与浏览器扩展 `src/pages/design-tokens.css` 相近的 **暖纸底、墨绿系正文、状态语义色**；`apply_ttk_style()` 使用 **clam** 主题统一 `LabelFrame` / 按钮内边距；运行日志用 **系统优先的等宽字体**（mac Menlo、win Consolas 等）。
+- **若未来要强视觉升级**：可评估 **ttkbootstrap / CustomTkinter**（增依赖与体积）或产品级 **系统托盘** 等，与 Memory Bank 中「可选升级路径」一致；未决前保持零额外 Python 依赖。
 
 ---
 

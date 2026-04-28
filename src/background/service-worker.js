@@ -497,6 +497,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       case "PUBLISH_TO_WECHAT": {
         const baseSettings = await getSettings();
+        const accountLabel = String(message.payload?.accountLabel || "默认账号");
+
+        // 浏览器登录模式（mode === "browser"）短路：复用用户已登录的 mp 后台 cookie，
+        // 走 wechat-browser-bridge.js 把第一篇文章 DOM 注入编辑页，不调任何 cgi-bin。
+        // 通过 payload.publishMode（workspace-publish.js 根据所选 profile.mode 注入）
+        // 进入这条分支；旧版 payload（不带 publishMode）天然走下面的 API 链路，向后兼容。
+        if (message.payload?.publishMode === "browser") {
+          const { publishViaBrowser } = await import("./wechat-browser-bridge.js");
+          const result = await publishViaBrowser(message.payload, {
+            profileLabel: accountLabel
+          });
+          void bumpUsage("publish");
+          sendResponse({
+            ok: true,
+            data: { ...result, accountLabel }
+          });
+          break;
+        }
+
         // 优先使用前端传过来的 accountOverride（编辑台选中的发布账号）。
         // override 缺失时回落到 baseSettings 的默认凭证，保证向后兼容。
         const override = message.payload?.accountOverride;
@@ -511,7 +530,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 baseSettings.wechatDefaultAuthor
             }
           : baseSettings;
-        const accountLabel = String(message.payload?.accountLabel || "默认账号");
         await ensureOptionalHostPermission(
           [effectiveSettings.wechatApiBase, ...collectPublishRemoteUrls(message.payload)],
           `公众号发布（${accountLabel}）`

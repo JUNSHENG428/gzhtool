@@ -64,7 +64,10 @@
       "input[placeholder*='标题']",
       "textarea[placeholder*='标题']",
       ".js_title_input",
-      "[contenteditable='true'][data-placeholder*='标题']"
+      "[contenteditable='true'][data-placeholder*='标题']",
+      // mp 后台 2025-Q4 改版后偶尔出现的 input 名：title / appmsg_title
+      "input[name='title']",
+      "input[id*='title' i]"
     ]);
   }
 
@@ -72,7 +75,10 @@
     return findFirst([
       "textarea[placeholder*='摘要']",
       "input[placeholder*='摘要']",
-      "textarea[maxlength='120']"
+      "textarea[maxlength='120']",
+      // 改版兜底：摘要节点也可能用「描述」placeholder
+      "textarea[placeholder*='描述']",
+      "textarea[name*='digest' i]"
     ]);
   }
 
@@ -88,7 +94,10 @@
     return findFirst([
       "input[placeholder*='原文']",
       "input[placeholder*='来源']",
-      "input[name*='source']"
+      "input[name*='source']",
+      // 一些版本里这是 url-link 字段
+      "input[placeholder*='链接']",
+      "input[name*='source_url' i]"
     ]);
   }
 
@@ -292,15 +301,29 @@
       document.documentElement.appendChild(dock);
     }
 
+    const isBrowserMode = STATE.payload?.meta?.publishMode === "browser";
+    const browserModeChecklist = isBrowserMode
+      ? `<div style="margin-top:4px;padding:10px 12px;background:rgba(214,255,68,0.08);border:1px solid rgba(214,255,68,0.35);border-radius:10px;font-size:12px;line-height:1.7;color:#e8f4cf;">
+          <div style="font-weight:700;margin-bottom:4px;">接下来需要你手动完成：</div>
+          ① 检查标题/正文是否完整<br />
+          ② 在 mp 后台「封面」处上传封面图<br />
+          ③ 点右上角「保存为草稿」按钮
+        </div>`
+      : "";
+    const heading = isBrowserMode
+      ? "浏览器登录模式 · 编辑器助手"
+      : "公众号网页编辑器助手";
+
     dock.innerHTML = `
       <div style="display:grid;gap:8px;">
-        <strong style="font-size:15px;">公众号网页编辑器助手</strong>
+        <strong style="font-size:15px;">${escapeHtml(heading)}</strong>
         <p style="margin:0;line-height:1.65;color:#d6e0d5;">${escapeHtml(result.message || "等待同步结果")}</p>
         <div style="font-size:12px;line-height:1.7;color:#b9c7bb;">
           标题：${result.titleWritten ? "已写入" : "未写入"}<br />
           摘要：${result.digestWritten ? "已写入" : "未写入"}<br />
           正文：${result.bodyWritten ? "已写入" : "未写入"}
         </div>
+        ${browserModeChecklist}
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button data-helper-action="retry" style="${buttonStyle()}">重试导入</button>
           <button data-helper-action="copy" style="${buttonStyle()}">复制正文 HTML</button>
@@ -345,14 +368,17 @@
   }
 
   function buildResultMessage(result) {
+    const isBrowserMode = STATE.payload?.meta?.publishMode === "browser";
     if (!result.isEditor) {
       return "当前不是公众号图文编辑页。请先登录并打开图文编辑器。";
     }
     if (result.titleWritten && result.bodyWritten) {
-      return "已尝试把当前篇写入网页编辑器。请检查正文和右侧设置项。";
+      return isBrowserMode
+        ? "已写入公众号编辑器。请按下方清单完成最后 3 步即可保存草稿。"
+        : "已尝试把当前篇写入网页编辑器。请检查正文和右侧设置项。";
     }
     if (result.titleWritten && !result.bodyWritten) {
-      return "标题已写入，但没有找到稳定的正文编辑区。可以直接点“复制正文 HTML”后手动粘贴。";
+      return "标题已写入，但没有找到稳定的正文编辑区。可以直接点「复制正文 HTML」后手动粘贴。";
     }
     return "自动同步未完全成功。可以用右侧按钮复制正文 HTML 手动粘贴。";
   }

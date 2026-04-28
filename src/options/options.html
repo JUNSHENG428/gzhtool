@@ -436,9 +436,31 @@
         <div class="section-heading split-full">
           <h2>多账号管理<span class="section-tag soft">进阶</span></h2>
           <p>如果你有多个公众号，可以在这里保存多套凭证，发布时在编辑台里切换。只用一个号的话不用管这里。</p>
+          <p class="muted" style="margin-top:6px;">
+            发布通道有两种：<strong>浏览器登录模式</strong>（推荐 C 端，不需要 appId/AppSecret，复用浏览器登录态）与
+            <strong>API 模式</strong>（需要 appId+AppSecret 且把出口 IP 加白名单，适合服务器/固定 IP 用户）。
+            两种模式可在新建账号时选择，已有账号也可以双向切换。
+          </p>
         </div>
 
         <div id="wechatProfilesContainer" class="profiles-list"></div>
+
+        <fieldset class="split-full" style="border:1px solid var(--border-color, #e6e6e6);border-radius:10px;padding:12px 14px;margin:0 0 12px 0;">
+          <legend style="padding:0 8px;font-size:13px;color:var(--muted-color, #666);">发布通道</legend>
+          <div style="display:flex;gap:18px;flex-wrap:wrap;">
+            <label class="checkbox-row" style="margin:0;">
+              <input id="profileModeBrowser" type="radio" name="profileMode" value="browser" checked />
+              <span>浏览器登录模式（推荐）</span>
+            </label>
+            <label class="checkbox-row" style="margin:0;">
+              <input id="profileModeApi" type="radio" name="profileMode" value="api" />
+              <span>API 模式（需要 appId + AppSecret + IP 白名单）</span>
+            </label>
+          </div>
+          <p id="profileModeHint" class="muted" style="margin:8px 0 0;font-size:12px;line-height:1.7;">
+            浏览器登录模式：填好账号名称即可，发布时会自动打开 mp 后台编辑页并把内容写入；最后一步保存草稿由你在 mp 后台手动点（合规底线）。
+          </p>
+        </fieldset>
 
         <div class="split-grid">
           <label>
@@ -446,11 +468,11 @@
             <input id="profileName" type="text" placeholder="例如：主号 / 小号 / 客户A" />
           </label>
           <label>
-            <span>AppID</span>
-            <input id="profileAppId" type="text" placeholder="wx..." pattern="^wx[a-f0-9]{16}$" />
+            <span>AppID（仅 API 模式需要）</span>
+            <input id="profileAppId" type="text" placeholder="wx..." />
           </label>
           <label>
-            <span>AppSecret</span>
+            <span>AppSecret（仅 API 模式需要）</span>
             <input id="profileAppSecret" type="password" placeholder="公众号密钥" />
           </label>
           <label>
