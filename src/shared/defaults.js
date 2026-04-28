@@ -136,7 +136,9 @@ export const DEFAULT_SETTINGS = {
   temperature: 0.8,
   // OpenAI 兼容的高级生成参数。空字符串 = 不下发该字段，让服务端用默认值。
   // 经验值（推荐去 AI 味档位）：top_p 0.92 / frequency_penalty 0.5 / presence_penalty 0.3。
-  // 留空兼容旧服务（如某些自部署 Ollama / vLLM 网关只接受 temperature）。
+  // 在 OpenAI / OpenRouter / DeepSeek / Kimi / Qwen / MiniMax / 智谱 GLM 等
+  // 主流 OpenAI 兼容服务上都可下发；留空也能兼容只认 temperature 的旧服务
+  // （如某些自部署 Ollama / vLLM 网关）。
   topP: "",
   frequencyPenalty: "",
   presencePenalty: "",

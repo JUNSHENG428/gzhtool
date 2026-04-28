@@ -1852,6 +1852,36 @@ button.ghost {
   max-width: 220px;
 }
 
+.provider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.provider-row select {
+  flex: 1 1 220px;
+  min-width: 220px;
+}
+
+.provider-key-link {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--brand);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.6);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.provider-key-link:hover {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: var(--brand);
+}
+
 /* 折叠的图文帮助 */
 .field-help {
   margin-top: 6px;

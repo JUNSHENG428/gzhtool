@@ -8,8 +8,38 @@
  */
 
 import { composeSourceBodyHtml, buildSourceMetaDraft } from "../shared/source-to-html.js";
+import { getSession } from "../shared/storage.js";
+import { originPatternFromUrl } from "../shared/host-permissions.js";
 
 let _ctx;
+
+/**
+ * 在前端用户手势上下文里把目标网页 origin 的 host permission 先要好。
+ *
+ * 后台 service worker 没有 user activation，调 `chrome.permissions.request` 必抛
+ * "must be called during a user gesture"。把 grant 这一步提前到 click handler 里
+ * 同步发起，SW 后续 contains 检查就直接返回 true。
+ *
+ * 取目标 URL 的方式：从 session 读 lastSourceUrl —— 这是上次「抓取最近浏览页」
+ * 时 SW 存进去的（service-worker.js:796 / 836）。第一次抓取（没 lastSourceUrl）
+ * 由 SW 去 chrome.tabs.query 取活跃 tab 决定，那种情况下前端不知道 URL，
+ * 直接放行让 SW 自己处理 —— 此时 SW 走 contains 路径基本能通过（Chrome 在
+ * activeTab 模式下自动给当前 tab 临时授权），不再撞 user gesture。
+ */
+async function ensureScrapeHostPermission() {
+  if (!globalThis.chrome?.permissions) return true;
+  let session;
+  try {
+    session = await getSession();
+  } catch {
+    return true;
+  }
+  const origin = originPatternFromUrl(session?.lastSourceUrl || "");
+  if (!origin) return true;
+  const granted = await chrome.permissions.contains({ origins: [origin] });
+  if (granted) return true;
+  return chrome.permissions.request({ origins: [origin] });
+}
 
 export function init(ctx) {
   _ctx = ctx;
@@ -48,6 +78,18 @@ export async function captureSource(captureMode) {
     "通常 1–3 秒，结果会出现在「采集信息」面板。"
   );
   try {
+    // 必须在 click handler 还在用户手势上下文时同步发起 grant，
+    // 否则 SW 那边 chrome.permissions.request 会抛 "must be called during a user gesture"。
+    const permitted = await ensureScrapeHostPermission();
+    if (!permitted) {
+      setErrorStatus(
+        null,
+        "需要授权访问该网页才能抓取，请在弹窗里点「允许」后重试。",
+        () => captureSource(mode)
+      );
+      return;
+    }
+
     const response = await chrome.runtime.sendMessage({
       type: "SCRAPE_LAST_SOURCE_TAB",
       payload: { captureMode: mode }

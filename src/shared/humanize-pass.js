@@ -57,7 +57,7 @@ import {
   getTopRuleCards,
   AI_VOCAB_REPLACEMENTS
 } from "./humanize-rules.js";
-import { extractChatContent } from "./ai.js";
+import { extractChatContent, postChatCompletionWithReasoningFallback } from "./ai.js";
 import { ensureOptionalHostPermission } from "./host-permissions.js";
 
 // ---------------------------------------------------------------------
@@ -428,22 +428,18 @@ async function rewriteSnippet({
     ]
   };
 
-  const fetchInit = {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${settings.apiKey.trim()}`
-    },
-    body: JSON.stringify(body)
-  };
-  if (abortSignal) fetchInit.signal = abortSignal;
-
   const apiUrl = settings.apiBaseUrl.trim();
   await ensureOptionalHostPermission(apiUrl, "去 AI 味二次润色接口");
 
-  const response = await fetch(apiUrl, fetchInit);
+  // 推理模型（Kimi k2.x / o1 / R1）拒绝 temperature/top_p/penalty —— helper 命中
+  // 400 关键词时自动剥参重试，避免去 AI 味 pass 因为采样字段被服务端拒绝失败。
+  const { response, payload } = await postChatCompletionWithReasoningFallback(
+    apiUrl,
+    settings.apiKey,
+    body,
+    abortSignal ? { signal: abortSignal } : {}
+  );
 
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message =
       payload?.error?.message ||

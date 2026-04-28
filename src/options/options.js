@@ -1,7 +1,15 @@
 import { DEFAULT_SETTINGS } from "../shared/defaults.js";
 import { clearHistory, listSnapshots } from "../shared/history.js";
+import {
+  PROVIDER_PRESETS,
+  CUSTOM_PROVIDER_KEY,
+  DEFAULT_PROVIDER_KEY,
+  findProviderByBaseUrl,
+  getProviderByKey
+} from "../shared/providers.js";
 import { getSettings, saveSettings } from "../shared/storage.js";
 import { formatRuntimeError, escapeHtml } from "../shared/utils.js";
+import { originPatternFromUrl } from "../shared/host-permissions.js";
 import {
   normalizeDrissionHelperToken,
   parseDrissionHelperInput
@@ -82,6 +90,12 @@ const fields = {
 const statusElement = document.querySelector("#status");
 const testConnectionButton = document.querySelector("#testConnectionButton");
 const testConnectionResult = document.querySelector("#testConnectionResult");
+// 服务商下拉与配套 UI 元素 —— 不进 fields 字典：它不写 storage，只是 baseUrl 的快捷入口。
+const aiProviderSelect = document.querySelector("#aiProvider");
+const aiProviderHint = document.querySelector("#aiProviderHint");
+const aiProviderKeyLink = document.querySelector("#aiProviderKeyLink");
+const apiKeyHint = document.querySelector("#apiKeyHint");
+const commonModelList = document.querySelector("#commonModelList");
 const testWechatConnectionButton = document.querySelector("#testWechatConnectionButton");
 const testWechatConnectionResult = document.querySelector("#testWechatConnectionResult");
 const testHotTopicsNewsnowButton = document.querySelector("#testHotTopicsNewsnow");
@@ -212,10 +226,156 @@ async function hydrateForm() {
     }
     field.value = settings[key] ?? "";
   }
+  // 根据已存的 apiBaseUrl 反推服务商，填好下拉与 datalist；
+  // 必须放在通用 fields 循环之后 —— 此时 fields.apiBaseUrl.value 才是真实值。
+  syncProviderUiFromBaseUrl();
   pendingHelperToken = normalizeDrissionHelperToken(settings.drissionHelperToken || "");
   refreshHelperTokenStatus();
   currentProfiles = Array.isArray(settings.wechatProfiles) ? settings.wechatProfiles : [];
   renderProfiles();
+}
+
+/**
+ * 用 PROVIDER_PRESETS 填充服务商下拉。只在初始化时调一次。
+ */
+function buildProviderSelectOptions() {
+  if (!aiProviderSelect) return;
+  aiProviderSelect.innerHTML = "";
+  for (const provider of PROVIDER_PRESETS) {
+    const opt = document.createElement("option");
+    opt.value = provider.key;
+    opt.textContent = provider.name;
+    aiProviderSelect.appendChild(opt);
+  }
+}
+
+/**
+ * 应用某个服务商预设到表单：写 baseUrl + 重建模型 datalist + 更新 Key 帮助链接。
+ * `triggeredByUser=true` 时（用户操作下拉）会清空 model 字段、并触发 input 事件让
+ * dirty 状态被检测到；hydrateForm 里反推时不要清 model（用户保存的 model 已在 fields）。
+ */
+function applyProviderPreset(key, { triggeredByUser = false } = {}) {
+  const provider = getProviderByKey(key) || getProviderByKey(CUSTOM_PROVIDER_KEY);
+  if (!provider) return;
+
+  // 1) baseUrl —— 自定义档不动用户输入
+  if (provider.key !== CUSTOM_PROVIDER_KEY) {
+    if (fields.apiBaseUrl.value !== provider.baseUrl) {
+      fields.apiBaseUrl.value = provider.baseUrl;
+      if (triggeredByUser) {
+        fields.apiBaseUrl.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }
+  }
+
+  // 2) 模型 datalist —— 从预设填，没有就清空（用户手填）
+  if (commonModelList) {
+    commonModelList.innerHTML = "";
+    for (const model of provider.models || []) {
+      const opt = document.createElement("option");
+      opt.value = model.id;
+      // datalist 的 textContent 在大多数浏览器作为辅助说明文本展示。
+      opt.textContent = model.label || model.id;
+      commonModelList.appendChild(opt);
+    }
+  }
+
+  // 3) 用户切换服务商时把当前模型也重置为推荐首选，避免「Kimi baseUrl + gpt-4o-mini」错配
+  if (triggeredByUser) {
+    const firstModel = provider.models?.[0]?.id || "";
+    if (firstModel) {
+      fields.model.value = firstModel;
+      fields.model.dispatchEvent(new Event("input", { bubbles: true }));
+    } else if (provider.key === CUSTOM_PROVIDER_KEY) {
+      // 自定义档不强制清空，用户可能想保留原值
+    }
+  }
+
+  // 4) 申请 Key 链接 + Key 帮助文案
+  if (aiProviderKeyLink) {
+    if (provider.apiKeyUrl) {
+      aiProviderKeyLink.href = provider.apiKeyUrl;
+      aiProviderKeyLink.hidden = false;
+    } else {
+      aiProviderKeyLink.removeAttribute("href");
+      aiProviderKeyLink.hidden = true;
+    }
+  }
+  if (apiKeyHint) {
+    const tail = "只保存在你本机浏览器，不会上传。";
+    apiKeyHint.textContent = provider.apiKeyHint
+      ? `${provider.apiKeyHint} ${tail}`
+      : tail;
+  }
+
+  // 5) 选中项同步（避免代码内调用与下拉显示不一致）
+  if (aiProviderSelect && aiProviderSelect.value !== provider.key) {
+    aiProviderSelect.value = provider.key;
+  }
+}
+
+/**
+ * 用当前 baseUrl 反推服务商并刷新 UI。供 hydrate 与 baseUrl 手改时复用。
+ */
+function syncProviderUiFromBaseUrl() {
+  const matched = findProviderByBaseUrl(fields.apiBaseUrl.value);
+  const key = matched ? matched.key : CUSTOM_PROVIDER_KEY;
+  applyProviderPreset(key, { triggeredByUser: false });
+}
+
+/**
+ * 一次性初始化服务商下拉：填选项 + 装事件。bootstrapOptionsPage 在 hydrateForm
+ * 之前调用，保证 hydrate 反推服务商时 select 节点已经能拿到 options。
+ */
+function initAiProviderSelect() {
+  buildProviderSelectOptions();
+  if (!aiProviderSelect) return;
+
+  aiProviderSelect.addEventListener("change", (event) => {
+    const key = event.target.value || DEFAULT_PROVIDER_KEY;
+    applyProviderPreset(key, { triggeredByUser: true });
+    // 切换服务商通常意味着要重新测连，清掉旧结果避免误导。
+    clearTestResult(testConnectionResult);
+  });
+
+  // 用户手改 baseUrl → 反推服务商；命不中则自动切到「自定义」。
+  // 在已有的 `clearTestResult` 监听器之后挂第二个 input 监听器，互不影响。
+  fields.apiBaseUrl.addEventListener("input", () => {
+    const matched = findProviderByBaseUrl(fields.apiBaseUrl.value);
+    const desiredKey = matched ? matched.key : CUSTOM_PROVIDER_KEY;
+    if (aiProviderSelect.value !== desiredKey) {
+      aiProviderSelect.value = desiredKey;
+      // 注意：这里不调 applyProviderPreset —— 它会反过来覆盖用户正在敲的 baseUrl。
+      // 只刷新「申请 Key 链接」「Key 帮助文案」「datalist 候选」即可。
+      const provider = getProviderByKey(desiredKey);
+      if (provider) {
+        if (commonModelList) {
+          commonModelList.innerHTML = "";
+          for (const model of provider.models || []) {
+            const opt = document.createElement("option");
+            opt.value = model.id;
+            opt.textContent = model.label || model.id;
+            commonModelList.appendChild(opt);
+          }
+        }
+        if (aiProviderKeyLink) {
+          if (provider.apiKeyUrl) {
+            aiProviderKeyLink.href = provider.apiKeyUrl;
+            aiProviderKeyLink.hidden = false;
+          } else {
+            aiProviderKeyLink.removeAttribute("href");
+            aiProviderKeyLink.hidden = true;
+          }
+        }
+        if (apiKeyHint) {
+          const tail = "只保存在你本机浏览器，不会上传。";
+          apiKeyHint.textContent = provider.apiKeyHint
+            ? `${provider.apiKeyHint} ${tail}`
+            : tail;
+        }
+      }
+    }
+  });
 }
 
 function refreshHelperTokenStatus() {
@@ -348,17 +508,53 @@ async function openInternalPage(path) {
   await chrome.tabs.create({ url: chrome.runtime.getURL(path) });
 }
 
+/**
+ * 在前端用户手势上下文里申请目标 origin 的 host permission。
+ *
+ * 必须在 options 页面（按钮 click handler 同步链路里）调用，不能放到
+ * service worker —— MV3 的 service worker 没有用户手势，
+ * `chrome.permissions.request` 会抛 "must be called during a user gesture"。
+ *
+ * 一旦用户在前端授权过，service-worker 后续调 `permissions.contains` 就会拿到 true，
+ * 不需要再触发提示。
+ */
+async function ensureHostPermissionFromUserGesture(targetUrl) {
+  const origin = originPatternFromUrl(targetUrl);
+  if (!origin) return true;
+  if (!globalThis.chrome?.permissions) return true;
+  const granted = await chrome.permissions.contains({ origins: [origin] });
+  if (granted) return true;
+  return chrome.permissions.request({ origins: [origin] });
+}
+
 async function testAiConnection() {
   testConnectionButton.disabled = true;
   setTestResult(testConnectionResult, "loading", "正在测试...");
 
+  const baseUrl = fields.apiBaseUrl.value.trim();
+  const apiKey = fields.apiKey.value.trim();
+  const model = fields.model.value.trim();
+
   try {
+    // 必须在 click handler 还在用户手势上下文时同步申请 —— 一旦中间 await 了
+    // service-worker，浏览器就认为用户手势已结束，再调 permissions.request 会抛
+    // "must be called during a user gesture"。
+    const permitted = await ensureHostPermissionFromUserGesture(baseUrl);
+    if (!permitted) {
+      setTestResult(
+        testConnectionResult,
+        "error",
+        "需要授权访问该 API 域名才能测试连接，请在弹窗里点「允许」。"
+      );
+      return;
+    }
+
     const response = await chrome.runtime.sendMessage({
       type: "TEST_AI_CONNECTION",
       payload: {
-        baseUrl: fields.apiBaseUrl.value.trim(),
-        apiKey: fields.apiKey.value.trim(),
-        model: fields.model.value.trim()
+        baseUrl,
+        apiKey,
+        model
       }
     });
 
@@ -1572,6 +1768,9 @@ function pricingUrl() {
  * （之前 await 初始化散落在文件中段，会触发 TDZ。）
  */
 async function bootstrapOptionsPage() {
+  // 先把服务商下拉选项与监听器装好，hydrateForm 里 syncProviderUiFromBaseUrl
+  // 会用到选项节点。
+  initAiProviderSelect();
   try {
     await hydrateForm();
   } catch (err) {

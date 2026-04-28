@@ -99,43 +99,45 @@
       <section class="card" data-section="ai" data-section-key="ai" id="opt-anchor-ai">
         <div class="section-heading">
           <h2><span class="section-step-pill">第 1 步</span>AI 改写接口</h2>
-          <p>支持任何兼容 OpenAI 格式的接口，例如 OpenAI、OpenRouter、Azure、DeepSeek、月之暗面，或你已有的代理地址。</p>
+          <p>内置 OpenAI / DeepSeek / Kimi / 通义千问 / MiniMax / 智谱 GLM 等主流服务商预设，选一家就自动填好接口地址，不用自己去查文档。</p>
           <details class="field-help">
             <summary>第一次配置？点这里看图文教程</summary>
             <ol>
-              <li>去 <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">OpenAI</a> 或 <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">OpenRouter</a> 申请一个 API Key（OpenRouter 支持国内信用卡和 Apple Pay）。</li>
-              <li>把 Key 粘贴到下方「API Key」框；不要把 Key 直接发给别人。</li>
-              <li>「接口地址」用对应平台的 chat completions 地址；OpenAI 官方就是默认值。</li>
-              <li>「模型名称」填该平台支持的型号，常用便宜的：<code>gpt-4.1-mini</code>、<code>gpt-4o-mini</code>、<code>deepseek-chat</code>、<code>openai/gpt-4o-mini</code>（OpenRouter）。</li>
+              <li>下面「服务商」选一家（比如月之暗面 Kimi）。</li>
+              <li>点同一行右侧「申请 API Key」按钮，去对应官网生成 key 后粘回「密钥」框。</li>
+              <li>「接口地址」会自动填好，不用动；「模型名称」从下拉里选个推荐的。</li>
               <li>填完点「测试连接」，看到「✅ 连接成功」就说明可用。</li>
+              <li>不在列表里的服务商可以选「自定义 / OpenAI 兼容」，手填 baseUrl。</li>
             </ol>
           </details>
         </div>
 
         <label>
+          <span>服务商 <small class="field-meta">Provider</small></span>
+          <div class="provider-row">
+            <select id="aiProvider"></select>
+            <a id="aiProviderKeyLink" class="provider-key-link" href="#" target="_blank" rel="noreferrer" hidden>申请 API Key ↗</a>
+          </div>
+          <small class="field-hint" id="aiProviderHint">选了服务商后会自动填好接口地址，并切换右侧推荐模型清单。</small>
+        </label>
+
+        <label>
           <span>接口地址 <small class="field-meta">API Base URL</small></span>
           <input id="apiBaseUrl" type="url" required placeholder="https://api.openai.com/v1/chat/completions" />
-          <small class="field-hint">必须是 chat completions 接口完整地址。OpenAI 官方填默认值即可；OpenRouter 用 <code>https://openrouter.ai/api/v1/chat/completions</code>。</small>
+          <small class="field-hint">必须是 chat completions 接口完整地址。手动改这里会自动切到「自定义 / OpenAI 兼容」。</small>
         </label>
 
         <div class="split-grid">
           <label>
             <span>密钥 <small class="field-meta">API Key</small></span>
             <input id="apiKey" type="password" required placeholder="sk-..." minlength="8" autocomplete="off" />
-            <small class="field-hint">一长串以 <code>sk-</code> 开头的字符串。只保存在你本机浏览器，不会上传。</small>
+            <small class="field-hint" id="apiKeyHint">只保存在你本机浏览器，不会上传。</small>
           </label>
           <label>
             <span>模型名称 <small class="field-meta">Model</small></span>
             <input id="model" type="text" required placeholder="gpt-4.1-mini" list="commonModelList" />
-            <datalist id="commonModelList">
-              <option value="gpt-4.1-mini">OpenAI · gpt-4.1-mini（性价比首选）</option>
-              <option value="gpt-4o-mini">OpenAI · gpt-4o-mini</option>
-              <option value="gpt-4.1">OpenAI · gpt-4.1（更强但更贵）</option>
-              <option value="deepseek-chat">DeepSeek · deepseek-chat（国内便宜）</option>
-              <option value="openai/gpt-4o-mini">OpenRouter · openai/gpt-4o-mini</option>
-              <option value="anthropic/claude-3.5-sonnet">OpenRouter · Claude 3.5 Sonnet</option>
-            </datalist>
-            <small class="field-hint">不知道填啥就先用 <code>gpt-4.1-mini</code>，便宜效果稳。</small>
+            <datalist id="commonModelList"></datalist>
+            <small class="field-hint">从下拉里选当前服务商推荐的型号；不在列表里的也可以手填。</small>
           </label>
         </div>
 

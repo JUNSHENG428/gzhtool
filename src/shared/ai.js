@@ -506,6 +506,76 @@ function numberOrNull(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+// 推理模型（OpenAI o1/o3/o4 系列、DeepSeek R1、Kimi k2.x、Claude thinking）会拒绝
+// temperature / top_p / penalty / max_tokens 等"采样"类字段：
+// 典型错误如 "Unsupported value: 'temperature'"、"only 1 is allowed for this model"、
+// "max_tokens is not supported, use max_completion_tokens"。
+// 命中这些关键词时去掉相关字段重试一次，让用户挑了推理模型也能跑通。
+export const REASONING_PARAM_REJECTS =
+  /temperature|top_p|max_tokens|max_completion_tokens|presence_penalty|frequency_penalty|response_format|only 1 is allowed/i;
+
+/**
+ * 把 OpenAI Chat Completions 请求体里推理模型不接受的字段剥掉。
+ *
+ * 推理模型通用规则：拒绝 temperature / top_p / penalty / response_format；
+ * `max_tokens` 在 OpenAI o1 系列要换成 `max_completion_tokens`，但部分服务端
+ * 同时认两者，所以保险起见两个字段都不下发，让模型用默认上限。
+ */
+export function stripReasoningRejectedFields(body) {
+  const cleaned = { model: body.model, messages: body.messages };
+  // 只保留确实安全的字段
+  if (body.tools) cleaned.tools = body.tools;
+  if (body.tool_choice) cleaned.tool_choice = body.tool_choice;
+  if (body.stream != null) cleaned.stream = body.stream;
+  return cleaned;
+}
+
+/**
+ * 共享的 chat completions 调用：先按完整 body 发，命中推理模型 400 拒绝时
+ * 自动剥掉采样参数重试一次。所有 AI 路径（改写 / 模板生成 / 去 AI 味 / 选题）共用。
+ *
+ * 调用方拿到 { response, payload }：response 是最终用于 ok 判断的那个，payload
+ * 是已 parse 的 JSON。如果两次都失败，response 是第二次的；如果第一次就成功，
+ * 就直接返回第一次的。
+ */
+export async function postChatCompletionWithReasoningFallback(
+  apiUrl,
+  apiKey,
+  body,
+  { signal } = {}
+) {
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${String(apiKey || "").trim()}`
+  };
+
+  let response = await fetch(apiUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal
+  });
+  let payload = await response.json().catch(() => ({}));
+
+  if (!response.ok && response.status === 400) {
+    const errMsg = String(
+      payload?.error?.message || payload?.error || payload?.message || ""
+    );
+    if (REASONING_PARAM_REJECTS.test(errMsg)) {
+      const fallbackBody = stripReasoningRejectedFields(body);
+      response = await fetch(apiUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(fallbackBody),
+        signal
+      });
+      payload = await response.json().catch(() => ({}));
+    }
+  }
+
+  return { response, payload };
+}
+
 export async function requestRewrite(settings, source, preferences, template, voiceSample = null) {
   if (!settings.apiKey?.trim()) {
     throw new Error("请先在设置页填写 API Key。");
@@ -563,16 +633,12 @@ export async function requestRewrite(settings, source, preferences, template, vo
   const apiUrl = settings.apiBaseUrl.trim();
   await ensureOptionalHostPermission(apiUrl, "AI 改写接口");
 
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${settings.apiKey.trim()}`
-    },
-    body: JSON.stringify(body)
-  });
+  const { response, payload } = await postChatCompletionWithReasoningFallback(
+    apiUrl,
+    settings.apiKey,
+    body
+  );
 
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const errorMessage =
       payload?.error?.message ||
@@ -608,34 +674,52 @@ export async function testAiConnection({ baseUrl, apiKey, model, timeoutMs = 120
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const startedAt = Date.now();
 
-  try {
-    await ensureOptionalHostPermission(targetUrl, "AI 连通性测试接口");
+  // 用一个明确的英文回令，比 ping 更不易被某些模型拒绝；
+  // 中文系统消息提高 GLM/Kimi/Qwen 等中文模型的合规率。
+  const probeMessages = [
+    { role: "system", content: "你是一个连通性检测助手，请按用户要求简短回应。" },
+    { role: "user", content: "请回复 pong" }
+  ];
 
-    const response = await fetch(targetUrl, {
+  async function probe(includeStrictParams) {
+    const body = {
+      model: targetModel,
+      messages: probeMessages
+    };
+    if (includeStrictParams) {
+      body.max_tokens = 64;
+      body.temperature = 0;
+    } else {
+      // 推理模型用 max_completion_tokens；不认这个字段的服务端会忽略，对后续连通性判断无害
+      body.max_completion_tokens = 64;
+    }
+    return fetch(targetUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`
       },
-      body: JSON.stringify({
-        model: targetModel,
-        // 用一个明确的英文回令，比 ping 更不易被某些模型拒绝；
-        // 中文系统消息提高 GLM/Kimi/Qwen 等中文模型的合规率。
-        messages: [
-          { role: "system", content: "你是一个连通性检测助手，请按用户要求简短回应。" },
-          { role: "user", content: "请回复 pong" }
-        ],
-        // 64 token 对推理模型（DeepSeek R1 / o1 / Claude thinking）也够吐出
-        // 至少几个字符的正文。原 5 token 会导致 reasoning 把 token 用完后
-        // content 留空，被误报为「模型不支持 chat completion」。
-        max_tokens: 64,
-        temperature: 0
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal
     });
+  }
+
+  try {
+    await ensureOptionalHostPermission(targetUrl, "AI 连通性测试接口");
+
+    let response = await probe(true);
+    let payload = await response.json().catch(() => ({}));
+
+    // 推理模型 fallback：400 + 报错关键词命中 → 去掉 temperature/max_tokens 再试
+    if (!response.ok && response.status === 400) {
+      const errMsg = String(payload?.error?.message || payload?.error || payload?.message || "");
+      if (REASONING_PARAM_REJECTS.test(errMsg)) {
+        response = await probe(false);
+        payload = await response.json().catch(() => ({}));
+      }
+    }
 
     const latencyMs = Date.now() - startedAt;
-    const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
       return createAiTestFailure(

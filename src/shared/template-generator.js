@@ -27,6 +27,7 @@ import {
 } from "./defaults.js";
 import { getSettings } from "./storage.js";
 import { ensureOptionalHostPermission } from "./host-permissions.js";
+import { postChatCompletionWithReasoningFallback } from "./ai.js";
 
 // ---------------------------------------------------------------------
 // 问卷选项 schema（同时给 UI 和 meta-prompt 用，确保两端一致）
@@ -256,13 +257,12 @@ export async function generateTemplate(input) {
   const apiUrl = settings.apiBaseUrl.trim();
   await ensureOptionalHostPermission(apiUrl, "AI 模板生成接口");
 
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${settings.apiKey.trim()}`
-    },
-    body: JSON.stringify({
+  // 推理模型（Kimi k2.x / OpenAI o1 / DeepSeek R1）拒绝 temperature 与 response_format，
+  // 由 helper 在 400 命中关键词时自动剥掉这些字段重试。
+  const { response, payload } = await postChatCompletionWithReasoningFallback(
+    apiUrl,
+    settings.apiKey,
+    {
       model: settings.model.trim(),
       // 偏低温度 → meta-prompt 输出更稳定、不会瞎发挥
       temperature: 0.4,
@@ -271,11 +271,10 @@ export async function generateTemplate(input) {
         { role: "system", content: META_SYSTEM_PROMPT },
         { role: "user", content: userPrompt }
       ]
-    }),
-    signal: input?.signal
-  });
+    },
+    { signal: input?.signal }
+  );
 
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message =
       payload?.error?.message ||
