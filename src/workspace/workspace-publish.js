@@ -84,6 +84,14 @@ function _bindPublishEvents() {
   if (verifiedBackdrop) verifiedBackdrop.addEventListener("click", _closeVerifiedAccountModal);
   if (copyBtn) copyBtn.addEventListener("click", _copyCurrentArticleHtmlForPaste);
 
+  // 「请先绑定公众号」前置 modal —— 比 setStatus 底部红字更明确
+  const closeBindBtn = document.querySelector("#closeNeedWechatProfileModalButton");
+  const goBindBtn = document.querySelector("#goBindWechatProfileButton");
+  const bindBackdrop = document.querySelector("#needWechatProfileModalBackdrop");
+  if (closeBindBtn) closeBindBtn.addEventListener("click", _closeNeedWechatProfileModal);
+  if (bindBackdrop) bindBackdrop.addEventListener("click", _closeNeedWechatProfileModal);
+  if (goBindBtn) goBindBtn.addEventListener("click", _openOptionsToBindProfile);
+
   // 历史记录抽屉
   document.querySelector("#historyButton").addEventListener("click", () => void openHistoryDrawer());
   document.querySelector("#closeHistoryDrawerButton").addEventListener("click", closeHistoryDrawer);
@@ -203,6 +211,44 @@ function _closeVerifiedAccountModal() {
   if (backdrop) backdrop.hidden = true;
 }
 
+// ── 「请先绑定公众号」前置 modal ──
+//
+// 触发场景：publishBundle 检测到 hasAnyUsableWechatProfile === false。
+// 设计上比 setStatus 底部红字更强：必须用户明确点「去绑定」或「稍后」才消失，
+// 避免用户错过提示重复点发布。
+
+function _openNeedWechatProfileModal() {
+  const modal = document.querySelector("#needWechatProfileModal");
+  const backdrop = document.querySelector("#needWechatProfileModalBackdrop");
+  if (!modal || !backdrop) return;
+  modal.hidden = false;
+  modal.removeAttribute("aria-hidden");
+  backdrop.hidden = false;
+}
+
+function _closeNeedWechatProfileModal() {
+  const modal = document.querySelector("#needWechatProfileModal");
+  const backdrop = document.querySelector("#needWechatProfileModalBackdrop");
+  if (modal) {
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+  }
+  if (backdrop) backdrop.hidden = true;
+}
+
+function _openOptionsToBindProfile() {
+  // 直达"多账号管理"分区（twenty-third session 重排后此分区已升主线，新手可见）。
+  // chrome.runtime.getURL 拼绝对路径，避免 chrome-extension:// 协议下打开 options 页失败。
+  const url = chrome.runtime.getURL("src/options/options.html#opt-anchor-profiles");
+  try {
+    chrome.tabs.create({ url, active: true });
+  } catch {
+    // 极端兜底：直接 window.open（无关闭 modal 也没关系，用户已经离开 workspace tab）
+    window.open(url, "_blank");
+  }
+  _closeNeedWechatProfileModal();
+}
+
 async function _copyCurrentArticleHtmlForPaste() {
   const { state, getCurrentArticle, buildExportHtmlForArticle, setStatus } = _ctx;
   try {
@@ -253,16 +299,11 @@ export async function publishBundle(mode) {
 
     state.settings = await getSettings();
 
-    // 早拦截：用户连一个可发布的公众号通道都没有时，给清晰文案直接 return；
-    // 否则流程会跑到 SW 端调 chrome.permissions.request 撞 user gesture，
-    // 用户只能看到无意义的 "This function must be called during a user gesture"。
+    // 早拦截：用户连一个可发布的公众号通道都没有时，弹 modal 强提醒并给"去设置页"
+    // CTA。不用 setStatus 底部红字 —— 容易被忽略，且没有可点的"去绑定"出口，
+    // 用户会反复点发布拿到同一条无意义错误。
     if (!hasAnyUsableWechatProfile(state.settings)) {
-      setStatus(
-        "尚未绑定公众号。请到设置页「公众号发布」分区新建一个账号 —— " +
-          "推荐用「浏览器登录模式」（不需要 AppID/AppSecret，复用浏览器登录态），" +
-          "或填好 AppID + AppSecret 走 API 模式。",
-        "warning"
-      );
+      _openNeedWechatProfileModal();
       return;
     }
 
