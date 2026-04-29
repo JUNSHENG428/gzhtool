@@ -233,17 +233,30 @@ fields.drissionHelperUrl?.addEventListener("blur", () => {
 // 公众号编辑页悬浮助手 toggle：首次切到 ON 时弹 onboarding modal 强提醒注入范围 + 隐私边界。
 // 用户点确认才真正写入 floatingBallEnabled=true；点取消则回滚 checkbox。已弹过的 session
 // 不再弹（onboardingShown=true）。这是 CWS 审核加分项 + 用户隐私感知保护。
+//
+// 关键：浮球开关用 saveSettings 直接落 storage，**不**走 saveForm() —— 因为
+// saveForm 会被「AI Key/baseUrl/model required」校验拦下，AI 没配的用户改浮球
+// 也保存不进去（潜伏 bug，已修，32nd session）。浮球功能不依赖 AI 配置。
 fields.floatingBallEnabled?.addEventListener("change", async (event) => {
-  if (!event.target.checked) return; // 关掉不需要确认
+  if (!event.target.checked) {
+    // 关掉直接保存
+    await saveSettings({ floatingBallEnabled: false });
+    return;
+  }
   const settings = await getSettings();
-  if (settings.floatingBallOnboardingShown) return; // 已弹过，直接放行（saveForm 时写入）
+  if (settings.floatingBallOnboardingShown) {
+    // 已弹过 → 直接保存
+    await saveSettings({ floatingBallEnabled: true });
+    return;
+  }
   // 弹 modal 拦截
   event.target.checked = false; // 先回滚，等用户确认
   const modal = document.querySelector("#floatingBallOnboardingModal");
   const backdrop = document.querySelector("#floatingBallOnboardingBackdrop");
   if (!modal || !backdrop) {
-    // modal 元素缺失（HTML 没编译进去？）→ fail open，直接放行
+    // modal 元素缺失（HTML 没编译进去？）→ fail open，直接放行 + 保存
     event.target.checked = true;
+    await saveSettings({ floatingBallEnabled: true });
     return;
   }
   modal.hidden = false;
@@ -257,18 +270,24 @@ fields.floatingBallEnabled?.addEventListener("change", async (event) => {
   const onConfirm = async () => {
     closeModal();
     event.target.checked = true;
-    await saveSettings({ floatingBallOnboardingShown: true });
-    // 立即 saveForm 把 toggle 状态持久化（避免用户点确认后没点保存按钮就关页面，
-    // 浮球状态丢失给 mp tab）
-    await saveForm();
+    await saveSettings({
+      floatingBallOnboardingShown: true,
+      floatingBallEnabled: true
+    });
   };
   const onCancel = () => {
     closeModal();
-    // event.target.checked 已是 false（前面回滚）
+    // event.target.checked 已是 false（前面回滚），不写 storage（保持默认 false）
   };
   document.querySelector("#confirmFloatingBallOnboardingButton")?.addEventListener("click", onConfirm, { once: true });
   document.querySelector("#cancelFloatingBallOnboardingButton")?.addEventListener("click", onCancel, { once: true });
   backdrop.addEventListener("click", onCancel, { once: true });
+});
+
+// React 浮球 feature flag：change 即时保存，独立于 saveForm 的整体校验
+// （同上，浮球与 AI 配置解耦，AI 没配也能切版本）。
+fields.useReactFloatingBall?.addEventListener("change", async (event) => {
+  await saveSettings({ useReactFloatingBall: Boolean(event.target.checked) });
 });
 
 // 闸门：DrissionPage 是 Pro 功能，免费用户尝试勾选时拦截并弹升级框
