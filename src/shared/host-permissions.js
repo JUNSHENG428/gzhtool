@@ -19,6 +19,37 @@ export function originPatternFromUrl(value) {
   }
 }
 
+/**
+ * 前端用户手势上下文里申请 host permission。
+ *
+ * 必须在 options / popup / extension page 的按钮 click handler 同步链路里调用，
+ * 不能放到 service worker —— MV3 的 SW 永远没有用户激活，
+ * `chrome.permissions.request` 会抛 "must be called during a user gesture"。
+ *
+ * 一旦用户在前端授权过，service-worker 后续调 `ensureOptionalHostPermission`
+ * 时 contains 直接返回 true，不会再触发 request 路径。
+ *
+ * 用法：
+ *   const ok = await ensureHostPermissionFromGesture(url, "抓取并改写");
+ *   if (!ok) { 显示用户友好的提示，不要继续 sendMessage; return; }
+ *
+ * 返回 true = 已有权限或刚授权成功；false = 用户拒绝授权。
+ * 不抛错（前端调用者通常希望提示用户而不是把异常冒到全局）。
+ */
+export async function ensureHostPermissionFromGesture(value, context = "当前操作") {
+  const origin = originPatternFromUrl(value);
+  if (!origin) return true;
+  if (!globalThis.chrome?.permissions) return true;
+  try {
+    const granted = await chrome.permissions.contains({ origins: [origin] });
+    if (granted) return true;
+    return await chrome.permissions.request({ origins: [origin] });
+  } catch (err) {
+    console.warn(`[host-permissions] grant failed for ${context}:`, err);
+    return false;
+  }
+}
+
 export async function ensureOptionalHostPermission(values, context = "当前操作") {
   const origins = Array.from(
     new Set(

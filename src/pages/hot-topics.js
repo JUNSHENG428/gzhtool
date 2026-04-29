@@ -1,4 +1,5 @@
 import { formatRuntimeError, escapeHtml } from "../shared/utils.js";
+import { ensureHostPermissionFromGesture } from "../shared/host-permissions.js";
 import {
   getPromptTemplates,
   getActiveTemplateId,
@@ -204,6 +205,15 @@ function bindItemActions(container, items, sourceLabel) {
         btn.innerHTML = autoRewrite ? "📡 拉取 + 排队改写..." : "📡 拉取中...";
         btn.disabled = true;
         try {
+          // 必须在 click handler 还在用户手势上下文时同步申请 origin 权限 ——
+          // 否则 SW 端的 ensureOptionalHostPermission 会抛 "must be called during a user gesture"。
+          const permitted = await ensureHostPermissionFromGesture(url, "抓取并改写");
+          if (!permitted) {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            showToast("需要授权访问该网页才能抓取，请在弹窗里点「允许」后再试。");
+            return;
+          }
           // 兜底超时：service-worker 极端情况会被 Chrome 回收，sendMessage 会一直 hang。
           // 加 35 秒超时（比 background 内部 15s waitForTabComplete + 5s buffer 略宽），
           // 超时后给出明确文案，避免出现"按下去几分钟没反应"。
