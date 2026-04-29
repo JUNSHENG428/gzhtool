@@ -199,6 +199,13 @@ export const DEFAULT_SETTINGS = {
   // 默认关闭；开启时也会保留"内置抓取兜底"，所以即使 helper 挂掉也不至于全链路失败。
   drissionEnabled: false,
   drissionHelperUrl: "",
+  // 配置健康度摘要：复用最近一次「测试连接」的结果，让用户在设置页顶部一眼看到
+  // 三条关键链路（AI / 公众号 / 桌面助手）的状态。各字段在用户主动点测试连接前
+  // 都是 null（UI 显示「未测试」）。schema：
+  //   ai:       { ok: bool, ts: number, model: string, latencyMs: number, error: string }
+  //   wechat:   { ok: bool, ts: number, errcode: number|null, error: string }
+  //   drission: { ok: bool, ts: number, error: string }
+  lastTestResult: { ai: null, wechat: null, drission: null },
   // 本地 helper 的鉴权 token。粘贴含 ?token=… 的完整地址时，
   // src/shared/drission.js 的 normalizeDrissionHelperUrl 会自动拆出 token
   // 并由 options.js 在 saveSettings 之前同步到这个字段。

@@ -12,24 +12,23 @@
       <div class="settings-quicknav-inner">
         <p class="settings-quicknav-title">分区导航</p>
         <nav class="settings-quicknav-list">
-          <p class="settings-quicknav-group">引导</p>
+          <p class="settings-quicknav-group">先看这里</p>
           <a href="#quickStart" class="settings-quicknav-item" data-section-target="start">上手 3 步</a>
+          <a href="#opt-anchor-health" class="settings-quicknav-item" data-section-target="health">配置健康度</a>
+          <a href="#licenseSection" class="settings-quicknav-item" data-section-target="license">会员激活</a>
 
-          <p class="settings-quicknav-group">AI</p>
+          <p class="settings-quicknav-group">AI 改写（第 1 步）</p>
           <a href="#opt-anchor-ai" class="settings-quicknav-item" data-section-target="ai">AI 接口</a>
           <a href="#opt-anchor-pref" class="settings-quicknav-item" data-section-target="pref">改写偏好</a>
           <a href="#opt-anchor-prompt" class="settings-quicknav-item" data-section-target="prompt">Prompt 模板</a>
 
-          <p class="settings-quicknav-group">公众号</p>
+          <p class="settings-quicknav-group">公众号发布（第 2 步）</p>
           <a href="#opt-anchor-wechat" class="settings-quicknav-item" data-section-target="wechat">直连发布</a>
           <a href="#opt-anchor-profiles" class="settings-quicknav-item" data-section-target="profiles">多账号管理</a>
 
-          <p class="settings-quicknav-group">抓取</p>
+          <p class="settings-quicknav-group">抓取增强（可选）</p>
           <a href="#drissionSettings" class="settings-quicknav-item" data-section-target="drission">DrissionPage</a>
           <a href="#opt-anchor-hot" class="settings-quicknav-item" data-section-target="hot">热点接口</a>
-
-          <p class="settings-quicknav-group">授权</p>
-          <a href="#licenseSection" class="settings-quicknav-item" data-section-target="license">会员激活</a>
 
           <p class="settings-quicknav-group">数据</p>
           <a href="#opt-anchor-pages" class="settings-quicknav-item" data-section-target="pages">相关页面 / 数据</a>
@@ -68,7 +67,7 @@
                 <strong>填 AI 改写接口</strong>
                 <span class="step-status" data-status="missing">未完成</span>
               </div>
-              <p class="step-desc">在第一张「AI 改写接口」卡片里填好 API Key 和模型名。还没有 Key？可以去 <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">OpenAI</a>、<a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">OpenRouter</a>（支持国内信用卡）申请；只想试用可以直接填免费的中转地址。</p>
+              <p class="step-desc">在第一张「AI 改写接口」卡片里选服务商（OpenAI / DeepSeek / Kimi / Qwen 等内置预设），填好 API Key 就能用。还没有 Key？卡片里每家服务商都有「申请 API Key」直达链接。</p>
               <button type="button" class="step-jump" data-jump="apiBaseUrl">跳到这一步 ↓</button>
             </div>
           </li>
@@ -76,11 +75,11 @@
             <span class="step-num">2</span>
             <div class="step-body">
               <div class="step-head">
-                <strong>填公众号发布凭证<span class="step-tag">可选</span></strong>
+                <strong>加一个公众号账号<span class="step-tag">可选</span></strong>
                 <span class="step-status" data-status="missing">未完成</span>
               </div>
-              <p class="step-desc">登录公众号后台 → 开发 → 基本配置，把 <code>AppID</code> 和 <code>AppSecret</code> 复制过来，并在「IP 白名单」里加上当前出口 IP。如果你只想用 AI 改写、不直推到公众号，这一步可以跳过。</p>
-              <button type="button" class="step-jump" data-jump="wechatAppId">跳到这一步 ↓</button>
+              <p class="step-desc">推荐用<strong>「浏览器登录模式」</strong>：到「多账号管理」加一个账号，填个名字即可，不用 AppID/AppSecret，发布时自动复用你已登录的 mp 后台。需要自动群发等高级功能再走 API 模式（要 AppID + AppSecret + IP 白名单）。只用 AI 改写不发公众号？跳过这一步。</p>
+              <button type="button" class="step-jump" data-jump="addProfileButton">跳到这一步 ↓</button>
             </div>
           </li>
           <li class="checklist-item" data-step="save">
@@ -94,6 +93,113 @@
             </div>
           </li>
         </ol>
+      </section>
+
+      <section class="card health-card" data-section-key="health" id="opt-anchor-health">
+        <div class="section-heading">
+          <h2>配置健康度</h2>
+          <p>三条关键链路（AI 改写 / 公众号发布 / 桌面助手）的最近一次测试结果。点行尾的「重新测试」就在这里跑一次。<strong>没测试过</strong>显示「未测试」灰色，<strong>测过</strong>显示具体状态。</p>
+        </div>
+        <div id="healthSummary" class="health-summary"></div>
+      </section>
+
+      <section class="card license-card" id="licenseSection" data-section-key="license">
+        <div class="section-heading">
+          <h2><span class="section-step-pill license-step-pill">会员</span>会员激活</h2>
+          <p id="licenseHeroHint">免费版包含全部基础功能。如需多账号、DrissionPage、高级模板与无限改写，请登录账号绑定 Pro License。</p>
+        </div>
+
+        <div class="license-status-box" id="licenseStatusBox" data-status="free">
+          <span class="license-status-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path
+                fill="currentColor"
+                d="M12 2.7l2.6 5.27 5.82.85-4.21 4.1.99 5.78L12 15.96l-5.2 2.74.99-5.78L3.58 8.82l5.82-.85L12 2.7z"
+              />
+            </svg>
+          </span>
+          <div class="license-status-meta">
+            <strong id="licenseStatusLabel">免费版</strong>
+            <span id="licenseStatusHint" class="license-status-hint">未激活会员，所有基础功能均可使用</span>
+          </div>
+          <span id="licenseStatusKey" class="license-status-key" hidden></span>
+          <button id="licenseRefreshBtn" class="ghost-button" type="button" title="向服务器复验当前 License 状态">刷新状态</button>
+        </div>
+
+        <!-- 子区块 1：账号 -->
+        <div class="license-block" id="licenseAccountBlock">
+          <div class="license-block-head">
+            <h3>账号</h3>
+            <span class="license-block-hint" id="licenseAccountStatus">未登录</span>
+          </div>
+
+          <!-- 未登录：登录 / 注册 切换表单 -->
+          <div class="license-auth-tabs" id="licenseAuthTabs">
+            <button type="button" class="license-tab active" data-auth-tab="login">登录</button>
+            <button type="button" class="license-tab" data-auth-tab="register">注册</button>
+          </div>
+          <div class="license-auth-form" id="licenseAuthForm">
+            <input id="licenseEmailInput" type="email" class="license-input" placeholder="邮箱" autocomplete="email" />
+            <input id="licensePasswordInput" type="password" class="license-input" placeholder="密码（至少 8 位）" autocomplete="current-password" />
+            <button id="licenseAuthSubmitBtn" class="primary-button" type="button">登录</button>
+          </div>
+          <p id="licenseAuthFeedback" class="license-feedback" data-tone="muted" hidden></p>
+
+          <!-- 已登录：账号信息 + 退出 -->
+          <div class="license-account-info" id="licenseAccountInfo" hidden>
+            <div class="license-account-row">
+              <span class="license-account-label">已登录账号</span>
+              <strong id="licenseAccountEmail">—</strong>
+            </div>
+            <button id="licenseLogoutBtn" class="ghost-button" type="button">退出登录</button>
+          </div>
+        </div>
+
+        <!-- 子区块 2：备用激活码（正常使用账号自动同步即可，这里为登录异常提供兜底） -->
+        <details class="license-block" id="licenseKeyBlock">
+          <summary class="license-block-head" style="cursor:pointer;">
+            <h3>备用激活码（高级 · 正常情况无需使用）</h3>
+            <span class="license-block-hint">已登录账号会自动同步会员权益；遇到登录异常时再用激活码兜底</span>
+          </summary>
+          <div class="license-input-row">
+            <label for="licenseKeyInput" class="license-input-label">激活码</label>
+            <input
+              id="licenseKeyInput"
+              type="text"
+              class="license-input"
+              placeholder="GZHT-XXXX-XXXX-XXXX"
+              autocomplete="off"
+              spellcheck="false"
+              maxlength="19"
+            />
+            <button id="licenseActivateBtn" class="primary-button" type="button">激活并绑定</button>
+            <button id="licenseClearBtn" class="ghost-button" type="button" hidden>解绑本机</button>
+          </div>
+          <p id="licenseFeedback" class="license-feedback" data-tone="muted">
+            还没开通会员？查看
+            <a id="licensePricingLink" href="#" target="_blank" rel="noopener">Pro 会员套餐与定价</a>。
+          </p>
+        </details>
+
+        <!-- 子区块 3：当前账号下的 License 列表 -->
+        <div class="license-block" id="licenseListBlock" hidden>
+          <div class="license-block-head">
+            <h3>本账号的会员权益记录</h3>
+            <span class="license-block-hint">通常无需手动操作；登录账号即自动激活当前会员权益</span>
+          </div>
+          <div id="licenseListContainer" class="license-list">
+            <p class="license-list-empty">暂未在此账号下查到会员权益。</p>
+          </div>
+        </div>
+
+        <!-- 子区块 4：付费功能解锁清单（一目了然让用户知道激活能开什么） -->
+        <div class="license-block" id="licenseFeaturesBlock">
+          <div class="license-block-head">
+            <h3>付费功能</h3>
+            <span class="license-block-hint">下表展示当前账号可解锁的能力</span>
+          </div>
+          <ul id="licenseFeaturesList" class="license-features"></ul>
+        </div>
       </section>
 
       <section class="card" data-section="ai" data-section-key="ai" id="opt-anchor-ai">
@@ -122,29 +228,29 @@
         </label>
 
         <label>
-          <span>接口地址 <small class="field-meta">API Base URL</small></span>
+          <span>AI 接口地址 <small class="field-meta">API Base URL</small></span>
           <input id="apiBaseUrl" type="url" required placeholder="https://api.openai.com/v1/chat/completions" />
-          <small class="field-hint">必须是 chat completions 接口完整地址。手动改这里会自动切到「自定义 / OpenAI 兼容」。</small>
+          <small class="field-hint">选了上面的服务商之后会自动填好，不用动。<strong>什么时候改</strong>：用了非默认服务商或自部署网关。<strong>填错的后果</strong>：测试连接会报 404 / 网络错。手动改会自动切到「自定义 / OpenAI 兼容」。</small>
         </label>
 
         <div class="split-grid">
           <label>
-            <span>密钥 <small class="field-meta">API Key</small></span>
+            <span>API 密钥 <small class="field-meta">API Key</small></span>
             <input id="apiKey" type="password" required placeholder="sk-..." minlength="8" autocomplete="off" />
-            <small class="field-hint" id="apiKeyHint">只保存在你本机浏览器，不会上传。</small>
+            <small class="field-hint" id="apiKeyHint">点上面服务商旁的「申请 API Key」直达官网生成。<strong>填错的后果</strong>：测试连接报 401 (key 错) 或 402 (余额不足)。只保存在你本机浏览器，不会上传。</small>
           </label>
           <label>
-            <span>模型名称 <small class="field-meta">Model</small></span>
+            <span>用哪个模型 <small class="field-meta">Model</small></span>
             <input id="model" type="text" required placeholder="gpt-4.1-mini" list="commonModelList" />
             <datalist id="commonModelList"></datalist>
-            <small class="field-hint">从下拉里选当前服务商推荐的型号；不在列表里的也可以手填。</small>
+            <small class="field-hint">从下拉里选当前服务商推荐的型号；不在列表里的也可以手填。<strong>什么时候改</strong>：想换更便宜/更强的模型。<strong>填错的后果</strong>：报 model not found 或乱回答。</small>
           </label>
         </div>
 
         <label class="field-narrow">
-          <span>采样温度 <small class="field-meta">Temperature · 0~2</small></span>
+          <span>创造力档位 <small class="field-meta">Temperature · 0~2</small></span>
           <input id="temperature" type="number" required min="0" max="2" step="0.1" />
-          <small class="field-hint">越接近 0 越严谨稳定，越接近 1 越有创意；改写公众号文章一般填 <code>0.7</code>。想去 AI 味建议 <code>0.85</code>。</small>
+          <small class="field-hint"><strong>什么时候改</strong>：觉得 AI 改写太死板（调高）或太放飞（调低）。<strong>填错的后果</strong>：0 偏抄原文，1+ 偏胡编乱造。改写公众号文章一般填 <code>0.7</code>，想去 AI 味建议 <code>0.85</code>。</small>
         </label>
 
         <details class="advanced-params">
@@ -183,6 +289,30 @@
           <button id="testConnectionButton" class="ghost" type="button">测试连接</button>
           <p id="testConnectionResult" class="test-result" aria-live="polite"></p>
         </div>
+      </section>
+
+      <section class="card split-grid" data-section-key="pref" id="opt-anchor-pref">
+        <div class="section-heading split-full">
+          <h2>默认改写偏好<span class="section-tag soft">可选</span></h2>
+          <p>这些偏好会在每次打开编辑台时自动填入，你仍然可以在编辑时临时调整。<strong>留空也能用</strong>，AI 会按内置默认风格写。</p>
+        </div>
+
+        <label>
+          <span>默认受众</span>
+          <textarea id="defaultAudience" rows="3"></textarea>
+        </label>
+        <label>
+          <span>默认语气</span>
+          <textarea id="defaultTone" rows="3"></textarea>
+        </label>
+        <label>
+          <span>默认改写角度</span>
+          <textarea id="defaultAngle" rows="3"></textarea>
+        </label>
+        <label>
+          <span>默认结尾 CTA</span>
+          <textarea id="defaultCta" rows="3"></textarea>
+        </label>
       </section>
 
       <section class="card split-grid" data-section-key="humanize" id="opt-anchor-humanize">
@@ -258,322 +388,6 @@
             <small id="voiceSampleEditorStatus" class="field-meta" role="status" aria-live="polite"></small>
           </div>
         </details>
-      </section>
-
-      <section class="card split-grid" data-section-key="pref" id="opt-anchor-pref">
-        <div class="section-heading split-full">
-          <h2>默认改写偏好<span class="section-tag soft">可选</span></h2>
-          <p>这些偏好会在每次打开编辑台时自动填入，你仍然可以在编辑时临时调整。<strong>留空也能用</strong>，AI 会按内置默认风格写。</p>
-        </div>
-
-        <label>
-          <span>默认受众</span>
-          <textarea id="defaultAudience" rows="3"></textarea>
-        </label>
-        <label>
-          <span>默认语气</span>
-          <textarea id="defaultTone" rows="3"></textarea>
-        </label>
-        <label>
-          <span>默认改写角度</span>
-          <textarea id="defaultAngle" rows="3"></textarea>
-        </label>
-        <label>
-          <span>默认结尾 CTA</span>
-          <textarea id="defaultCta" rows="3"></textarea>
-        </label>
-      </section>
-
-      <section class="card split-grid" data-section="wechat" data-section-key="wechat" id="opt-anchor-wechat">
-        <div class="section-heading split-full">
-          <h2><span class="section-step-pill">第 2 步</span>公众号直连发布<span class="section-tag">可选</span></h2>
-          <p>
-            填好后可一键把改写好的文章推到公众号草稿箱或直接发布。<strong>如果只用 AI 改写、不直推到公众号，这一节可以跳过。</strong>
-          </p>
-
-          <!-- P1.1 · 2025-07 政策红色横幅，常驻显示 -->
-          <div class="wechat-policy-banner" role="alert">
-            <div class="wechat-policy-banner-icon" aria-hidden="true">⚠️</div>
-            <div class="wechat-policy-banner-body">
-              <strong>2025-07 起：未认证账号将失去 draft/add 权限</strong>
-              <p>
-                根据微信公开通告，<strong>个人主体 / 未认证企业号 / 不支持认证的账号</strong>将失去通过 API 推送草稿（<code>draft/add</code>）的能力，意味着本扩展的"一键发草稿"对这类账号会直接报 <code>48001 / 53400</code>。
-              </p>
-              <p>
-                <strong>兜底姿势</strong>：发布面板提供"复制 HTML 手动粘贴"按钮，把已经排好版的 HTML 复制到剪贴板，再到公众号后台「素材管理 → 新建图文」粘贴即可。详见
-                <a href="https://github.com/JUNSHENG428/gzhtool/blob/main/docs/WECHAT_LIMITATIONS.md" target="_blank" rel="noreferrer">WECHAT_LIMITATIONS.md</a>。
-              </p>
-            </div>
-          </div>
-
-          <details class="field-help">
-            <summary>不知道 AppID/AppSecret 在哪？点这里看获取步骤</summary>
-            <ol>
-              <li>登录 <a href="https://mp.weixin.qq.com/" target="_blank" rel="noreferrer">微信公众平台</a>（订阅号 / 服务号 / 个人订阅号都行）。</li>
-              <li>左侧菜单 → <strong>设置与开发</strong> → <strong>开发接口管理</strong>（旧版叫「基本配置」）。</li>
-              <li>页面里能看到 <strong>开发者 ID（AppID）</strong> 和 <strong>开发者密码（AppSecret）</strong>。AppSecret 第一次生成后会隐藏，记得本地存好。</li>
-              <li>同一页找到「IP 白名单」，把你当前电脑的出口 IP 加进去（百度搜「我的 IP」可看到当前 IP），否则会提示 <code>40164</code>。</li>
-              <li>个人订阅号没有「群发图文」权限，但可以推到「草稿箱」，之后在手机微信里手动发布。</li>
-            </ol>
-          </details>
-        </div>
-
-        <label>
-          <span>公众号 AppID <small class="field-meta">开发者 ID</small></span>
-          <input id="wechatAppId" type="text" placeholder="wx..." pattern="^wx[a-f0-9]{16}$" title="微信 AppID 格式为 wx 开头，后跟 16 位小写字母或数字" />
-          <small class="field-hint">格式：<code>wx</code> 开头 + 16 位小写字母或数字。</small>
-        </label>
-        <label>
-          <span>公众号 AppSecret <small class="field-meta">开发者密码</small></span>
-          <input id="wechatAppSecret" type="password" placeholder="填写公众号密钥" minlength="8" autocomplete="off" />
-          <small class="field-hint">同样在开发接口管理页里查看；只保存在本机浏览器。</small>
-        </label>
-        <label>
-          <span>默认作者</span>
-          <input id="wechatDefaultAuthor" type="text" placeholder="文章作者署名" maxlength="8" title="公众号作者最多 8 个字" />
-          <small class="field-hint">公众号要求作者最多 8 个字，可留空。</small>
-        </label>
-        <label>
-          <span>默认来源链接</span>
-          <input id="wechatDefaultSourceUrl" type="url" placeholder="https://你的官网或原文地址" />
-          <small class="field-hint">文章底部「阅读原文」会跳到这个链接，可留空。</small>
-        </label>
-        <label>
-          <span>默认发布模式</span>
-          <select id="wechatDefaultPublishMode">
-            <option value="draft">推草稿箱（推荐，再到手机审核后发）</option>
-            <option value="publish">直接发布（需要服务号权限）</option>
-          </select>
-          <small class="field-hint">不确定就选「推草稿箱」，最安全；直接发布对个人订阅号是无效的。</small>
-        </label>
-        <div class="checkbox-stack">
-          <label class="checkbox-row">
-            <input id="wechatDefaultOpenComment" type="checkbox" />
-            <span>默认开启评论</span>
-          </label>
-          <label class="checkbox-row">
-            <input id="wechatDefaultOnlyFansCanComment" type="checkbox" />
-            <span>默认仅粉丝可评论</span>
-          </label>
-        </div>
-
-        <div class="test-action-row split-full">
-          <button id="testWechatConnectionButton" class="ghost" type="button">测试公众号连接</button>
-          <p id="testWechatConnectionResult" class="test-result" aria-live="polite"></p>
-          <small class="field-hint">注意：测试只能验证 AppID/AppSecret 能换到 token，不代表你账号有「群发」「草稿」接口权限——真正发的时候还可能因为权限不足报错。</small>
-        </div>
-
-        <!-- P1.3 · 微信 API 代理（破 IP 白名单） -->
-        <div class="wechat-subblock split-full" data-advanced="true">
-          <h3 class="wechat-subblock-title">微信 API 代理地址<small>（动态 IP 用户必备 / 高级）</small></h3>
-          <p class="wechat-subblock-desc">
-            如果你家用宽带 / 4G/5G 是动态 IP 进不了公众号后台白名单，会反复报 <code>40164</code>。
-            把请求中转到一台<strong>有固定出口 IP 的代理</strong>就能解决。推荐用阿里云函数计算（FC）：
-            个人版有免费额度，FC 出口 IP 是阿里云固定段，<strong>把这段 IP 一次性加白名单后所有 cgi-bin 接口就都通了</strong>。
-            一键部署模板见仓库 <code>aliyun-fc/wechat-api-proxy/</code>。
-          </p>
-          <p class="wechat-subblock-desc muted">
-            ⚠️ Cloudflare Workers <strong>不适合</strong>做这件事：CF 出口是动态 IP 段，每天换，加白名单白加了。
-          </p>
-
-          <label class="split-full">
-            <span>微信 API 自定义 base（留空 = 走官方 <code>https://api.weixin.qq.com</code>）</span>
-            <input
-              id="wechatApiBase"
-              type="url"
-              placeholder="https://your-fc-domain.com"
-              autocomplete="off"
-            />
-            <small class="field-hint">
-              填代理域名后，扩展会把所有 <code>/cgi-bin/*</code> 请求都打到这个域名。
-              代理实现要做的事很简单：<strong>原样转发到 api.weixin.qq.com，保留 query / body / headers</strong>。
-            </small>
-          </label>
-        </div>
-
-        <!-- P1.2 · 群发策略（让认证服务号文章进公众号列表） -->
-        <div class="wechat-subblock split-full" data-advanced="true">
-          <h3 class="wechat-subblock-title">公众号群发策略<small>（仅认证服务号 / 高级）</small></h3>
-          <p class="wechat-subblock-desc">
-            走 <code>freepublish/submit</code> 发完的文章<strong>不会进公众号文章列表</strong>，关注者也不会收到推送。
-            想让文章真正进入用户的公众号会话框，必须额外调 <code>message/mass/sendall</code> 群发。
-            <strong>仅认证服务号可用</strong>，订阅号和未认证号会报 48001/53400。
-          </p>
-
-          <label>
-            <span>默认群发模式</span>
-            <select id="wechatSendStrategy">
-              <option value="none">不群发，仅 freepublish/submit（默认）</option>
-              <option value="all">群发全员（is_to_all=true，每月最多 4 次）</option>
-              <option value="tag">群发指定标签（is_to_all=false + tag_id，不计入月配额）</option>
-            </select>
-            <small class="field-hint">这是默认值，每次发布前还能在工作台发布面板单独调。</small>
-          </label>
-
-          <label>
-            <span>默认 tag_id（仅群发到标签时用）</span>
-            <input id="wechatSendTagId" type="number" min="0" placeholder="0" />
-            <small class="field-hint">
-              到公众号后台「用户管理 → 标签管理」可以看到 ID。
-              <button id="fetchWechatTagsBtn" type="button" class="link-button" style="padding:0;">点这里在线拉取本号所有标签 ↓</button>
-            </small>
-          </label>
-
-          <div class="split-full">
-            <p id="wechatTagsResult" class="test-result" aria-live="polite"></p>
-          </div>
-
-          <label class="checkbox-row split-full">
-            <input id="wechatSendIgnoreReprint" type="checkbox" />
-            <span>群发时忽略原创校验失败（send_ignore_reprint=1）</span>
-          </label>
-
-          <p class="wechat-subblock-desc muted split-full" id="wechatSendAllUsageHint">
-            本月已使用 <strong id="wechatSendAllUsageCountLabel">0</strong> / 4 次「群发全员」配额（自维护估算，新月自动归零）。
-          </p>
-        </div>
-      </section>
-
-      <section class="card" data-advanced="true" data-section-key="profiles" id="opt-anchor-profiles">
-        <div class="section-heading split-full">
-          <h2>多账号管理<span class="section-tag soft">进阶</span></h2>
-          <p>如果你有多个公众号，可以在这里保存多套凭证，发布时在编辑台里切换。只用一个号的话不用管这里。</p>
-          <p class="muted" style="margin-top:6px;">
-            发布通道有两种：<strong>浏览器登录模式</strong>（推荐 C 端，不需要 appId/AppSecret，复用浏览器登录态）与
-            <strong>API 模式</strong>（需要 appId+AppSecret 且把出口 IP 加白名单，适合服务器/固定 IP 用户）。
-            两种模式可在新建账号时选择，已有账号也可以双向切换。
-          </p>
-        </div>
-
-        <div id="wechatProfilesContainer" class="profiles-list"></div>
-
-        <fieldset class="split-full" style="border:1px solid var(--border-color, #e6e6e6);border-radius:10px;padding:12px 14px;margin:0 0 12px 0;">
-          <legend style="padding:0 8px;font-size:13px;color:var(--muted-color, #666);">发布通道</legend>
-          <div style="display:flex;gap:18px;flex-wrap:wrap;">
-            <label class="checkbox-row" style="margin:0;">
-              <input id="profileModeBrowser" type="radio" name="profileMode" value="browser" checked />
-              <span>浏览器登录模式（推荐）</span>
-            </label>
-            <label class="checkbox-row" style="margin:0;">
-              <input id="profileModeApi" type="radio" name="profileMode" value="api" />
-              <span>API 模式（需要 appId + AppSecret + IP 白名单）</span>
-            </label>
-          </div>
-          <p id="profileModeHint" class="muted" style="margin:8px 0 0;font-size:12px;line-height:1.7;">
-            浏览器登录模式：填好账号名称即可，发布时会自动打开 mp 后台编辑页并把内容写入；最后一步保存草稿由你在 mp 后台手动点（合规底线）。
-          </p>
-        </fieldset>
-
-        <div class="split-grid">
-          <label>
-            <span>账号名称</span>
-            <input id="profileName" type="text" placeholder="例如：主号 / 小号 / 客户A" />
-          </label>
-          <label>
-            <span>AppID（仅 API 模式需要）</span>
-            <input id="profileAppId" type="text" placeholder="wx..." />
-          </label>
-          <label>
-            <span>AppSecret（仅 API 模式需要）</span>
-            <input id="profileAppSecret" type="password" placeholder="公众号密钥" />
-          </label>
-          <label>
-            <span>默认作者</span>
-            <input id="profileAuthor" type="text" placeholder="该号的默认作者" />
-          </label>
-        </div>
-
-        <div class="actions">
-          <button id="addProfileButton" type="button">添加公众号</button>
-        </div>
-      </section>
-
-      <section class="card" data-advanced="true" data-section-key="hot" id="opt-anchor-hot">
-        <div class="section-heading">
-          <h2>热点接口<span class="section-tag soft">进阶</span></h2>
-          <p>
-            热点捕捉默认走开源
-            <a href="https://github.com/ourongxing/newsnow" target="_blank" rel="noreferrer">NewsNow</a>
-            （公共地址 <code>https://hot.inkgold.info/</code>）。NewsNow 失败时会自动回退到
-            <a href="https://github.com/DIYgod/RSSHub" target="_blank" rel="noreferrer">RSSHub</a>
-            （30+ 中文热榜源都有路由），实现「双独立后端」抗单点失败。
-          </p>
-          <p class="muted">
-            如果公共 NewsNow 被限流，建议自部署一份到 Cloudflare Pages（5 分钟，免费）。
-          </p>
-        </div>
-
-        <label class="split-full">
-          <span>NewsNow 地址（留空使用公共地址）</span>
-          <input id="hotTopicsNewsnowBase" type="url" placeholder="https://hot.inkgold.info/" />
-        </label>
-        <div class="row" style="margin: -6px 0 12px; gap: 8px;">
-          <button type="button" class="btn btn-secondary btn-sm" id="testHotTopicsNewsnow">
-            测试 NewsNow 连接
-          </button>
-          <span class="muted" id="testHotTopicsNewsnowResult" aria-live="polite"></span>
-        </div>
-
-        <p class="muted">
-          RSSHub 兜底地址在「抓取增强 → RSSHub Base URL」里配置（默认
-          <code>https://rsshub.app/</code>），同样支持自托。
-        </p>
-
-        <p class="muted">
-          抓取顺序：先 NewsNow，失败时自动回退到 RSSHub 兜底，再失败才提示错误。
-          某个后端连续 3 次失败会自动冷却 10 分钟，避免反复轰炸已挂掉的服务。
-          公共服务限流频繁，强烈推荐部署自己的版本（NewsNow / RSSHub 都有一键部署方案，
-          见 <code>docs/SELFHOST_HOTTOPICS.md</code>）。
-        </p>
-      </section>
-
-      <section class="card" data-advanced="true" id="drissionSettings" data-section-key="drission">
-        <div class="section-heading">
-          <h2>DrissionPage 增强抓取<span class="section-tag soft">可选 / 进阶</span></h2>
-          <p>
-            遇到反爬严重、需要登录的页面时，可以在本机起一个
-            <a href="https://github.com/g1879/DrissionPage" target="_blank" rel="noreferrer">DrissionPage</a>
-            helper 服务（依赖你电脑上已装的 Chrome），扩展会优先把抓取请求转给它；helper 不可达或抓不到内容时会自动回退到内置抓取，不会让你卡死。
-          </p>
-          <p class="muted">
-            选区抓取（在网页上选中文字 → 抓取）永远走扩展内置脚本，不经过 DrissionPage。
-          </p>
-
-          <div class="helper-download-banner">
-            <div class="helper-download-text">
-              <strong>不会命令行也没关系</strong>：直接下载「润笔桌面助手」，双击启动即可。
-              <span id="helperDownloadVersion" class="muted"></span>
-            </div>
-            <div class="helper-download-actions">
-              <a id="helperDownloadButton" class="primary" href="#" target="_blank" rel="noreferrer">下载桌面助手</a>
-              <a id="helperDownloadGuide" class="ghost" href="#" target="_blank" rel="noreferrer">安装说明</a>
-            </div>
-          </div>
-        </div>
-
-        <label class="checkbox-row">
-          <input id="drissionEnabled" type="checkbox" />
-          <span>启用 DrissionPage 优先抓取</span>
-        </label>
-
-        <label class="split-full">
-          <span>helper 地址（如 <code>http://127.0.0.1:7788/</code>）</span>
-          <input id="drissionHelperUrl" type="url" placeholder="http://127.0.0.1:7788/?token=…" autocomplete="off" />
-          <small id="drissionHelperTokenStatus" class="field-hint" aria-live="polite">
-            建议在桌面助手 GUI 点「复制 helper 地址」并粘贴到这里。token 会被自动拆出并加密保存，不会显示在地址栏。
-          </small>
-        </label>
-
-        <label class="split-full">
-          <span>抓取超时（毫秒，5000 - 120000）</span>
-          <input id="drissionTimeoutMs" type="number" min="5000" max="120000" step="1000" placeholder="30000" />
-        </label>
-
-        <div class="test-action-row split-full">
-          <button id="testDrissionConnectionButton" class="ghost" type="button">测试 helper 连接</button>
-          <p id="testDrissionConnectionResult" class="test-result" aria-live="polite"></p>
-          <small class="field-hint">测试只检查 helper 的 <code>/health</code> 接口可达。真正抓取效果取决于目标站点 + 浏览器内核。</small>
-        </div>
       </section>
 
       <section class="card prompt-template-card" data-advanced="true" data-section-key="prompt" id="opt-anchor-prompt">
@@ -738,103 +552,301 @@
       <!-- AI 模板生成器对话框：HTML/CSS/JS 已迁出至 src/shared/ai-template-dialog.js
            （options 与 workspace 共用同一个对话框，由共享模块 lazy-mount 到 document.body） -->
 
-      <section class="card license-card" id="licenseSection" data-section-key="license">
-        <div class="section-heading">
-          <h2><span class="section-step-pill license-step-pill">会员</span>会员激活</h2>
-          <p id="licenseHeroHint">免费版包含全部基础功能。如需多账号、DrissionPage、高级模板与无限改写，请登录账号绑定 Pro License。</p>
-        </div>
-
-        <div class="license-status-box" id="licenseStatusBox" data-status="free">
-          <span class="license-status-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="16" height="16">
-              <path
-                fill="currentColor"
-                d="M12 2.7l2.6 5.27 5.82.85-4.21 4.1.99 5.78L12 15.96l-5.2 2.74.99-5.78L3.58 8.82l5.82-.85L12 2.7z"
-              />
-            </svg>
-          </span>
-          <div class="license-status-meta">
-            <strong id="licenseStatusLabel">免费版</strong>
-            <span id="licenseStatusHint" class="license-status-hint">未激活会员，所有基础功能均可使用</span>
-          </div>
-          <span id="licenseStatusKey" class="license-status-key" hidden></span>
-          <button id="licenseRefreshBtn" class="ghost-button" type="button" title="向服务器复验当前 License 状态">刷新状态</button>
-        </div>
-
-        <!-- 子区块 1：账号 -->
-        <div class="license-block" id="licenseAccountBlock">
-          <div class="license-block-head">
-            <h3>账号</h3>
-            <span class="license-block-hint" id="licenseAccountStatus">未登录</span>
-          </div>
-
-          <!-- 未登录：登录 / 注册 切换表单 -->
-          <div class="license-auth-tabs" id="licenseAuthTabs">
-            <button type="button" class="license-tab active" data-auth-tab="login">登录</button>
-            <button type="button" class="license-tab" data-auth-tab="register">注册</button>
-          </div>
-          <div class="license-auth-form" id="licenseAuthForm">
-            <input id="licenseEmailInput" type="email" class="license-input" placeholder="邮箱" autocomplete="email" />
-            <input id="licensePasswordInput" type="password" class="license-input" placeholder="密码（至少 8 位）" autocomplete="current-password" />
-            <button id="licenseAuthSubmitBtn" class="primary-button" type="button">登录</button>
-          </div>
-          <p id="licenseAuthFeedback" class="license-feedback" data-tone="muted" hidden></p>
-
-          <!-- 已登录：账号信息 + 退出 -->
-          <div class="license-account-info" id="licenseAccountInfo" hidden>
-            <div class="license-account-row">
-              <span class="license-account-label">已登录账号</span>
-              <strong id="licenseAccountEmail">—</strong>
-            </div>
-            <button id="licenseLogoutBtn" class="ghost-button" type="button">退出登录</button>
-          </div>
-        </div>
-
-        <!-- 子区块 2：备用激活码（正常使用账号自动同步即可，这里为登录异常提供兜底） -->
-        <details class="license-block" id="licenseKeyBlock">
-          <summary class="license-block-head" style="cursor:pointer;">
-            <h3>备用激活码（高级 · 正常情况无需使用）</h3>
-            <span class="license-block-hint">已登录账号会自动同步会员权益；遇到登录异常时再用激活码兜底</span>
-          </summary>
-          <div class="license-input-row">
-            <label for="licenseKeyInput" class="license-input-label">激活码</label>
-            <input
-              id="licenseKeyInput"
-              type="text"
-              class="license-input"
-              placeholder="GZHT-XXXX-XXXX-XXXX"
-              autocomplete="off"
-              spellcheck="false"
-              maxlength="19"
-            />
-            <button id="licenseActivateBtn" class="primary-button" type="button">激活并绑定</button>
-            <button id="licenseClearBtn" class="ghost-button" type="button" hidden>解绑本机</button>
-          </div>
-          <p id="licenseFeedback" class="license-feedback" data-tone="muted">
-            还没开通会员？查看
-            <a id="licensePricingLink" href="#" target="_blank" rel="noopener">Pro 会员套餐与定价</a>。
+      <section class="card split-grid" data-section="wechat" data-section-key="wechat" id="opt-anchor-wechat">
+        <div class="section-heading split-full">
+          <h2><span class="section-step-pill">第 2 步</span>公众号直连发布<span class="section-tag">可选</span></h2>
+          <p>
+            填好后可一键把改写好的文章推到公众号草稿箱或直接发布。<strong>如果只用 AI 改写、不直推到公众号，这一节可以跳过。</strong>
           </p>
-        </details>
 
-        <!-- 子区块 3：当前账号下的 License 列表 -->
-        <div class="license-block" id="licenseListBlock" hidden>
-          <div class="license-block-head">
-            <h3>本账号的会员权益记录</h3>
-            <span class="license-block-hint">通常无需手动操作；登录账号即自动激活当前会员权益</span>
+          <!-- P1.1 · 2025-07 政策红色横幅，常驻显示 -->
+          <div class="wechat-policy-banner" role="alert">
+            <div class="wechat-policy-banner-icon" aria-hidden="true">⚠️</div>
+            <div class="wechat-policy-banner-body">
+              <strong>2025-07 起：未认证账号将失去 draft/add 权限</strong>
+              <p>
+                根据微信公开通告，<strong>个人主体 / 未认证企业号 / 不支持认证的账号</strong>将失去通过 API 推送草稿（<code>draft/add</code>）的能力，意味着本扩展的"一键发草稿"对这类账号会直接报 <code>48001 / 53400</code>。
+              </p>
+              <p>
+                <strong>兜底姿势</strong>：发布面板提供"复制 HTML 手动粘贴"按钮，把已经排好版的 HTML 复制到剪贴板，再到公众号后台「素材管理 → 新建图文」粘贴即可。详见
+                <a href="https://github.com/JUNSHENG428/gzhtool/blob/main/docs/WECHAT_LIMITATIONS.md" target="_blank" rel="noreferrer">WECHAT_LIMITATIONS.md</a>。
+              </p>
+            </div>
           </div>
-          <div id="licenseListContainer" class="license-list">
-            <p class="license-list-empty">暂未在此账号下查到会员权益。</p>
+
+          <details class="field-help">
+            <summary>不知道 AppID/AppSecret 在哪？点这里看获取步骤</summary>
+            <ol>
+              <li>登录 <a href="https://mp.weixin.qq.com/" target="_blank" rel="noreferrer">微信公众平台</a>（订阅号 / 服务号 / 个人订阅号都行）。</li>
+              <li>左侧菜单 → <strong>设置与开发</strong> → <strong>开发接口管理</strong>（旧版叫「基本配置」）。</li>
+              <li>页面里能看到 <strong>开发者 ID（AppID）</strong> 和 <strong>开发者密码（AppSecret）</strong>。AppSecret 第一次生成后会隐藏，记得本地存好。</li>
+              <li>同一页找到「IP 白名单」，把你当前电脑的出口 IP 加进去（百度搜「我的 IP」可看到当前 IP），否则会提示 <code>40164</code>。</li>
+              <li>个人订阅号没有「群发图文」权限，但可以推到「草稿箱」，之后在手机微信里手动发布。</li>
+            </ol>
+          </details>
+        </div>
+
+        <label>
+          <span>公众号 AppID <small class="field-meta">仅 API 模式 · 开发者 ID</small></span>
+          <input id="wechatAppId" type="text" placeholder="wx..." pattern="^wx[a-f0-9]{16}$" title="微信 AppID 格式为 wx 开头，后跟 16 位小写字母或数字" />
+          <small class="field-hint">格式：<code>wx</code> 开头 + 16 位小写字母或数字。<strong>什么时候改</strong>：想用 API 模式直发草稿。<strong>填错的后果</strong>：报 40013 / 41001。</small>
+        </label>
+        <label>
+          <span>公众号 AppSecret <small class="field-meta">仅 API 模式 · 开发者密码</small></span>
+          <input id="wechatAppSecret" type="password" placeholder="填写公众号密钥" minlength="8" autocomplete="off" />
+          <small class="field-hint">同样在「开发接口管理」页查看，第一次生成后微信不再展示，记得本地存好。<strong>填错的后果</strong>：报 40125（key 错）或 40164（IP 不在白名单）。只保存在本机浏览器。</small>
+        </label>
+        <label>
+          <span>默认作者</span>
+          <input id="wechatDefaultAuthor" type="text" placeholder="文章作者署名" maxlength="8" title="公众号作者最多 8 个字" />
+          <small class="field-hint">公众号要求作者最多 8 个字，可留空。</small>
+        </label>
+        <label>
+          <span>默认来源链接</span>
+          <input id="wechatDefaultSourceUrl" type="url" placeholder="https://你的官网或原文地址" />
+          <small class="field-hint">文章底部「阅读原文」会跳到这个链接，可留空。</small>
+        </label>
+        <label>
+          <span>默认发到哪 <small class="field-meta">默认发布模式</small></span>
+          <select id="wechatDefaultPublishMode">
+            <option value="draft">推草稿箱（推荐，再到手机审核后发）</option>
+            <option value="publish">直接发布（需要服务号权限）</option>
+          </select>
+          <small class="field-hint">这只是默认值，每次发布前还能在编辑台改。<strong>什么时候改</strong>：想自动群发而不是只存草稿。<strong>个人订阅号</strong>：直接发布无效，必须走草稿箱。</small>
+        </label>
+        <div class="checkbox-stack">
+          <label class="checkbox-row">
+            <input id="wechatDefaultOpenComment" type="checkbox" />
+            <span>默认开启评论</span>
+          </label>
+          <label class="checkbox-row">
+            <input id="wechatDefaultOnlyFansCanComment" type="checkbox" />
+            <span>默认仅粉丝可评论</span>
+          </label>
+        </div>
+
+        <div class="test-action-row split-full">
+          <button id="testWechatConnectionButton" class="ghost" type="button">测试公众号连接</button>
+          <p id="testWechatConnectionResult" class="test-result" aria-live="polite"></p>
+          <small class="field-hint">注意：测试只能验证 AppID/AppSecret 能换到 token，不代表你账号有「群发」「草稿」接口权限——真正发的时候还可能因为权限不足报错。</small>
+        </div>
+
+        <!-- P1.3 · 微信 API 代理（破 IP 白名单） -->
+        <div class="wechat-subblock split-full" data-advanced="true">
+          <h3 class="wechat-subblock-title">微信 API 代理地址<small>（动态 IP 用户必备 / 高级）</small></h3>
+          <p class="wechat-subblock-desc">
+            如果你家用宽带 / 4G/5G 是动态 IP 进不了公众号后台白名单，会反复报 <code>40164</code>。
+            把请求中转到一台<strong>有固定出口 IP 的代理</strong>就能解决。推荐用阿里云函数计算（FC）：
+            个人版有免费额度，FC 出口 IP 是阿里云固定段，<strong>把这段 IP 一次性加白名单后所有 cgi-bin 接口就都通了</strong>。
+            一键部署模板见仓库 <code>aliyun-fc/wechat-api-proxy/</code>。
+          </p>
+          <p class="wechat-subblock-desc muted">
+            ⚠️ Cloudflare Workers <strong>不适合</strong>做这件事：CF 出口是动态 IP 段，每天换，加白名单白加了。
+          </p>
+
+          <label class="split-full">
+            <span>微信 API 代理地址 <small class="field-meta">留空 = 走官方 <code>https://api.weixin.qq.com</code></small></span>
+            <input
+              id="wechatApiBase"
+              type="url"
+              placeholder="https://your-fc-domain.com"
+              autocomplete="off"
+            />
+            <small class="field-hint">
+              <strong>什么时候改</strong>：家用动态 IP 进不了白名单要走 FC 反代。<strong>留空</strong>就走官方域名（最常见）。填了之后扩展会把所有 <code>/cgi-bin/*</code> 请求打到这个域名；代理只需<strong>原样转发到 api.weixin.qq.com，保留 query / body / headers</strong>。
+            </small>
+          </label>
+        </div>
+
+        <!-- P1.2 · 群发策略（让认证服务号文章进公众号列表） -->
+        <div class="wechat-subblock split-full" data-advanced="true">
+          <h3 class="wechat-subblock-title">公众号群发策略<small>（仅认证服务号 / 高级）</small></h3>
+          <p class="wechat-subblock-desc">
+            走 <code>freepublish/submit</code> 发完的文章<strong>不会进公众号文章列表</strong>，关注者也不会收到推送。
+            想让文章真正进入用户的公众号会话框，必须额外调 <code>message/mass/sendall</code> 群发。
+            <strong>仅认证服务号可用</strong>，订阅号和未认证号会报 48001/53400。
+          </p>
+
+          <label>
+            <span>默认群发模式</span>
+            <select id="wechatSendStrategy">
+              <option value="none">不群发，仅 freepublish/submit（默认）</option>
+              <option value="all">群发全员（is_to_all=true，每月最多 4 次）</option>
+              <option value="tag">群发指定标签（is_to_all=false + tag_id，不计入月配额）</option>
+            </select>
+            <small class="field-hint">这是默认值，每次发布前还能在工作台发布面板单独调。</small>
+          </label>
+
+          <label>
+            <span>默认 tag_id（仅群发到标签时用）</span>
+            <input id="wechatSendTagId" type="number" min="0" placeholder="0" />
+            <small class="field-hint">
+              到公众号后台「用户管理 → 标签管理」可以看到 ID。
+              <button id="fetchWechatTagsBtn" type="button" class="link-button" style="padding:0;">点这里在线拉取本号所有标签 ↓</button>
+            </small>
+          </label>
+
+          <div class="split-full">
+            <p id="wechatTagsResult" class="test-result" aria-live="polite"></p>
+          </div>
+
+          <label class="checkbox-row split-full">
+            <input id="wechatSendIgnoreReprint" type="checkbox" />
+            <span>群发时忽略原创校验失败（send_ignore_reprint=1）</span>
+          </label>
+
+          <p class="wechat-subblock-desc muted split-full" id="wechatSendAllUsageHint">
+            本月已使用 <strong id="wechatSendAllUsageCountLabel">0</strong> / 4 次「群发全员」配额（自维护估算，新月自动归零）。
+          </p>
+        </div>
+      </section>
+
+      <section class="card" data-section-key="profiles" id="opt-anchor-profiles">
+        <div class="section-heading split-full">
+          <h2>多账号管理<span class="section-tag soft">推荐 · 浏览器登录免 AppSecret</span></h2>
+          <p>
+            如果你有一个或多个公众号，在这里加好账号后就能在编辑台一键发布。
+          </p>
+          <p class="muted" style="margin-top:6px;">
+            发布通道有两种：<strong>浏览器登录模式</strong>（推荐 C 端，不需要 appId/AppSecret，复用浏览器登录态）与
+            <strong>API 模式</strong>（需要 appId+AppSecret 且把出口 IP 加白名单，适合服务器/固定 IP 用户）。
+            两种模式可在新建账号时选择，已有账号也可以双向切换。
+          </p>
+        </div>
+
+        <div id="wechatProfilesContainer" class="profiles-list"></div>
+
+        <fieldset class="split-full" style="border:1px solid var(--border-color, #e6e6e6);border-radius:10px;padding:12px 14px;margin:0 0 12px 0;">
+          <legend style="padding:0 8px;font-size:13px;color:var(--muted-color, #666);">发布通道</legend>
+          <div style="display:flex;gap:18px;flex-wrap:wrap;">
+            <label class="checkbox-row" style="margin:0;">
+              <input id="profileModeBrowser" type="radio" name="profileMode" value="browser" checked />
+              <span>浏览器登录模式（推荐）</span>
+            </label>
+            <label class="checkbox-row" style="margin:0;">
+              <input id="profileModeApi" type="radio" name="profileMode" value="api" />
+              <span>API 模式（需要 appId + AppSecret + IP 白名单）</span>
+            </label>
+          </div>
+          <p id="profileModeHint" class="muted" style="margin:8px 0 0;font-size:12px;line-height:1.7;">
+            浏览器登录模式：填好账号名称即可，发布时会自动打开 mp 后台编辑页并把内容写入；最后一步保存草稿由你在 mp 后台手动点（合规底线）。
+          </p>
+        </fieldset>
+
+        <div class="split-grid">
+          <label>
+            <span>账号名称</span>
+            <input id="profileName" type="text" placeholder="例如：主号 / 小号 / 客户A" />
+          </label>
+          <label>
+            <span>AppID（仅 API 模式需要）</span>
+            <input id="profileAppId" type="text" placeholder="wx..." />
+          </label>
+          <label>
+            <span>AppSecret（仅 API 模式需要）</span>
+            <input id="profileAppSecret" type="password" placeholder="公众号密钥" />
+          </label>
+          <label>
+            <span>默认作者</span>
+            <input id="profileAuthor" type="text" placeholder="该号的默认作者" />
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="addProfileButton" type="button">添加公众号</button>
+        </div>
+      </section>
+
+      <section class="card" data-advanced="true" id="drissionSettings" data-section-key="drission">
+        <div class="section-heading">
+          <h2>DrissionPage 增强抓取<span class="section-tag soft">可选 / 进阶</span></h2>
+          <p>
+            遇到反爬严重、需要登录的页面时，可以在本机起一个
+            <a href="https://github.com/g1879/DrissionPage" target="_blank" rel="noreferrer">DrissionPage</a>
+            helper 服务（依赖你电脑上已装的 Chrome），扩展会优先把抓取请求转给它；helper 不可达或抓不到内容时会自动回退到内置抓取，不会让你卡死。
+          </p>
+          <p class="muted">
+            选区抓取（在网页上选中文字 → 抓取）永远走扩展内置脚本，不经过 DrissionPage。
+          </p>
+
+          <div class="helper-download-banner">
+            <div class="helper-download-text">
+              <strong>不会命令行也没关系</strong>：直接下载「润笔桌面助手」，双击启动即可。
+              <span id="helperDownloadVersion" class="muted"></span>
+            </div>
+            <div class="helper-download-actions">
+              <a id="helperDownloadButton" class="primary" href="#" target="_blank" rel="noreferrer">下载桌面助手</a>
+              <a id="helperDownloadGuide" class="ghost" href="#" target="_blank" rel="noreferrer">安装说明</a>
+            </div>
           </div>
         </div>
 
-        <!-- 子区块 4：付费功能解锁清单（一目了然让用户知道激活能开什么） -->
-        <div class="license-block" id="licenseFeaturesBlock">
-          <div class="license-block-head">
-            <h3>付费功能</h3>
-            <span class="license-block-hint">下表展示当前账号可解锁的能力</span>
-          </div>
-          <ul id="licenseFeaturesList" class="license-features"></ul>
+        <label class="checkbox-row">
+          <input id="drissionEnabled" type="checkbox" />
+          <span>真实浏览器抓取 <small class="field-meta">DrissionPage · Pro</small></span>
+        </label>
+        <small class="field-hint" style="margin-top:-4px;display:block;">
+          <strong>什么时候开</strong>：反爬严的网站抓不到时（要登录、有 Cloudflare 拦截等）。<strong>填错的后果</strong>：没装桌面助手会失败回退到内置抓取，不会卡死。
+        </small>
+
+        <label class="split-full">
+          <span>桌面助手地址 <small class="field-meta">helper URL</small></span>
+          <input id="drissionHelperUrl" type="url" placeholder="http://127.0.0.1:7788/?token=…" autocomplete="off" />
+          <small id="drissionHelperTokenStatus" class="field-hint" aria-live="polite">
+            建议在桌面助手 GUI 点「复制 helper 地址」并粘贴到这里。token 会被自动拆出并加密保存，不会显示在地址栏。<strong>填错的后果</strong>：测试报 ECONNREFUSED 说明助手没跑起来。
+          </small>
+        </label>
+
+        <label class="split-full">
+          <span>抓取超时（毫秒，5000 - 120000）</span>
+          <input id="drissionTimeoutMs" type="number" min="5000" max="120000" step="1000" placeholder="30000" />
+        </label>
+
+        <div class="test-action-row split-full">
+          <button id="testDrissionConnectionButton" class="ghost" type="button">测试 helper 连接</button>
+          <p id="testDrissionConnectionResult" class="test-result" aria-live="polite"></p>
+          <small class="field-hint">测试只检查 helper 的 <code>/health</code> 接口可达。真正抓取效果取决于目标站点 + 浏览器内核。</small>
         </div>
+      </section>
+
+      <section class="card" data-advanced="true" data-section-key="hot" id="opt-anchor-hot">
+        <div class="section-heading">
+          <h2>热点接口<span class="section-tag soft">进阶</span></h2>
+          <p>
+            热点捕捉默认走开源
+            <a href="https://github.com/ourongxing/newsnow" target="_blank" rel="noreferrer">NewsNow</a>
+            （公共地址 <code>https://hot.inkgold.info/</code>）。NewsNow 失败时会自动回退到
+            <a href="https://github.com/DIYgod/RSSHub" target="_blank" rel="noreferrer">RSSHub</a>
+            （30+ 中文热榜源都有路由），实现「双独立后端」抗单点失败。
+          </p>
+          <p class="muted">
+            如果公共 NewsNow 被限流，建议自部署一份到 Cloudflare Pages（5 分钟，免费）。
+          </p>
+        </div>
+
+        <label class="split-full">
+          <span>自部署热点接口 <small class="field-meta">NewsNow Base · 留空走官方源</small></span>
+          <input id="hotTopicsNewsnowBase" type="url" placeholder="https://hot.inkgold.info/" />
+          <small class="field-hint"><strong>什么时候改</strong>：自己搭了 NewsNow / RSSHub 实例。<strong>留空走官方源</strong>，新手不用管。</small>
+        </label>
+        <div class="row" style="margin: -6px 0 12px; gap: 8px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="testHotTopicsNewsnow">
+            测试 NewsNow 连接
+          </button>
+          <span class="muted" id="testHotTopicsNewsnowResult" aria-live="polite"></span>
+        </div>
+
+        <p class="muted">
+          RSSHub 兜底地址在「抓取增强 → RSSHub Base URL」里配置（默认
+          <code>https://rsshub.app/</code>），同样支持自托。
+        </p>
+
+        <p class="muted">
+          抓取顺序：先 NewsNow，失败时自动回退到 RSSHub 兜底，再失败才提示错误。
+          某个后端连续 3 次失败会自动冷却 10 分钟，避免反复轰炸已挂掉的服务。
+          公共服务限流频繁，强烈推荐部署自己的版本（NewsNow / RSSHub 都有一键部署方案，
+          见 <code>docs/SELFHOST_HOTTOPICS.md</code>）。
+        </p>
       </section>
 
       <section class="card" data-section-key="pages" id="opt-anchor-pages">
@@ -860,7 +872,7 @@
 
       <p class="advanced-toast" id="advancedToast" role="note">
         <span aria-hidden="true">💡</span>
-        还有「多账号 / 热点接口 / 改写 Prompt 模板」等进阶配置已收起。
+        还有「热点接口 / 改写 Prompt 模板 / DrissionPage 增强」等进阶配置已收起。
         <button type="button" class="link-button" data-mode="expert">切到高级模式查看</button>
       </p>
     </main>
