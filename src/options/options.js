@@ -1,6 +1,15 @@
 import { DEFAULT_SETTINGS } from "../shared/defaults.js";
 import { clearHistory, listSnapshots } from "../shared/history.js";
 import {
+  listVoiceSamples,
+  saveVoiceSample,
+  deleteVoiceSample,
+  setActiveVoiceSampleId,
+  generateVoiceSampleId,
+  extractFingerprintFromText
+} from "../shared/voice-samples.js";
+import { ensureHostPermissionFromGesture } from "../shared/host-permissions.js";
+import {
   PROVIDER_PRESETS,
   CUSTOM_PROVIDER_KEY,
   DEFAULT_PROVIDER_KEY,
@@ -84,7 +93,10 @@ const fields = {
   hotTopicsNewsnowBase: document.querySelector("#hotTopicsNewsnowBase"),
   drissionEnabled: document.querySelector("#drissionEnabled"),
   drissionHelperUrl: document.querySelector("#drissionHelperUrl"),
-  drissionTimeoutMs: document.querySelector("#drissionTimeoutMs")
+  drissionTimeoutMs: document.querySelector("#drissionTimeoutMs"),
+  // 公众号编辑页悬浮助手（twenty-ninth session）。toggle 进 fields 走 saveForm
+  // 通用循环；onboardingShown / position 不进 fields，由 SW handler 直接写。
+  floatingBallEnabled: document.querySelector("#floatingBallEnabled")
 };
 
 const statusElement = document.querySelector("#status");
@@ -213,6 +225,47 @@ fields.drissionHelperUrl?.addEventListener("change", () => {
 });
 fields.drissionHelperUrl?.addEventListener("blur", () => {
   applyHelperUrlInput(fields.drissionHelperUrl.value);
+});
+
+// 公众号编辑页悬浮助手 toggle：首次切到 ON 时弹 onboarding modal 强提醒注入范围 + 隐私边界。
+// 用户点确认才真正写入 floatingBallEnabled=true；点取消则回滚 checkbox。已弹过的 session
+// 不再弹（onboardingShown=true）。这是 CWS 审核加分项 + 用户隐私感知保护。
+fields.floatingBallEnabled?.addEventListener("change", async (event) => {
+  if (!event.target.checked) return; // 关掉不需要确认
+  const settings = await getSettings();
+  if (settings.floatingBallOnboardingShown) return; // 已弹过，直接放行（saveForm 时写入）
+  // 弹 modal 拦截
+  event.target.checked = false; // 先回滚，等用户确认
+  const modal = document.querySelector("#floatingBallOnboardingModal");
+  const backdrop = document.querySelector("#floatingBallOnboardingBackdrop");
+  if (!modal || !backdrop) {
+    // modal 元素缺失（HTML 没编译进去？）→ fail open，直接放行
+    event.target.checked = true;
+    return;
+  }
+  modal.hidden = false;
+  modal.removeAttribute("aria-hidden");
+  backdrop.hidden = false;
+  const closeModal = () => {
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+    backdrop.hidden = true;
+  };
+  const onConfirm = async () => {
+    closeModal();
+    event.target.checked = true;
+    await saveSettings({ floatingBallOnboardingShown: true });
+    // 立即 saveForm 把 toggle 状态持久化（避免用户点确认后没点保存按钮就关页面，
+    // 浮球状态丢失给 mp tab）
+    await saveForm();
+  };
+  const onCancel = () => {
+    closeModal();
+    // event.target.checked 已是 false（前面回滚）
+  };
+  document.querySelector("#confirmFloatingBallOnboardingButton")?.addEventListener("click", onConfirm, { once: true });
+  document.querySelector("#cancelFloatingBallOnboardingButton")?.addEventListener("click", onCancel, { once: true });
+  backdrop.addEventListener("click", onCancel, { once: true });
 });
 
 // 闸门：DrissionPage 是 Pro 功能，免费用户尝试勾选时拦截并弹升级框
@@ -869,10 +922,21 @@ async function testHotTopicsBackend(kind) {
   button.disabled = true;
   setTestResult(resultEl, "loading", "正在测试...");
 
+  const baseUrl = baseField?.value?.trim() || "";
+
   try {
+    // 必须在 click handler 用户手势上下文里同步申请 origin 权限——否则 SW 端
+    // ensureOptionalHostPermission 会抛 "must be called during a user gesture"。
+    // 用户没填 baseUrl（走默认源）时也尝试 grant，helper 内部会判断空 URL 直接返回 true。
+    const permitted = await ensureHostPermissionFromUserGesture(baseUrl);
+    if (!permitted) {
+      setTestResult(resultEl, "error", "需要授权访问该热点接口域名才能测试，请允许后再试。");
+      return;
+    }
+
     const response = await chrome.runtime.sendMessage({
       type: "TEST_HOT_TOPICS_BACKEND",
-      payload: { kind, baseUrl: baseField?.value?.trim() || "" }
+      payload: { kind, baseUrl }
     });
 
     if (response?.ok) {
@@ -1974,6 +2038,384 @@ function pricingUrl() {
   return "https://docuearn.com/pricing";
 }
 
+// ────────── 「我的文风」voice samples 全套 wiring（30th session）──────────
+// 历史：17th session 落地 voice-samples 后端 + service-worker.js 注入，但 options
+// HTML 的按钮一直没接 listener（dead UI）。本 session 接完整 CRUD + 2 个一键入口。
+//
+// 数据模型（见 src/shared/voice-samples.js）：
+//   sample = { id, title, raw, fingerprint, createdAt, updatedAt }
+//   activeVoiceSampleId 存 settings 主对象，service-worker 端 ai.js 注入 prompt 用
+//
+// 流程：
+//   - 添加新样本 → 展开 #voiceSampleEditor，清空 raw + title
+//   - 编辑现有 → 展开 #voiceSampleEditor，预填 raw + title，dataset.editingId 标记
+//   - 保存并提取指纹 → saveVoiceSample（无 fingerprint）→ extractFingerprintFromText
+//     （会调 LLM，可能慢 / 可能失败）→ 二次 saveVoiceSample（带 fingerprint）
+//   - 启用 → setActiveVoiceSampleId
+//   - 删除 → deleteVoiceSample（若是 active 自动清空 activeVoiceSampleId）
+//   - 从历史草稿导入 → 弹 modal 列 listSnapshots → 多选 → 拼 rawText 填 textarea
+//   - 从公众号 URL 抓取 → grant 权限 → SCRAPE_BACKGROUND_AND_IMPORT → 拼正文填 textarea
+
+async function initVoiceSamples() {
+  const addBtn = document.querySelector("#voiceSampleAddBtn");
+  const importHistoryBtn = document.querySelector("#voiceSampleImportFromHistoryBtn");
+  const importUrlBtn = document.querySelector("#voiceSampleImportFromUrlBtn");
+  const editor = document.querySelector("#voiceSampleEditor");
+  const titleInput = document.querySelector("#voiceSampleTitle");
+  const rawInput = document.querySelector("#voiceSampleRaw");
+  const saveBtn = document.querySelector("#voiceSampleSaveBtn");
+  const cancelBtn = document.querySelector("#voiceSampleCancelBtn");
+  const editorStatus = document.querySelector("#voiceSampleEditorStatus");
+  const list = document.querySelector("#voiceSampleList");
+  const empty = document.querySelector(".voice-sample-empty");
+
+  if (!list) return; // HTML 没渲染（极端兜底）
+
+  await renderVoiceSampleList();
+
+  addBtn?.addEventListener("click", () => openEditor(null));
+  cancelBtn?.addEventListener("click", () => closeEditor());
+  saveBtn?.addEventListener("click", () => void saveCurrent());
+  importHistoryBtn?.addEventListener("click", () => void openHistoryModal());
+  importUrlBtn?.addEventListener("click", () => void openUrlImport());
+
+  // 列表项里的 启用/编辑/删除 用事件委托，避免每次 render 重绑
+  list.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-vs-action]");
+    if (!button) return;
+    const id = button.dataset.vsId || "";
+    const action = button.dataset.vsAction || "";
+    if (!id || !action) return;
+
+    if (action === "activate") {
+      await setActiveVoiceSampleId(id);
+      await renderVoiceSampleList();
+      setStatus("已启用此文风样本，下次 AI 改写会注入。");
+      return;
+    }
+    if (action === "deactivate") {
+      await setActiveVoiceSampleId("");
+      await renderVoiceSampleList();
+      setStatus("已停用文风样本。");
+      return;
+    }
+    if (action === "delete") {
+      if (!confirm("确认删除这份文风样本？此操作不可撤销。")) return;
+      await deleteVoiceSample(id);
+      await renderVoiceSampleList();
+      setStatus("文风样本已删除。");
+      return;
+    }
+    if (action === "edit") {
+      const samples = await listVoiceSamples();
+      const sample = samples.find((s) => s.id === id);
+      if (sample) openEditor(sample);
+    }
+  });
+
+  async function renderVoiceSampleList() {
+    const samples = await listVoiceSamples();
+    const settings = await getSettings();
+    const activeId = String(settings.activeVoiceSampleId || "");
+
+    if (samples.length === 0) {
+      list.innerHTML = "";
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+
+    list.innerHTML = samples
+      .map((s) => {
+        const isActive = s.id === activeId;
+        const fpReady = Boolean(s.fingerprint);
+        const updated = s.updatedAt
+          ? new Date(s.updatedAt).toLocaleString("zh-CN", { hour12: false })
+          : "";
+        const rawPreview = String(s.raw || "")
+          .replace(/<[^>]+>/g, "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 80);
+        return `
+          <li class="voice-sample-item" data-active="${isActive ? "1" : "0"}">
+            <div style="display:grid;gap:4px;flex:1;min-width:0;">
+              <strong style="font-size:14px;">${escapeHtml(s.title || "未命名样本")}${isActive ? ' <span style="color:#15803d;font-size:12px;">· 已启用</span>' : ""}</strong>
+              <small class="muted" style="font-size:12px;">${fpReady ? "✓ 指纹已提取" : "⚠ 指纹未提取"} · 原文 ${(s.raw || "").length} 字 · 更新于 ${escapeHtml(updated)}</small>
+              <small class="muted" style="font-size:12px;line-height:1.5;">${escapeHtml(rawPreview)}…</small>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-self:flex-start;">
+              ${isActive
+                ? `<button data-vs-action="deactivate" data-vs-id="${escapeHtml(s.id)}" class="ghost ghost-muted" type="button">停用</button>`
+                : `<button data-vs-action="activate" data-vs-id="${escapeHtml(s.id)}" class="primary" type="button">启用</button>`
+              }
+              <button data-vs-action="edit" data-vs-id="${escapeHtml(s.id)}" class="ghost" type="button">编辑</button>
+              <button data-vs-action="delete" data-vs-id="${escapeHtml(s.id)}" class="ghost ghost-muted" type="button">删除</button>
+            </div>
+          </li>
+        `;
+      })
+      .join("");
+  }
+
+  function openEditor(sample) {
+    if (!editor) return;
+    editor.hidden = false;
+    editor.open = true;
+    if (sample) {
+      titleInput.value = sample.title || "";
+      rawInput.value = sample.raw || "";
+      editor.dataset.editingId = sample.id;
+    } else {
+      titleInput.value = "";
+      rawInput.value = "";
+      delete editor.dataset.editingId;
+    }
+    setEditorStatus("");
+    rawInput.focus();
+  }
+
+  function closeEditor() {
+    if (!editor) return;
+    editor.hidden = true;
+    editor.open = false;
+    delete editor.dataset.editingId;
+  }
+
+  function setEditorStatus(text, tone = "muted") {
+    if (!editorStatus) return;
+    editorStatus.textContent = text;
+    editorStatus.style.color = tone === "error" ? "#b00020" : tone === "success" ? "#15803d" : "";
+  }
+
+  async function saveCurrent() {
+    const title = String(titleInput.value || "").trim() || "未命名样本";
+    const raw = String(rawInput.value || "").trim();
+    if (!raw) {
+      setEditorStatus("请先粘贴或填入原文内容。", "error");
+      return;
+    }
+    if (raw.length < 200) {
+      setEditorStatus("原文太短（< 200 字），指纹提取效果可能不稳定。仍可保存，但建议加到 1500 字以上。", "error");
+    }
+
+    saveBtn.disabled = true;
+    const editingId = editor.dataset.editingId || "";
+    const id = editingId || generateVoiceSampleId();
+
+    try {
+      // 第 1 步：先保存 raw（不阻塞用户，确保即使 LLM 失败原文也存住）
+      setEditorStatus("已保存原文，正在调 LLM 提取指纹…");
+      await saveVoiceSample({ id, title, raw });
+      await renderVoiceSampleList();
+
+      // 第 2 步：调 LLM 提取指纹（失败不阻塞主链路，按"PRO 增值不阻断"反例约定）
+      const settings = await getSettings();
+      let fingerprint = null;
+      try {
+        // ensureHostPermissionFromGesture 在用户手势上下文里 grant，避免 SW 端
+        // 调 chrome.permissions.request 撞 user gesture 错（已沉淀的 MV3 反例）
+        const granted = await ensureHostPermissionFromGesture(
+          settings.apiBaseUrl,
+          "提取文风指纹"
+        );
+        if (!granted) {
+          setEditorStatus("已保存原文。指纹提取需要授权 AI 接口域名（已跳过），下次可点击「编辑」重新提取。", "error");
+          return;
+        }
+        fingerprint = await extractFingerprintFromText(raw, settings);
+      } catch (err) {
+        console.warn("[voice-samples] extractFingerprint failed:", err);
+        setEditorStatus(
+          `已保存原文，但指纹提取失败：${err?.message || "未知错误"}（点「编辑」可重试）`,
+          "error"
+        );
+        return;
+      }
+
+      if (fingerprint) {
+        await saveVoiceSample({ id, title, raw, fingerprint });
+      }
+      await renderVoiceSampleList();
+      setEditorStatus("已保存并提取指纹。可点列表里「启用」让此样本注入下次改写。", "success");
+      // 自动关 editor（成功 1.5s 后）
+      setTimeout(() => closeEditor(), 1500);
+    } catch (err) {
+      setEditorStatus(`保存失败：${err?.message || "未知错误"}`, "error");
+    } finally {
+      saveBtn.disabled = false;
+    }
+  }
+
+  // ── 入口 1: 从历史草稿导入 ──
+  async function openHistoryModal() {
+    const modal = document.querySelector("#voiceSampleHistoryModal");
+    const backdrop = document.querySelector("#voiceSampleHistoryBackdrop");
+    const listEl = document.querySelector("#voiceSampleHistoryList");
+    const emptyEl = document.querySelector("#voiceSampleHistoryEmpty");
+    const confirmBtn = document.querySelector("#voiceSampleHistoryConfirmBtn");
+    const cancelBtn = document.querySelector("#voiceSampleHistoryCancelBtn");
+    if (!modal || !backdrop || !listEl) return;
+
+    let snapshots = [];
+    try {
+      snapshots = await listSnapshots();
+    } catch (err) {
+      console.warn("[voice-samples] listSnapshots failed:", err);
+    }
+
+    if (snapshots.length === 0) {
+      listEl.innerHTML = "";
+      if (emptyEl) emptyEl.hidden = false;
+    } else {
+      if (emptyEl) emptyEl.hidden = true;
+      listEl.innerHTML = snapshots
+        .map((s) => {
+          const article = s.articleBundle?.[0] || {};
+          const title = String(article.meta?.title || s.label || "未命名草稿");
+          const bodyText = String(article.bodyHtml || "")
+            .replace(/<[^>]+>/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+          const preview = bodyText.slice(0, 200);
+          const created = s.createdAt
+            ? new Date(s.createdAt).toLocaleString("zh-CN", { hour12: false })
+            : "";
+          return `
+            <li class="voice-sample-history-item" style="padding:10px 0;border-bottom:1px solid var(--line, #ddd);">
+              <label style="display:flex;gap:10px;cursor:pointer;align-items:flex-start;">
+                <input type="checkbox" data-history-id="${escapeHtml(s.id)}" style="margin-top:4px;" />
+                <div style="flex:1;min-width:0;">
+                  <strong>${escapeHtml(title)}</strong>
+                  <small class="muted" style="display:block;font-size:12px;">${escapeHtml(created)} · ${bodyText.length} 字</small>
+                  <small class="muted" style="display:block;font-size:12px;line-height:1.6;margin-top:4px;">${escapeHtml(preview)}…</small>
+                </div>
+              </label>
+            </li>
+          `;
+        })
+        .join("");
+    }
+
+    modal.hidden = false;
+    modal.removeAttribute("aria-hidden");
+    backdrop.hidden = false;
+    if (confirmBtn) confirmBtn.disabled = true;
+
+    // 监听多选变化，至少选 1 项才能确认
+    const onCheckChange = () => {
+      const any = listEl.querySelectorAll("input[type='checkbox']:checked").length > 0;
+      if (confirmBtn) confirmBtn.disabled = !any;
+    };
+    listEl.addEventListener("change", onCheckChange);
+
+    const close = () => {
+      modal.hidden = true;
+      modal.setAttribute("aria-hidden", "true");
+      backdrop.hidden = true;
+      listEl.removeEventListener("change", onCheckChange);
+    };
+
+    cancelBtn?.addEventListener("click", close, { once: true });
+    backdrop.addEventListener("click", close, { once: true });
+
+    confirmBtn?.addEventListener(
+      "click",
+      () => {
+        const checked = Array.from(listEl.querySelectorAll("input[type='checkbox']:checked"));
+        const ids = checked.map((c) => c.dataset.historyId);
+        const chosen = snapshots.filter((s) => ids.includes(s.id));
+        const rawParts = chosen.map((s) => {
+          const article = s.articleBundle?.[0] || {};
+          const title = String(article.meta?.title || s.label || "");
+          const bodyText = String(article.bodyHtml || "")
+            .replace(/<[^>]+>/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+          return [title ? `# ${title}` : "", bodyText].filter(Boolean).join("\n\n");
+        });
+        const rawText = rawParts.join("\n\n---\n\n");
+
+        // 填进 editor + 自动展开
+        openEditor(null);
+        rawInput.value = rawText;
+        if (!titleInput.value) {
+          titleInput.value = `从历史草稿导入（${chosen.length} 篇）`;
+        }
+        setEditorStatus(
+          `已填入 ${chosen.length} 篇历史草稿（${rawText.length} 字）。检查后点「保存并提取指纹」。`,
+          "success"
+        );
+        close();
+      },
+      { once: true }
+    );
+  }
+
+  // ── 入口 2: 从公众号文章 URL 抓取 ──
+  async function openUrlImport() {
+    // 用 prompt() 简化交互。后续若用户反馈不够好可换 modal 输入框。
+    const urlRaw = window.prompt(
+      "粘贴一篇你写过的公众号文章 URL，扩展会抓取正文填进文风样本编辑器。\n\n建议选 1500+ 字的代表作。"
+    );
+    const url = String(urlRaw || "").trim();
+    if (!url) return;
+    if (!/^https?:\/\//.test(url)) {
+      alert("URL 必须以 http:// 或 https:// 开头。");
+      return;
+    }
+
+    // 必须在 click handler 用户手势上下文里申请 origin 权限
+    const granted = await ensureHostPermissionFromGesture(url, "抓取文风样本");
+    if (!granted) {
+      alert("需要授权访问该网站才能抓取，请在弹窗里点「允许」后重试。");
+      return;
+    }
+
+    // 复用 SCRAPE_BACKGROUND_AND_IMPORT —— 后台抓正文，已包含反爬兜底
+    const sendingStatus = "正在抓取原文…";
+    setStatus(sendingStatus);
+    let resp;
+    try {
+      resp = await chrome.runtime.sendMessage({
+        type: "SCRAPE_BACKGROUND_AND_IMPORT",
+        payload: { url }
+      });
+    } catch (err) {
+      alert(`抓取失败：${err?.message || "未知错误"}`);
+      return;
+    }
+    if (!resp?.ok) {
+      alert(`抓取失败：${resp?.error?.message || resp?.error || "未知错误"}`);
+      return;
+    }
+
+    // 把 capture 的 paragraphs 拼成纯文本 rawText
+    const data = resp.data || {};
+    const blocks = Array.isArray(data.blocks) ? data.blocks : [];
+    const paragraphs = blocks
+      .filter((b) => b && (b.type === "paragraph" || b.type === "heading"))
+      .map((b) => String(b.text || "").trim())
+      .filter(Boolean);
+    if (paragraphs.length === 0) {
+      alert("未抓到正文段落，请换一篇文章 URL 再试。");
+      return;
+    }
+    const titleFromCapture = String(data.title || data.url || "").trim();
+    const rawText = paragraphs.join("\n\n");
+
+    openEditor(null);
+    rawInput.value = rawText;
+    if (!titleInput.value && titleFromCapture) {
+      titleInput.value = `抓取自：${titleFromCapture.slice(0, 30)}`;
+    }
+    setEditorStatus(
+      `已填入 ${paragraphs.length} 段（${rawText.length} 字）。检查后点「保存并提取指纹」。`,
+      "success"
+    );
+  }
+}
+
 /**
  * 入口：所有 module-level `const` 都已声明后再启动各 init。
  * （之前 await 初始化散落在文件中段，会触发 TDZ。）
@@ -1991,6 +2433,11 @@ async function bootstrapOptionsPage() {
     await initPromptTemplates(setStatus);
   } catch (err) {
     console.error("[options] initPromptTemplates failed:", err);
+  }
+  try {
+    await initVoiceSamples();
+  } catch (err) {
+    console.error("[options] initVoiceSamples failed:", err);
   }
   initNoviceMode();
   initChecklist();

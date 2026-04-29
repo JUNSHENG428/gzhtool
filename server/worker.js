@@ -77,6 +77,24 @@ export default {
         )
       );
     }
+  },
+
+  /**
+   * Cloudflare Workers Cron Trigger 入口（按 wrangler.toml [triggers] crons 调度）。
+   *
+   * 当前唯一任务：每小时主动反查最近一段时间内的 paid 订单，把虎皮椒后台已退款
+   * 但 webhook 漏发的同步回 D1，免去运维手工 SQL（详见 memory-bank/progress.md
+   * P1「虎皮椒退款主动同步 Cron Worker」）。
+   *
+   * 约定：scheduled handler 永不抛错（一抛会让整个 cron 任务被 CF 标记失败），
+   * 各子任务自己 try/catch 写日志即可。
+   */
+  async scheduled(event, env, ctx) {
+    try {
+      ctx.waitUntil(syncHupijiaoRefunds(env));
+    } catch (error) {
+      console.error("[cron] scheduled error", error?.message || error);
+    }
   }
 };
 
@@ -417,7 +435,11 @@ async function handleChangePassword(request, env) {
 
   const expected = await pbkdf2Hash(oldPassword, base64Decode(user.password_salt));
   if (!constantTimeEqual(base64Encode(expected), user.password_hash)) {
-    return jsonResponse({ ok: false, error: "旧密码不正确" }, 401);
+    // 注意：这里必须用 400，不能用 401。
+    // 401 会被 site/assets/js/api.js 的 _onUnauthorized() 拦截 → 清 token + 跳登录。
+    // 旧密码错是已登录用户的"业务校验失败"，JWT 仍然有效，应留在当前页面让用户重输。
+    // 401 仅保留给 JWT 缺失/过期/签名失败（见 requireAuth 与 webhook signature）。
+    return jsonResponse({ ok: false, error: "旧密码不正确" }, 400);
   }
 
   const newSalt = crypto.getRandomValues(new Uint8Array(16));
@@ -524,9 +546,35 @@ async function handleRequestReset(request, env) {
   // 邮件发送：worker 暂未集成邮件服务（Resend / Mailgun / SES 等）。
   // 上线时在这里调对应服务即可；为方便联调，DEBUG 开关下把 reset URL 直接返回。
   const resetUrl = buildResetUrl(env, token);
-  await sendResetEmail(env, user.email, resetUrl);
+  const sendStatus = await sendResetEmail(env, user.email, resetUrl);
 
-  const debugReturn = env.DEBUG_RESET === "1" ? { resetUrl } : {};
+  // P0-3 hardening：DEBUG_RESET=1 单独不够，必须配合 ENVIRONMENT=development 才暴露
+  // resetUrl —— 防止生产环境意外开启 DEBUG_RESET 导致重置链接通过响应体外泄。
+  // 部署方在 .dev.vars 同时写 DEBUG_RESET=1 + ENVIRONMENT=development；生产 [vars]
+  // 永远别加 ENVIRONMENT=development（默认空 = 生产）。
+  const debugAllowed =
+    env.DEBUG_RESET === "1" && env.ENVIRONMENT === "development";
+  const debugReturn = debugAllowed ? { resetUrl } : {};
+
+  // P0-2：邮件实际没发出去时透明告诉前端（user 存在分支才暴露状态；user 不存在
+  // 仍走最早的 sent:true 防枚举语义）。"failed" 客户端可提示重试 / 联系运维；
+  // "not_configured" 是部署方漏配 RESEND_API_KEY，文案要明确"非用户问题"。
+  if (sendStatus === "not_configured") {
+    return jsonResponse({
+      ok: true,
+      sent: false,
+      reason: "email_not_configured",
+      ...debugReturn
+    });
+  }
+  if (sendStatus === "failed") {
+    return jsonResponse({
+      ok: true,
+      sent: false,
+      reason: "email_send_failed",
+      ...debugReturn
+    });
+  }
   return jsonResponse({ ok: true, sent: true, ...debugReturn });
 }
 
@@ -1575,6 +1623,14 @@ function buildResetUrl(env, token) {
  * 「请求 + 响应 status + body 前 500 字符」详细 log 出来，按项目 SOP
  * 排查必须用 `wrangler tail --status error` 看 log，不是看 HTTP 返回码。
  * 详见 docs/RESEND_EMAIL_SETUP.md。
+ *
+ * 返回状态字符串供 handleRequestReset 决定对外响应：
+ *   - "sent"            : 真实发出（Resend 200 OK）
+ *   - "not_configured"  : 未配置 RESEND_API_KEY（生产环境若返回此值说明运维漏配）
+ *   - "failed"          : Resend 接受了请求但返回非 2xx，或网络/TLS 失败
+ *
+ * 调用方对未注册邮箱仍要返回 ok:true sent:true（防枚举）；只有"用户存在但
+ * 邮件实际没发出去"的场景才把 sent:false + reason 透给前端。
  */
 async function sendResetEmail(env, toEmail, resetUrl) {
   const subject = "润笔 · 重置你的密码";
@@ -1596,7 +1652,7 @@ ${resetUrl}
       `[reset] (no email provider) to=${toEmail} url=${resetUrl} ` +
         `(配 RESEND_API_KEY 后会真发邮件，详见 docs/RESEND_EMAIL_SETUP.md)`
     );
-    return;
+    return "not_configured";
   }
 
   const fromEmail = env.RESET_EMAIL_FROM || "no-reply@docuearn.com";
@@ -1633,15 +1689,17 @@ ${resetUrl}
       console.error(
         `[reset] Resend FAILED status=${resp.status} body=${bodyPreview}`
       );
-    } else {
-      console.log(`[reset] Resend ok status=${resp.status} body=${bodyPreview}`);
+      return "failed";
     }
+    console.log(`[reset] Resend ok status=${resp.status} body=${bodyPreview}`);
+    return "sent";
   } catch (error) {
     // 网络层失败（DNS / 超时 / TLS）。永远不抛回上层。
     console.error(
       `[reset] Resend network error to=${toEmail}:`,
       error?.message || error
     );
+    return "failed";
   }
 }
 
@@ -2007,6 +2065,166 @@ async function createHupijiaoOrder(env, { tradeOrderId, totalFee, title, notifyU
     throw new Error("虎皮椒返回非 JSON：" + text.slice(0, 120));
   }
   return json;
+}
+
+/* ---------------------- 退款主动同步 Cron 任务 ---------------------- */
+/**
+ * 反查虎皮椒后台订单状态，把"用户在虎皮椒后台已退款但 notify webhook 漏发"
+ * 的订单同步回 D1。每小时由 scheduled handler 触发。
+ *
+ * 为什么需要：notify webhook 是"推"模型，CF Worker 出口异常 / 重试上限耗尽
+ * / 虎皮椒侧 bug 都会导致 D1 与虎皮椒后台不一致。表现为：用户在虎皮椒后台
+ * 已退款，但 dashboard / license 仍按 paid 显示，运维只能跑手工 SQL 同步。
+ * 这条 cron 把那条手工 SQL 自动化掉。
+ *
+ * 安全约束：
+ *   - 单次最多查 50 条（D1 写限速 + Cron 单次执行 ≤ 30s）
+ *   - 仅查 90 天内 paid 订单（更老的订单退款窗口已关）
+ *   - 任意单条失败只 log 不抛，不影响其他订单
+ *   - 退款时只更新 orders.status='refunded' + notify_payload，
+ *     **不**自动 revoke license_keys（Pro 权益的 expires_at 通常已签到云端，
+ *     强行撤销可能误伤已用部分；保留运维手工 deactivate 的余地）
+ *
+ * 虎皮椒 query API 字段说明（与 do.html 同款签名规则）：
+ *   POST https://api.xunhupay.com/payment/query.html
+ *   { appid, time, nonce_str, out_trade_order, hash }
+ *   响应 JSON 含 status: "OD"(已支付) / "WP"(待支付) / "CD"(关闭) /
+ *                     "RD"(退款中) / "UD"(退款失败) 等。
+ *   实际字段名以虎皮椒最新文档为准；首次部署若返回 "errcode≠0" 请按
+ *   虎皮椒后台 → 接口文档 校准 out_trade_order 参数名。
+ */
+async function syncHupijiaoRefunds(env) {
+  if (!env.DB) {
+    console.warn("[cron] syncHupijiaoRefunds skip: D1 binding missing");
+    return;
+  }
+  if (!env.HUPIJIAO_APP_ID || !env.HUPIJIAO_APP_SECRET) {
+    console.warn("[cron] syncHupijiaoRefunds skip: HUPIJIAO_* env missing");
+    return;
+  }
+
+  const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+  const cutoff = Date.now() - NINETY_DAYS_MS;
+  let rows;
+  try {
+    const result = await env.DB.prepare(
+      `SELECT trade_order_id, user_email
+         FROM orders
+        WHERE source = 'hupijiao'
+          AND status = 'paid'
+          AND paid_at >= ?
+        ORDER BY paid_at DESC
+        LIMIT 50`
+    )
+      .bind(cutoff)
+      .all();
+    rows = result?.results || [];
+  } catch (err) {
+    console.error("[cron] hpj refund sync: D1 select failed", err?.message || err);
+    return;
+  }
+
+  if (rows.length === 0) {
+    console.log("[cron] hpj refund sync: nothing to check");
+    return;
+  }
+
+  console.log(`[cron] hpj refund sync: checking ${rows.length} paid orders`);
+
+  let refundedCount = 0;
+  let errorCount = 0;
+  for (const row of rows) {
+    try {
+      const remoteStatus = await queryHupijiaoOrderStatus(
+        env,
+        row.trade_order_id
+      );
+      // CD 关闭 / RD 退款中 / UD 退款失败 都视为"用户曾发起退款"，
+      // 与 handleHupijiaoNotify 的判定一致；这里保守取 RD / UD（CD 可能是
+      // 用户主动取消未支付的订单 —— 但 paid 订单的 CD 也可能意味着退款关闭）。
+      if (
+        remoteStatus.kind === "refunded" ||
+        remoteStatus.kind === "refunding" ||
+        remoteStatus.kind === "refund_failed"
+      ) {
+        await env.DB.prepare(
+          `UPDATE orders
+              SET status = 'refunded',
+                  notify_payload = ?
+            WHERE trade_order_id = ? AND status = 'paid'`
+        )
+          .bind(
+            JSON.stringify({
+              source: "cron-refund-sync",
+              checkedAt: Date.now(),
+              remoteStatus: remoteStatus.raw
+            }),
+            row.trade_order_id
+          )
+          .run();
+        refundedCount += 1;
+        console.log(
+          `[cron] hpj refund sync: ${row.trade_order_id} → refunded (${remoteStatus.kind})`
+        );
+      }
+    } catch (err) {
+      errorCount += 1;
+      console.error(
+        `[cron] hpj refund sync: query ${row.trade_order_id} failed`,
+        err?.message || err
+      );
+    }
+  }
+
+  console.log(
+    `[cron] hpj refund sync done: refunded=${refundedCount} errors=${errorCount} total=${rows.length}`
+  );
+}
+
+/**
+ * 查询单笔虎皮椒订单状态。返回归一化的 { kind, raw }：
+ *   kind: "paid" | "pending" | "closed" | "refunded" | "refunding" | "refund_failed" | "unknown"
+ *   raw:  虎皮椒原始响应 JSON（用于落库追溯）
+ *
+ * 不抛错（cron 上层希望单条失败只 log 不影响其他）—— 失败返 unknown + raw 含错误信息。
+ */
+async function queryHupijiaoOrderStatus(env, tradeOrderId) {
+  const params = {
+    appid: env.HUPIJIAO_APP_ID,
+    out_trade_order: tradeOrderId,
+    time: Math.floor(Date.now() / 1000).toString(),
+    nonce_str:
+      randomToken(8).replace(/[^a-zA-Z0-9]/g, "").slice(0, 16) || "n" + Date.now()
+  };
+  params.hash = await signHupijiao(params, env.HUPIJIAO_APP_SECRET);
+
+  const queryUrl = (env.HUPIJIAO_API_URL || "https://api.xunhupay.com/payment/do.html")
+    .replace(/\/payment\/do\.html$/, "/payment/query.html");
+
+  const resp = await fetch(queryUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(params)
+  });
+  const text = await resp.text();
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return { kind: "unknown", raw: { httpStatus: resp.status, body: text.slice(0, 500) } };
+  }
+
+  // status 字段名以虎皮椒文档为准；保险起见也尝试常见别名
+  const remoteStatus = String(json?.status || json?.data?.status || "").toUpperCase();
+  let kind = "unknown";
+  if (remoteStatus === "OD") kind = "paid";
+  else if (remoteStatus === "WP") kind = "pending";
+  else if (remoteStatus === "CD") kind = "closed";
+  else if (remoteStatus === "RD") kind = "refunding";
+  else if (remoteStatus === "UD") kind = "refund_failed";
+  else if (remoteStatus === "RS" || remoteStatus === "REFUND") kind = "refunded";
+
+  return { kind, raw: json };
 }
 
 /* ---------------------- 签名 / 验签（与虎皮椒文档一致） ---------------------- */

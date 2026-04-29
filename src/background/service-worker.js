@@ -16,6 +16,7 @@ import {
 import { WECHAT_WEB_EDITOR_URL } from "../shared/defaults.js";
 import { classifyError } from "../shared/errors.js";
 import {
+  collectPublishRemoteUrls,
   listUserTags,
   publishToWechat,
   queryPublishStatus,
@@ -51,6 +52,12 @@ import { lintArticle } from "../shared/humanize-checker.js";
 import { runHumanizePass } from "../shared/humanize-pass.js";
 import { getActiveVoiceSample } from "../shared/voice-samples.js";
 import { ensureOptionalHostPermission } from "../shared/host-permissions.js";
+// 浏览器登录模式发布通道 —— 必须**静态** import，**不能**用 `await import()`：
+// MV3 service worker 按 HTML 规范禁用动态 import（运行时抛
+// "import() is disallowed on ServiceWorkerGlobalScope by the HTML specification"），
+// 见 https://github.com/w3c/ServiceWorker/issues/1356。
+// 哪怕是为了"按需懒加载"也不行——SW 里只能用顶部静态 import。
+import { publishViaBrowser } from "./wechat-browser-bridge.js";
 
 const MAX_RETRIES = 2;
 const TOPIC_PLANNER_AI_TIMEOUT_MS = 65_000;
@@ -70,19 +77,16 @@ const TOPIC_PLANNER_AI_TIMEOUT_MS = 65_000;
  */
 const inflightHumanizeControllers = new Map();
 
-function collectPublishRemoteUrls(payload) {
-  const urls = [];
-  const articles = Array.isArray(payload?.articles) ? payload.articles : [];
-  for (const article of articles) {
-    if (article?.cover?.src) urls.push(article.cover.src);
-    if (Array.isArray(article?.inlineImages)) {
-      article.inlineImages.forEach((image) => {
-        if (image?.src) urls.push(image.src);
-      });
-    }
-  }
-  return urls;
-}
+/**
+ * 浮球 PULL 流程里"等待后台静默 workspace tab init 就绪"的 resolver 表。
+ * key = tabId（chrome.tabs.create 后的 tab.id）；value = Promise resolver。
+ * workspace.js 在 invisible_for_pull tab init 完成后发 WORKSPACE_READY_FOR_PULL，
+ * SW handler 读这个 Map 把对应 promise resolve 掉，让 runFloatingBallPull 能继续。
+ * 防泄漏：用 5s 超时兜底，超时后从 Map 删除并抛错。
+ */
+const pendingFloatingBallReady = new Map();
+
+// `collectPublishRemoteUrls` 已抽到 src/shared/wechat.js（前后端共用），从那里 import。
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   await getSettings();
@@ -510,7 +514,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // 通过 payload.publishMode（workspace-publish.js 根据所选 profile.mode 注入）
         // 进入这条分支；旧版 payload（不带 publishMode）天然走下面的 API 链路，向后兼容。
         if (message.payload?.publishMode === "browser") {
-          const { publishViaBrowser } = await import("./wechat-browser-bridge.js");
+          // publishViaBrowser 已在文件顶部静态 import（MV3 SW 禁用动态 import）。
           const result = await publishViaBrowser(message.payload, {
             profileLabel: accountLabel
           });
@@ -571,6 +575,96 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           "网页编辑器同步"
         );
         sendResponse({ ok: true, data: result });
+        break;
+      }
+      // ────────── 公众号编辑页悬浮助手（v0.1，twenty-ninth session）──────────
+      // 注入仅 mp.weixin.qq.com，从润笔 workspace 反向 pull 当前激活草稿到 mp 编辑器。
+      // 与 PUBLISH_TO_WECHAT browser 模式互补 —— 那条是 push（workspace 主动发），
+      // 这条是 pull（用户在 mp 后台主动拉）。共用 IMPORT_ARTICLE_TO_WECHAT_EDITOR 协议
+      // 与 wechat-editor-helper.js 的 importArticle 写入逻辑（含 DOM safety net）。
+      case "OPEN_EXTENSION_PAGE": {
+        // 浮球 5 球侧边栏的 4 个跳转球（工作台 / 热点 / 设置 / 帮助）调用入口。
+        // 必须由 SW 调 chrome.tabs.create —— content script 没有 chrome.tabs API
+        // （也不能用 window.open(chrome-extension://...)，会被 Chrome 拒
+        // ERR_BLOCKED_BY_CLIENT）。这里只接受**自家扩展页**的相对路径，防止滥用。
+        const allowedPaths = new Set([
+          "src/workspace/workspace.html",
+          "src/options/options.html",
+          "src/pages/hot-topics.html",
+          "src/pages/help.html",
+          "src/popup/popup.html"
+        ]);
+        const path = String(message.payload?.path || "").replace(/^\/+/, "");
+        if (!allowedPaths.has(path)) {
+          sendResponse({ ok: false, error: `非法目标 path: ${path}` });
+          break;
+        }
+        await chrome.tabs.create({
+          url: chrome.runtime.getURL(path),
+          active: true
+        });
+        sendResponse({ ok: true });
+        break;
+      }
+      case "GET_FLOATING_BALL_STATE": {
+        const settings = await getSettings();
+        sendResponse({
+          ok: true,
+          data: {
+            enabled: Boolean(settings.floatingBallEnabled),
+            position: settings.floatingBallPosition || null
+          }
+        });
+        break;
+      }
+      case "DISABLE_FLOATING_BALL": {
+        // 用户在浮球右键「永久隐藏」。saveSettings 写入后 chrome.storage.onChanged
+        // 会自动通知所有打开的 mp tab，content script 监听变化后移除浮球 DOM。
+        await saveSettings({ floatingBallEnabled: false });
+        sendResponse({ ok: true });
+        break;
+      }
+      case "SAVE_FLOATING_BALL_POSITION": {
+        // 用户拖拽松手时调。x/y 已由 content script clamp 到视口范围。
+        const x = Number(message.payload?.x);
+        const y = Number(message.payload?.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          await saveSettings({ floatingBallPosition: { x, y } });
+        }
+        sendResponse({ ok: true });
+        break;
+      }
+      case "PULL_DRAFT_TO_MP_EDITOR": {
+        // 浮球点「📥 从润笔取最新草稿」按钮触发。需要找一个打开的润笔工作台 tab
+        // 让它构造 IMPORT_ARTICLE_TO_WECHAT_EDITOR payload（复用 _buildWechatPublishPayload
+        // 的 themed HTML + sanitize 链路）—— SW 端不能直接调那条链路因为它依赖
+        // DOMParser（MV3 SW 无 DOM API，已是 systemPatterns 反例约定）。
+        const senderTabId = sender?.tab?.id;
+        if (!senderTabId) {
+          sendResponse({ ok: false, error: "无法识别当前 mp 编辑页 tab。" });
+          break;
+        }
+        try {
+          const result = await runFloatingBallPull(senderTabId, message.payload || {});
+          sendResponse(result);
+        } catch (error) {
+          sendResponse({
+            ok: false,
+            error: error?.message || "拉草稿失败",
+            errorCode: error?.code || "FLOATING_BALL_UNKNOWN"
+          });
+        }
+        break;
+      }
+      case "WORKSPACE_READY_FOR_PULL": {
+        // 后台静默打开的 workspace tab init 完成后会发这条消息。我们用一个 module-level
+        // 的 Map 把 tabId → resolver 映射起来，runFloatingBallPull 那边在等这个 promise。
+        const tabId = sender?.tab?.id;
+        if (tabId && pendingFloatingBallReady.has(tabId)) {
+          pendingFloatingBallReady.get(tabId)();
+          pendingFloatingBallReady.delete(tabId);
+        }
+        sendResponse({ ok: true });
         break;
       }
       case "FETCH_HOT_TOPICS": {
@@ -1329,5 +1423,109 @@ async function runTopicPlanning(payload = {}) {
         droppedByAI: parsed.diagnostics?.droppedReasons || []
       }
     }
+  };
+}
+
+/**
+ * 公众号编辑页悬浮助手 PULL 主流程：
+ *   ① 找/开 workspace tab → ② BUILD_PULL_READY_PAYLOAD → ③ IMPORT_ARTICLE_TO_WECHAT_EDITOR
+ *
+ * SW 不能直接拼装 HTML（DOMParser 限制），所以这里把"拼"委托给 workspace tab。
+ * workspace tab 找不到时**后台静默打开**一个（active=false 不夺焦），让 BUILD listener
+ * 跑完，跑完后**关掉这个临时 tab**避免污染用户工作环境。
+ *
+ * @param {number} mpTabId   - 浮球所在的 mp 编辑页 tab id
+ * @param {object} extraPayload - 透传给 BUILD（articleId / 目标 profileIndex 等，v0.2 多草稿选择器用）
+ */
+async function runFloatingBallPull(mpTabId, extraPayload = {}) {
+  const workspaceUrl = chrome.runtime.getURL("src/workspace/workspace.html");
+  const existing = await chrome.tabs.query({ url: `${workspaceUrl}*` }).catch(() => []);
+
+  let workspaceTabId;
+  let isTransientTab = false;
+
+  if (existing.length > 0) {
+    workspaceTabId = existing[0].id;
+  } else {
+    // 后台静默开 workspace tab：active=false 不夺焦，url 加 invisible_for_pull=1 让
+    // workspace.js bootstrap 跳过 first-run / autocapture / import 等用户感知副作用。
+    const transient = await chrome.tabs.create({
+      url: `${workspaceUrl}?invisible_for_pull=1`,
+      active: false
+    });
+    workspaceTabId = transient.id;
+    isTransientTab = true;
+
+    // 等 WORKSPACE_READY_FOR_PULL signal（workspace.js bootstrap 末尾发）。
+    // 5s 超时：bootstrap 慢于此说明初始化卡住，关 tab 报错让用户重试。
+    try {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pendingFloatingBallReady.delete(workspaceTabId);
+          const err = new Error("后台 workspace 初始化超过 5 秒，请打开扩展工作台重试。");
+          err.code = "FLOATING_BALL_WORKSPACE_BOOT_TIMEOUT";
+          reject(err);
+        }, 5000);
+        pendingFloatingBallReady.set(workspaceTabId, () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    } catch (err) {
+      // 启动失败，关掉临时 tab 不留痕
+      chrome.tabs.remove(workspaceTabId).catch(() => {});
+      throw err;
+    }
+  }
+
+  // 让 workspace 端构造 payload
+  let buildResp;
+  try {
+    buildResp = await chrome.tabs.sendMessage(workspaceTabId, {
+      type: "BUILD_PULL_READY_PAYLOAD",
+      payload: extraPayload
+    });
+  } catch (error) {
+    if (isTransientTab) chrome.tabs.remove(workspaceTabId).catch(() => {});
+    const err = new Error(`润笔工作台未响应：${error?.message || "未知错误"}。请刷新工作台后重试。`);
+    err.code = "FLOATING_BALL_WORKSPACE_TIMEOUT";
+    throw err;
+  }
+
+  // 临时 tab 完成使命就关掉，不污染用户 tab 列表
+  if (isTransientTab) {
+    chrome.tabs.remove(workspaceTabId).catch(() => {});
+  }
+
+  if (!buildResp?.ok) {
+    const err = new Error(buildResp?.error || "润笔工作台没能拼出可用的草稿 payload。");
+    err.code = buildResp?.errorCode || "FLOATING_BALL_BUILD_FAILED";
+    throw err;
+  }
+
+  // 转发给 mp tab，复用现有 importArticle。
+  // 把 drafts 列表（多草稿选择器用）merge 进 payload，让 content script 端 STATE.payload.drafts
+  // 直接拿到，避免再起一条单独的消息通道。
+  const enrichedPayload = {
+    ...buildResp.payload,
+    drafts: buildResp.drafts || []
+  };
+  let importResp;
+  try {
+    importResp = await chrome.tabs.sendMessage(mpTabId, {
+      type: "IMPORT_ARTICLE_TO_WECHAT_EDITOR",
+      payload: enrichedPayload
+    });
+  } catch (error) {
+    const err = new Error(`mp 编辑页未响应：${error?.message || "未知错误"}。请刷新页面后重试。`);
+    err.code = "FLOATING_BALL_MP_TIMEOUT";
+    throw err;
+  }
+
+  return {
+    ok: importResp?.ok !== false,
+    data: importResp,
+    payloadMeta: buildResp.payload?.meta || null,
+    drafts: buildResp.drafts || null
   };
 }

@@ -11,6 +11,25 @@ import { cleanInvisibleChars } from "./wechat-html.js";
 
 const DEFAULT_WECHAT_API_HOST = "https://api.weixin.qq.com";
 
+/**
+ * 收集 publish payload 里所有需要 host permission 的远端图片 URL。
+ * 前后端共用：前端在 click handler 里调它做用户手势 grant；后端兜底再 contains 一次。
+ * 不返回 wechatApiBase（那个由 settings 直接读，不在 payload 里）。
+ */
+export function collectPublishRemoteUrls(payload) {
+  const urls = [];
+  const articles = Array.isArray(payload?.articles) ? payload.articles : [];
+  for (const article of articles) {
+    if (article?.cover?.src) urls.push(article.cover.src);
+    if (Array.isArray(article?.inlineImages)) {
+      article.inlineImages.forEach((image) => {
+        if (image?.src) urls.push(image.src);
+      });
+    }
+  }
+  return urls;
+}
+
 const WECHAT_PATHS = {
   token: "/cgi-bin/token",
   uploadArticleImage: "/cgi-bin/media/uploadimg",

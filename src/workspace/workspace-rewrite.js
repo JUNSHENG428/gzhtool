@@ -24,6 +24,50 @@ import {
 
 const AI_GEN_OPTION_VALUE = "__ai_gen__";
 
+/**
+ * 判断 settings 是否有"可用的 AI 配置"。
+ * 至少要 apiBaseUrl + apiKey 都非空才能跑 chat completions；model 缺失时
+ * ai.js 会用 settings.model 兜底，但若也空则 requestRewrite 直接抛错。
+ * 这里采用"接口地址 + Key 都填了就放行"的最低门槛 —— model 是否合法等
+ * 服务端报错由测试连接 / 实际改写时的 fallback 处理。
+ */
+function hasUsableAiConfig(settings) {
+  if (!settings) return false;
+  const baseUrl = String(settings.apiBaseUrl || "").trim();
+  const apiKey = String(settings.apiKey || "").trim();
+  return Boolean(baseUrl && apiKey);
+}
+
+function _openNeedAiConfigModal() {
+  const modal = document.querySelector("#needAiConfigModal");
+  const backdrop = document.querySelector("#needAiConfigModalBackdrop");
+  if (!modal || !backdrop) return;
+  modal.hidden = false;
+  modal.removeAttribute("aria-hidden");
+  backdrop.hidden = false;
+}
+
+function _closeNeedAiConfigModal() {
+  const modal = document.querySelector("#needAiConfigModal");
+  const backdrop = document.querySelector("#needAiConfigModalBackdrop");
+  if (modal) {
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+  }
+  if (backdrop) backdrop.hidden = true;
+}
+
+function _openOptionsToBindAi() {
+  // 直达「AI 改写接口」分区（twenty-third session 重排后此分区是首屏第一个）
+  const url = chrome.runtime.getURL("src/options/options.html#opt-anchor-ai");
+  try {
+    chrome.tabs.create({ url, active: true });
+  } catch {
+    window.open(url, "_blank");
+  }
+  _closeNeedAiConfigModal();
+}
+
 let _ctx;
 let _templates = [];
 let _selectedTemplateId = "";
@@ -36,6 +80,14 @@ export function init(ctx) {
   _ctx = ctx;
   document.querySelector("#rewriteButton").addEventListener("click", rewriteArticle);
   document.querySelector("#copyPromptButton").addEventListener("click", copyManualPrompt);
+
+  // 「请先配置 AI 接口」前置 modal 的关闭 + 跳转
+  const closeAiBtn = document.querySelector("#closeNeedAiConfigModalButton");
+  const goAiBtn = document.querySelector("#goBindAiConfigButton");
+  const aiBackdrop = document.querySelector("#needAiConfigModalBackdrop");
+  if (closeAiBtn) closeAiBtn.addEventListener("click", _closeNeedAiConfigModal);
+  if (aiBackdrop) aiBackdrop.addEventListener("click", _closeNeedAiConfigModal);
+  if (goAiBtn) goAiBtn.addEventListener("click", _openOptionsToBindAi);
 
   _templateSelect = document.querySelector("#rewriteTemplateSelect");
   hydrateTemplatePicker();
@@ -179,6 +231,14 @@ export async function rewriteArticle() {
     sourceForRewrite = state.source;
   } else {
     setStatus("请先在编辑区写满一段正文，或先抓取一个网页再改写。", "warning");
+    return;
+  }
+
+  // 早拦截：未配 AI 接口时弹 modal 强提醒，不让流程跑到 SW 后再撞 ai.js 的 throw。
+  // 同 publishBundle 的 needWechatProfileModal 模式 —— modal 优于 setStatus 底部红字。
+  const settingsForAiCheck = await getSettings();
+  if (!hasUsableAiConfig(settingsForAiCheck)) {
+    _openNeedAiConfigModal();
     return;
   }
 

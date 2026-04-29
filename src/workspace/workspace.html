@@ -976,6 +976,58 @@
         <button id="closeVerifiedAccountModalButton" type="button" class="ghost">关闭</button>
       </footer>
     </div>
+    <!--
+      「请先绑定公众号」前置 modal · 2026-04-29 twenty-fifth-bis session
+      触发场景：用户从未建任何 wechatProfile，也没单独填 wechatAppId/AppSecret，
+      却点了「推送到公众号草稿箱」/「发布」按钮。原本走 setStatus 底部红字
+      容易被忽略；改成 modal 让用户必须明确决策"现在就去绑定 vs 等会儿"。
+    -->
+    <!--
+      「请先配置 AI 接口」前置 modal · twenty-seventh session
+      触发：用户没填 settings.apiBaseUrl 或 settings.apiKey 就点「AI 改写」。
+      原本走 ai.js requestRewrite 抛 throw "请先在设置页填写 API Key" + 前端
+      setErrorStatus 底部红字，容易被忽略。改成 modal 让用户必须明确决策。
+    -->
+    <div id="needAiConfigModalBackdrop" class="modal-backdrop" hidden></div>
+    <div id="needAiConfigModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="needAiConfigModalTitle" hidden>
+      <header class="modal-header">
+        <h2 id="needAiConfigModalTitle">请先配置 AI 接口</h2>
+      </header>
+      <div class="modal-body">
+        <p>当前还没填好 AI 接口地址 / API Key，无法跑改写。</p>
+        <p><strong>支持哪些服务商？</strong>设置页内置了 8 家预设 —— 选一家自动填好接口地址：</p>
+        <ul>
+          <li>OpenAI / OpenRouter（国际）</li>
+          <li>DeepSeek / Kimi（月之暗面）/ Qwen（通义千问）/ MiniMax / 智谱 GLM（国内）</li>
+          <li>自定义（任何兼容 OpenAI chat completions 协议的服务）</li>
+        </ul>
+        <p>选好服务商 + 填好 API Key 后，点「测试连接」看到 ✅ 就能回来用了。</p>
+      </div>
+      <footer class="modal-footer">
+        <button id="goBindAiConfigButton" type="button" class="primary">去设置页配置 →</button>
+        <button id="closeNeedAiConfigModalButton" type="button" class="ghost">稍后再说</button>
+      </footer>
+    </div>
+    <div id="needWechatProfileModalBackdrop" class="modal-backdrop" hidden></div>
+    <div id="needWechatProfileModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="needWechatProfileModalTitle" hidden>
+      <header class="modal-header">
+        <h2 id="needWechatProfileModalTitle">请先绑定公众号</h2>
+      </header>
+      <div class="modal-body">
+        <p>当前还没有任何可用的公众号账号，无法把文章推送到公众号草稿箱。</p>
+        <p><strong>推荐：浏览器登录模式</strong>（最快上手）</p>
+        <ul>
+          <li>不需要申请 AppID / AppSecret，也不用配 IP 白名单</li>
+          <li>复用你浏览器里已登录的 mp.weixin.qq.com 登录态</li>
+          <li>扩展自动打开公众号编辑页并写入正文，最后一步「保存草稿」由你手动点（合规底线）</li>
+        </ul>
+        <p>已有 AppID + AppSecret 的认证服务号也可以用「API 模式」，支持自动保存草稿和群发。</p>
+      </div>
+      <footer class="modal-footer">
+        <button id="goBindWechatProfileButton" type="button" class="primary">去设置页绑定 →</button>
+        <button id="closeNeedWechatProfileModalButton" type="button" class="ghost">稍后再说</button>
+      </footer>
+    </div>
     <script src="../vendor/mammoth/mammoth.browser.min.js"></script>
     <script type="module" src="./workspace.js"></script>
   </body>

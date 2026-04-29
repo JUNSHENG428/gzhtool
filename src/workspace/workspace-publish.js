@@ -9,6 +9,33 @@ import { getSettings } from "../shared/storage.js";
 import { WECHAT_WEB_EDITOR_URL, THEME_PRESETS } from "../shared/defaults.js";
 import { clampIndex, formatRuntimeError } from "../shared/utils.js";
 import { prepareHtmlForWechat } from "../shared/wechat-html.js";
+import { ensureHostPermissionFromGesture } from "../shared/host-permissions.js";
+import { collectPublishRemoteUrls } from "../shared/wechat.js";
+
+/**
+ * 判断当前 settings 是否有任何"可发布"的公众号通道。
+ *
+ * - browser 模式 profile：有 name 即可（不需要 AppID/AppSecret，靠 mp 登录态）
+ * - api 模式 profile：必须 appId + appSecret 都非空
+ * - 兼容历史：用户从未建 profile，但单独填了 settings.wechatAppId/AppSecret 也算可用
+ *
+ * 用于 publishBundle 早拦截 —— 没绑公众号时给用户清晰的"先去设置页"提示，
+ * 而不是让流程跑到 SW 调 chrome.permissions.request 撞 user gesture 错。
+ */
+function hasAnyUsableWechatProfile(settings) {
+  const profiles = Array.isArray(settings?.wechatProfiles) ? settings.wechatProfiles : [];
+  const hasUsableProfile = profiles.some((p) => {
+    if (!p) return false;
+    if (p.mode === "browser") return Boolean(String(p.name || "").trim());
+    return Boolean(String(p.appId || "").trim() && String(p.appSecret || "").trim());
+  });
+  if (hasUsableProfile) return true;
+  // 兼容旧用户：没建 profile 但单独填了默认 AppID/AppSecret
+  return Boolean(
+    String(settings?.wechatAppId || "").trim() &&
+      String(settings?.wechatAppSecret || "").trim()
+  );
+}
 
 let _ctx;
 
@@ -56,6 +83,37 @@ function _bindPublishEvents() {
   if (closeBtn) closeBtn.addEventListener("click", _closeVerifiedAccountModal);
   if (verifiedBackdrop) verifiedBackdrop.addEventListener("click", _closeVerifiedAccountModal);
   if (copyBtn) copyBtn.addEventListener("click", _copyCurrentArticleHtmlForPaste);
+
+  // 「请先绑定公众号」前置 modal —— 比 setStatus 底部红字更明确
+  const closeBindBtn = document.querySelector("#closeNeedWechatProfileModalButton");
+  const goBindBtn = document.querySelector("#goBindWechatProfileButton");
+  const bindBackdrop = document.querySelector("#needWechatProfileModalBackdrop");
+  if (closeBindBtn) closeBindBtn.addEventListener("click", _closeNeedWechatProfileModal);
+  if (bindBackdrop) bindBackdrop.addEventListener("click", _closeNeedWechatProfileModal);
+  if (goBindBtn) goBindBtn.addEventListener("click", _openOptionsToBindProfile);
+
+  // mp 编辑页悬浮助手「📥 从润笔取最新草稿」按钮 → SW 转发回 workspace tab
+  // 让我们在这里构造 payload。复用 _buildWechatPublishPayload 的 themed HTML +
+  // sanitize 链路，但跳过封面 fallback 与 _tokenizeImages（PULL 不需要 wxbiz
+  // 替换占位符，封面在合规底线下由用户在 mp 后台手动上传）。
+  // SW 不能直接调拼装链路因为它依赖 DOMParser（MV3 SW 无 DOM API）。
+  if (chrome?.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type !== "BUILD_PULL_READY_PAYLOAD") return false;
+      // payload.articleId（可选，多草稿选择器 v0.2）：指明拉哪一篇；不传则拉当前激活那篇
+      const requestedArticleId = String(message.payload?.articleId || "").trim();
+      _buildPullReadyPayload(requestedArticleId)
+        .then((result) => sendResponse({ ok: true, ...result }))
+        .catch((err) => {
+          sendResponse({
+            ok: false,
+            error: err?.message || "构造 payload 失败",
+            errorCode: err?.code || "FLOATING_BALL_BUILD_FAILED"
+          });
+        });
+      return true; // async sendResponse
+    });
+  }
 
   // 历史记录抽屉
   document.querySelector("#historyButton").addEventListener("click", () => void openHistoryDrawer());
@@ -176,6 +234,44 @@ function _closeVerifiedAccountModal() {
   if (backdrop) backdrop.hidden = true;
 }
 
+// ── 「请先绑定公众号」前置 modal ──
+//
+// 触发场景：publishBundle 检测到 hasAnyUsableWechatProfile === false。
+// 设计上比 setStatus 底部红字更强：必须用户明确点「去绑定」或「稍后」才消失，
+// 避免用户错过提示重复点发布。
+
+function _openNeedWechatProfileModal() {
+  const modal = document.querySelector("#needWechatProfileModal");
+  const backdrop = document.querySelector("#needWechatProfileModalBackdrop");
+  if (!modal || !backdrop) return;
+  modal.hidden = false;
+  modal.removeAttribute("aria-hidden");
+  backdrop.hidden = false;
+}
+
+function _closeNeedWechatProfileModal() {
+  const modal = document.querySelector("#needWechatProfileModal");
+  const backdrop = document.querySelector("#needWechatProfileModalBackdrop");
+  if (modal) {
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+  }
+  if (backdrop) backdrop.hidden = true;
+}
+
+function _openOptionsToBindProfile() {
+  // 直达"多账号管理"分区（twenty-third session 重排后此分区已升主线，新手可见）。
+  // chrome.runtime.getURL 拼绝对路径，避免 chrome-extension:// 协议下打开 options 页失败。
+  const url = chrome.runtime.getURL("src/options/options.html#opt-anchor-profiles");
+  try {
+    chrome.tabs.create({ url, active: true });
+  } catch {
+    // 极端兜底：直接 window.open（无关闭 modal 也没关系，用户已经离开 workspace tab）
+    window.open(url, "_blank");
+  }
+  _closeNeedWechatProfileModal();
+}
+
 async function _copyCurrentArticleHtmlForPaste() {
   const { state, getCurrentArticle, buildExportHtmlForArticle, setStatus } = _ctx;
   try {
@@ -225,6 +321,14 @@ export async function publishBundle(mode) {
     }
 
     state.settings = await getSettings();
+
+    // 早拦截：用户连一个可发布的公众号通道都没有时，弹 modal 强提醒并给"去设置页"
+    // CTA。不用 setStatus 底部红字 —— 容易被忽略，且没有可点的"去绑定"出口，
+    // 用户会反复点发布拿到同一条无意义错误。
+    if (!hasAnyUsableWechatProfile(state.settings)) {
+      _openNeedWechatProfileModal();
+      return;
+    }
 
     // 多账号切换：把"用户在编辑台选的发布账号"作为 payload 显式传给 background。
     // 之前的实现只在 workspace 端 mutate state.settings，但 background 收到 PUBLISH_TO_WECHAT
@@ -277,6 +381,30 @@ export async function publishBundle(mode) {
     }
     // P1.2 · 把发布面板里临时选的群发策略带过去（API 模式才用得到）
     Object.assign(payload, _readSendStrategyFromUi());
+
+    // 必须在 click handler 用户手势上下文里申请 host permission ——
+    // SW 端的 ensureOptionalHostPermission 没有 user activation，调
+    // chrome.permissions.request 会抛 "must be called during a user gesture"。
+    // 这里 grant 三类 origin：① wechatApiBase 自定义代理（非空才需要） ② 远端
+    // 封面 / 正文图片 URL（用户从外部贴入或抓取来源不在 host_permissions 时）。
+    // browser 模式下 SW 走 wechat-browser-bridge.js 不调 cgi-bin，但封面图仍可能
+    // 是远端 URL，所以这条 grant 对两种 mode 都适用。
+    const publishOrigins = [
+      state.settings.wechatApiBase || "",
+      ...collectPublishRemoteUrls(payload)
+    ];
+    const permitted = await ensureHostPermissionFromGesture(
+      publishOrigins,
+      `公众号发布（${accountLabel}）`
+    );
+    if (!permitted) {
+      setStatus(
+        `账号「${accountLabel}」：发布需要授权访问相关网站（公众号 API / 封面图来源等），请在弹窗里点「允许」后重试。`,
+        "warning"
+      );
+      return;
+    }
+
     const response = await chrome.runtime.sendMessage({ type: "PUBLISH_TO_WECHAT", payload });
 
     if (!response?.ok) {
@@ -431,6 +559,102 @@ async function _buildWechatPublishPayload(mode) {
   }
 
   return { articles, publishMode: mode };
+}
+
+/**
+ * 「mp 编辑页悬浮助手」专用 payload 构造（v0.2 升级支持多草稿 + profile 联动）。
+ *
+ * 返回结构：
+ *   { payload: { meta, html, fromFloatingBall, profile }, drafts: [...] }
+ *   - payload  → 即将发给 mp content script 的 IMPORT_ARTICLE_TO_WECHAT_EDITOR
+ *   - drafts   → 浮球 dock 渲染多草稿选择器用：当前 articleBundle 各篇 + (未来 v0.3) 历史归档
+ *
+ * 与 _buildWechatPublishPayload 的区别：
+ *   - 只处理一篇（articleId 指定，缺省 = currentArticleIndex 当前激活那篇）
+ *   - 跳过封面 fallback（合规：mp 后台手动上传）
+ *   - 跳过 _tokenizeImages（PULL 不走 cgi-bin/draft/add）
+ *   - 注入 profile 元信息（articleId / targetProfileIndex / targetProfileName）让 mp 浮球做账号比对
+ *
+ * @param {string} articleId - 可选；指明拉哪篇。空 = 当前激活那篇。
+ */
+async function _buildPullReadyPayload(articleId = "") {
+  const { state, buildExportHtmlForArticle } = _ctx;
+  const bundle = Array.isArray(state.articleBundle) ? state.articleBundle : [];
+
+  if (bundle.length === 0) {
+    const err = new Error("润笔工作台还没有草稿，请先抓一篇内容或 AI 改写一次。");
+    err.code = "FLOATING_BALL_NO_DRAFT";
+    throw err;
+  }
+
+  // 选哪一篇
+  let chosenIndex = -1;
+  if (articleId) {
+    chosenIndex = bundle.findIndex((a) => a?.id === articleId);
+  }
+  if (chosenIndex < 0) {
+    chosenIndex = Number(state.currentArticleIndex || 0);
+    if (chosenIndex < 0 || chosenIndex >= bundle.length) chosenIndex = 0;
+  }
+  const article = bundle[chosenIndex];
+
+  if (!String(article?.meta?.title || "").trim()) {
+    const err = new Error(
+      `${articleId ? "选中的草稿" : "当前篇"}没有填写标题，请在工作台编辑器里补上标题再来拉。`
+    );
+    err.code = "FLOATING_BALL_NO_TITLE";
+    throw err;
+  }
+
+  const themedHtml = buildExportHtmlForArticle(article);
+  const sanitizedHtml = prepareHtmlForWechat(themedHtml);
+
+  // 解析 article 关联的 wechatProfile（v0.2 profile 联动完整版）。
+  // article.meta.targetProfileIndex 由 collectCurrentArticleMeta 自动跟 wechatProfileSelect 同步。
+  // 缺失（老草稿 / 默认账号）→ -1，浮球端 mp 比对时知道"不强制比对"。
+  const profiles = Array.isArray(state.settings?.wechatProfiles) ? state.settings.wechatProfiles : [];
+  const targetProfileIndex = Number.isFinite(Number(article?.meta?.targetProfileIndex))
+    ? Number(article.meta.targetProfileIndex)
+    : -1;
+  const targetProfileName =
+    targetProfileIndex >= 0 && profiles[targetProfileIndex]
+      ? String(profiles[targetProfileIndex].name || "").trim()
+      : "";
+
+  // 多草稿列表：当前 bundle 所有篇 + 标记当前选中那篇
+  const drafts = bundle.map((a, i) => ({
+    id: a?.id || `idx-${i}`,
+    title: String(a?.meta?.title || "").trim() || `第 ${i + 1} 篇（未命名）`,
+    wordCount: typeof a?.bodyHtml === "string" ? a.bodyHtml.replace(/<[^>]+>/g, "").trim().length : 0,
+    targetProfileIndex: Number(a?.meta?.targetProfileIndex ?? -1),
+    targetProfileName:
+      profiles[Number(a?.meta?.targetProfileIndex ?? -1)]?.name || "",
+    selected: i === chosenIndex
+  }));
+
+  return {
+    payload: {
+      meta: {
+        title: article.meta.title.trim(),
+        author: String(article.meta.author || "").trim(),
+        digest:
+          String(article.meta.digest || "").trim() || _ctx.deriveDigestFromArticle(article),
+        contentSourceUrl: String(article.meta.contentSourceUrl || "").trim(),
+        // 与浏览器登录模式 push 通道同款：dock 显示合规清单
+        publishMode: "browser"
+      },
+      html: sanitizedHtml,
+      fromFloatingBall: true,
+      // profile 联动元数据：mp 端 content script 读 mp 后台导航栏当前账号名做匹配
+      profile: {
+        targetProfileIndex,
+        targetProfileName
+      },
+      // 当前选中的 article id（dock 多草稿 select 默认选中项）
+      selectedArticleId: article.id || `idx-${chosenIndex}`
+    },
+    drafts
+  };
 }
 
 function _tokenizeImages(html) {

@@ -23,6 +23,14 @@ main = "worker.js"
 compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
 
+# ---------------- Cron Trigger（定时任务） ----------------
+# 每小时反查虎皮椒后台订单，把"虎皮椒已退款但 notify webhook 漏发"的订单
+# 同步回 D1（worker.js scheduled handler → syncHupijiaoRefunds）。
+# 单次最多查 50 条 90 天内 paid 订单，更老的退款窗口已关。
+# CF 控制面板里也能看每次 cron 的执行日志：Workers → gzh-license → Logs。
+[triggers]
+crons = ["0 * * * *"]  # 每小时整点
+
 # ---------------- D1 ----------------
 [[d1_databases]]
 binding       = "DB"

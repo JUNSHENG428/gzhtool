@@ -3,7 +3,8 @@ import { ensureHostPermissionFromGesture } from "../shared/host-permissions.js";
 import {
   getPromptTemplates,
   getActiveTemplateId,
-  setActiveTemplateId
+  setActiveTemplateId,
+  getSettings
 } from "../shared/storage.js";
 
 /* ============== 单平台浏览 ============== */
@@ -61,6 +62,20 @@ async function loadSource(source, forceRefresh = false) {
   hotContent.innerHTML = "";
   hotMeta.textContent = "";
   if (filterInput) filterInput.value = "";
+
+  // 用户配了自托 newsnow base 时，必须在 click 用户手势里同步申请 origin —— 否则
+  // SW 端 ensureOptionalHostPermission 会抛 "must be called during a user gesture"。
+  // 默认源的 origin 在固定 host_permissions 里，传空 URL 会被 helper 短路返回 true。
+  const settings = await getSettings();
+  const customBase = settings?.hotTopicsNewsnowBase || "";
+  if (customBase) {
+    const permitted = await ensureHostPermissionFromGesture(customBase, "热点接口");
+    if (!permitted) {
+      hotStatus.textContent = "需要授权访问该热点接口域名，请允许后再试。";
+      hotContent.innerHTML = `<p class="hot-notice">需要授权访问该热点接口域名，请允许后再试。</p>`;
+      return;
+    }
+  }
 
   const response = await chrome.runtime.sendMessage({
     type: "FETCH_HOT_TOPICS",

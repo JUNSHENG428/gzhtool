@@ -211,7 +211,17 @@ export const DEFAULT_SETTINGS = {
   // 并由 options.js 在 saveSettings 之前同步到这个字段。
   // 留空 = helper 也未开启鉴权（兼容老用户），扩展不会附带 X-Runbi-Helper-Token。
   drissionHelperToken: "",
-  drissionTimeoutMs: 30000
+  drissionTimeoutMs: 30000,
+  // mp 编辑页悬浮助手 v0.1（2026-04-29 twenty-ninth session）：
+  //   - 默认关：CWS 加分项 + 避免新装用户在 mp 后台被陌生 UI 吓到
+  //   - 用户在 options 主动开 → 浏览器登录模式之外的反向 pull 入口（mp → 拉润笔最新草稿）
+  //   - 注入仅 mp.weixin.qq.com（已在 manifest content_scripts），不涉及任意网页注入
+  // floatingBallOnboardingShown：toggle 切到 ON 时如果未弹过 modal 就弹一次告知，避免每次都弹。
+  floatingBallEnabled: false,
+  floatingBallOnboardingShown: false,
+  // 浮球拖拽位置 {x, y}（视口左上角为原点 px）。null = 默认右下 right:18 bottom:18。
+  // 用户拖拽松手时由 SW SAVE_FLOATING_BALL_POSITION handler 写入。
+  floatingBallPosition: null
 };
 
 export const DEFAULT_ARTICLE_META = {
@@ -227,7 +237,14 @@ export const DEFAULT_ARTICLE_META = {
   keywords: [],
   needOpenComment: false,
   onlyFansCanComment: false,
-  publishMode: "draft"
+  publishMode: "draft",
+  // 草稿创建/改写时记下"为哪个 wechatProfile 而写"。
+  // -1 = 未指定（向后兼容老草稿，浮球 PULL 时不做账号匹配）。
+  // 取值是 settings.wechatProfiles 的 index。当用户在 workspace 编辑台改了
+  // 「发布账号」下拉时，下次 capture / rewrite / saveCurrentDraftRecord 写入此字段。
+  // mp 编辑页悬浮助手 PULL 时与 mp 后台导航栏当前账号名做匹配，不一致时 dock
+  // 显示警告 + 拉草稿按钮 disabled，避免把"为账号 A 写的稿"误推进账号 B 的编辑器。
+  targetProfileIndex: -1
 };
 
 export const MAX_WECHAT_ARTICLES = 8;

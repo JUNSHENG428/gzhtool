@@ -29,21 +29,33 @@ export function originPatternFromUrl(value) {
  * 一旦用户在前端授权过，service-worker 后续调 `ensureOptionalHostPermission`
  * 时 contains 直接返回 true，不会再触发 request 路径。
  *
+ * 接受单个 URL 或 URL 数组。空 / 无效 / 非 http(s) 的 URL 自动忽略；
+ * 如果筛掉空值后没有任何 origin 需要 grant，直接返回 true（短路）。
+ * 多个 origin 一次性 chrome.permissions.request 用一个权限弹窗解决，体验更好。
+ *
  * 用法：
  *   const ok = await ensureHostPermissionFromGesture(url, "抓取并改写");
+ *   const ok = await ensureHostPermissionFromGesture([baseUrl, ...imgUrls], "公众号发布");
  *   if (!ok) { 显示用户友好的提示，不要继续 sendMessage; return; }
  *
  * 返回 true = 已有权限或刚授权成功；false = 用户拒绝授权。
  * 不抛错（前端调用者通常希望提示用户而不是把异常冒到全局）。
  */
 export async function ensureHostPermissionFromGesture(value, context = "当前操作") {
-  const origin = originPatternFromUrl(value);
-  if (!origin) return true;
+  const inputs = Array.isArray(value) ? value : [value];
+  const origins = Array.from(
+    new Set(inputs.map(originPatternFromUrl).filter(Boolean))
+  );
+  if (origins.length === 0) return true;
   if (!globalThis.chrome?.permissions) return true;
   try {
-    const granted = await chrome.permissions.contains({ origins: [origin] });
-    if (granted) return true;
-    return await chrome.permissions.request({ origins: [origin] });
+    const missing = [];
+    for (const origin of origins) {
+      const granted = await chrome.permissions.contains({ origins: [origin] });
+      if (!granted) missing.push(origin);
+    }
+    if (missing.length === 0) return true;
+    return await chrome.permissions.request({ origins: missing });
   } catch (err) {
     console.warn(`[host-permissions] grant failed for ${context}:`, err);
     return false;

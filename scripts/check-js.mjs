@@ -104,3 +104,80 @@ if (failures.length > 0) {
   }
   process.exit(1);
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// MV3 service worker 守卫：禁止 SW 可达代码用动态 `await import()`。
+//
+// 背景：MV3 service worker 按 HTML 规范完全禁用动态 import()
+// (https://github.com/w3c/ServiceWorker/issues/1356)，运行时直接抛
+// "import() is disallowed on ServiceWorkerGlobalScope by the HTML specification"。
+// 仓库历史踩过 2 次（service-worker.js wechat-browser-bridge / license.js
+// usage-stats），node --check 完全检测不出（语法合法），smoke 跑在 Node
+// 也不会触发。这条静态扫描就是补这块测试缺口。
+//
+// 扫描范围：SW 直接代码（src/background/）+ SW 间接 import 的共享代码
+// （src/shared/）+ 内容脚本（src/content-scripts/，虽然不是 SW 但同样
+// 浏览器侧加载、避免 future regression）。
+//
+// 例外：src/options/ src/workspace/ src/popup/ src/pages/ 是 extension page
+// 上下文，里面 await import() 是合法常用模式（懒加载 dialog/preview），
+// **不扫**。
+// ────────────────────────────────────────────────────────────────────────
+
+const SW_DIRS = [
+  path.join(root, "src", "background"),
+  path.join(root, "src", "shared"),
+  path.join(root, "src", "content-scripts")
+];
+
+// 匹配真实的动态 import 语法。`bar.foo.import` 这种字段名不会匹配，因为
+// 紧跟 import 后必须是 `(`（可能带空白）。静态 `import { ... } from "..."`
+// 没有左括号紧跟 import 关键字（中间是 `{`），不会被误判。
+const DYN_IMPORT_RE = /(?:\bawait\s+import\s*\(|[=(,]\s*import\s*\(|\breturn\s+import\s*\(|\bimport\s*\([^)]+\)\s*\.\s*then\b)/;
+
+const swFiles = SW_DIRS.flatMap((d) => walkJs(d));
+const swViolations = [];
+for (const file of swFiles) {
+  const lines = fs.readFileSync(file, "utf8").split("\n");
+  lines.forEach((line, idx) => {
+    // 跳过注释里的 import() 字面量（避免说明性文字被误报，如本守卫文档块）。
+    // 简单粗暴：行首到 // 之前 + /* */ 内容都剥掉再检查。多行注释跨行场景
+    // 极少（项目里一般是顶部 JSDoc 块），不做完整 AST 解析。
+    const stripped = line
+      .replace(/\/\/.*$/, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\*\s.*$/, ""); // JSDoc 行
+    if (DYN_IMPORT_RE.test(stripped)) {
+      swViolations.push({ file, line: idx + 1, text: line.trim() });
+    }
+  });
+}
+
+if (swViolations.length > 0) {
+  console.error(
+    `\n发现 ${swViolations.length} 处 SW 可达代码用了动态 import()：`
+  );
+  console.error(
+    "  MV3 service worker 按 HTML 规范禁用 import()，运行时必抛"
+  );
+  console.error(
+    '  "import() is disallowed on ServiceWorkerGlobalScope"。'
+  );
+  console.error(
+    "  改成顶部静态 `import { x } from \"...\"`。"
+  );
+  for (const v of swViolations) {
+    const rel = path.relative(root, v.file);
+    console.error(`\n  ${rel}:${v.line}`);
+    console.error(`    ${v.text}`);
+  }
+  console.error(
+    "\n例外：src/options/ src/workspace/ src/popup/ src/pages/ 是 page 上下文，" +
+      "里面 await import() 合法（不在本扫描范围）。"
+  );
+  process.exit(1);
+}
+
+console.log(
+  `SW 动态 import 守卫：${swFiles.length} 个 SW 可达文件，0 处违规 ✓`
+);
