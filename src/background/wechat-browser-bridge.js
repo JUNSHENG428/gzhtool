@@ -26,7 +26,11 @@ import { WECHAT_WEB_EDITOR_URL } from "../shared/defaults.js";
 const TAB_LOAD_TIMEOUT_MS = 10000;
 const TAB_POLL_INTERVAL_MS = 300;
 const MP_LOGIN_PATH_RE = /\/mp\.weixin\.qq\.com\/(?:cgi-bin\/loginpage|safe\/safeqrconnect|cgi-bin\/bizlogin)/i;
-const MP_EDITOR_PATH_RE = /\/cgi-bin\/appmsg/i;
+// 必须命中"真正在写图文"的 URL；列表 / 设置 / 数据中心 / 草稿箱列表也含 /cgi-bin/appmsg，
+// 但 query 是 action=list 之类，不能误判成编辑页（否则 helper 会把标题写进列表搜索框）。
+// 编辑器 URL 形如 .../cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&...
+//        或      .../cgi-bin/appmsg?...&action=add&...
+const MP_EDITOR_PATH_RE = /\/cgi-bin\/appmsg.*?(?:action=(?:edit|add)|t=media\/appmsg_edit)/i;
 
 /**
  * 把 article bundle 通过浏览器登录模式发布到 mp 编辑页。
@@ -118,18 +122,15 @@ async function openOrFocusEditorTab() {
     .query({ url: ["https://mp.weixin.qq.com/*"] })
     .catch(() => []);
 
-  // 已经停在编辑页的 tab 优先复用，避免覆盖用户已经手填的字段
-  let tab =
-    tabs.find((item) => MP_EDITOR_PATH_RE.test(item.url || "")) ||
-    tabs.find((item) => /mp\.weixin\.qq\.com/i.test(item.url || "")) ||
-    null;
+  // 优先复用已经停在**真正编辑页**的 tab（MP_EDITOR_PATH_RE 现在精确到 action=edit/add）。
+  // 找不到时**直接新开**一个编辑页 tab，**不再**强行 navigate 用户其他 mp tab
+  // （草稿箱列表 / 数据中心 / 设置等）—— 那种 navigate 会丢失用户在那 tab 上的工作，
+  // 而且如果 fallback 抢的 tab navigate 还没完成就跑 content script，会把标题
+  // 写进列表页搜索框（用户报告的具体症状）。
+  let tab = tabs.find((item) => MP_EDITOR_PATH_RE.test(item.url || "")) || null;
 
   if (tab?.id) {
-    if (!MP_EDITOR_PATH_RE.test(tab.url || "")) {
-      await chrome.tabs.update(tab.id, { active: true, url: WECHAT_WEB_EDITOR_URL });
-    } else {
-      await chrome.tabs.update(tab.id, { active: true });
-    }
+    await chrome.tabs.update(tab.id, { active: true });
   } else {
     tab = await chrome.tabs.create({ url: WECHAT_WEB_EDITOR_URL, active: true });
   }

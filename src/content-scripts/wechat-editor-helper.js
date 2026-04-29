@@ -36,6 +36,18 @@
       return result;
     }
 
+    // Safety net：必须先找到编辑器正文区（contenteditable / .ql-editor / .ProseMirror）
+    // 才允许往字段里写东西。否则会出现「URL 看着像编辑页但 DOM 是列表/搜索框」的
+    // 噩梦场景：findTitleField 匹配到列表的「搜索标题」输入框，把文章标题塞进搜索框。
+    // isEditorPage URL 检测 + 这道 surface 检测，**双重防线**才稳。
+    const editorSurface = findEditorSurface();
+    if (!editorSurface) {
+      result.message =
+        "当前页面没有图文正文编辑区。请确认已经打开公众号「新建图文」编辑页（不是草稿箱列表 / 管理后台）后重试。";
+      renderHelperDock(result);
+      return result;
+    }
+
     result.titleWritten = setFieldValue(findTitleField(), payload.meta?.title || "");
     result.digestWritten = setFieldValue(findDigestField(), payload.meta?.digest || "");
     result.authorWritten = setFieldValue(findAuthorField(), payload.meta?.author || "");
@@ -43,11 +55,7 @@
       findSourceField(),
       payload.meta?.contentSourceUrl || ""
     );
-
-    const editorSurface = findEditorSurface();
-    if (editorSurface) {
-      result.bodyWritten = setEditorHtml(editorSurface, payload.html || "");
-    }
+    result.bodyWritten = setEditorHtml(editorSurface, payload.html || "");
 
     result.message = buildResultMessage(result);
     STATE.result = result;
@@ -56,7 +64,16 @@
   }
 
   function isEditorPage() {
-    return /\/cgi-bin\/appmsg/i.test(location.href);
+    // 必须是"真正在写图文"的 URL，不只是含 /cgi-bin/appmsg。
+    // mp 后台许多列表/管理页（草稿箱、群发记录、数据中心）URL 里都有 /cgi-bin/appmsg
+    // 但 query 是 action=list / action=manage 等，**不**是编辑页。
+    // 编辑器实际 URL 形如：
+    //   /cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&...
+    //   /cgi-bin/appmsg?...&action=add&...
+    // 与 wechat-browser-bridge.js MP_EDITOR_PATH_RE 保持一致；改这里要同步改那边。
+    return /\/cgi-bin\/appmsg.*?(?:action=(?:edit|add)|t=media\/appmsg_edit)/i.test(
+      location.href
+    );
   }
 
   function findTitleField() {
@@ -214,8 +231,16 @@
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, "text/html");
 
+    // article / section 必须在白名单：composeArticleBodyHtml + decorateHtmlForTheme
+    // 把整篇文章包在 `<article style="background:...; color:...; padding:...">` 里
+    // 承载主题（墨绿底 / 牛皮纸 / wired-neon 黑底等）；如果 sanitizer 把 article unwrap，
+    // 主题背景 / padding / 字体一起丢失，pasted 到 mp 编辑器只剩零散段落（用户报告
+    // "丢失了排版框架，没有了背景颜色"的根因）。
+    // 这里与 src/shared/wechat-html.js 的 sanitizer（API 模式专用、sixteenth session
+    // 已加 article/section）保持一致；改这里要同步那边。
     const allowedTags = new Set([
-      "html", "head", "body", "div", "span", "p", "br", "hr",
+      "html", "head", "body", "article", "section",
+      "div", "span", "p", "br", "hr",
       "h1", "h2", "h3", "h4", "h5", "h6",
       "ul", "ol", "li", "dl", "dt", "dd",
       "strong", "em", "b", "i", "u", "s", "strike", "sub", "sup", "mark",
