@@ -44,6 +44,7 @@ import {
 import { buildOutlineCapture } from "../shared/topic-planner.js";
 import { PAID_FEATURES, checkLicense } from "../shared/license.js";
 import { showUpgradeModal } from "../shared/upgrade-modal.js";
+import { ensureHostPermissionFromGesture } from "../shared/host-permissions.js";
 
 const runtimeOk = Boolean(globalThis.chrome?.runtime?.id);
 const PLAN_TOPICS_TIMEOUT_MS = 90_000;
@@ -350,6 +351,16 @@ async function runScrapeFlow(cardEl, rec, autoRewrite, chosenTemplateId) {
   if (chosenTemplateId && chosenTemplateId !== _activeTemplateId) {
     await setActiveTemplateId(chosenTemplateId);
     _activeTemplateId = chosenTemplateId;
+  }
+  // 必须在 click handler 用户手势上下文里申请 origin 权限 ——
+  // SW 端 ensureOptionalHostPermission 没有 user activation，会抛 "must be called during a user gesture"。
+  const permitted = await ensureHostPermissionFromGesture(url, "抓取并改写");
+  if (!permitted) {
+    showCardError(
+      cardEl,
+      "需要授权访问该原文域名才能抓取，请在弹窗里点「允许」后重试，或改用「用提纲开稿」。"
+    );
+    return;
   }
   let scrapeRes;
   try {
