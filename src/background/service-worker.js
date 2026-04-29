@@ -52,6 +52,12 @@ import { lintArticle } from "../shared/humanize-checker.js";
 import { runHumanizePass } from "../shared/humanize-pass.js";
 import { getActiveVoiceSample } from "../shared/voice-samples.js";
 import { ensureOptionalHostPermission } from "../shared/host-permissions.js";
+// 浏览器登录模式发布通道 —— 必须**静态** import，**不能**用 `await import()`：
+// MV3 service worker 按 HTML 规范禁用动态 import（运行时抛
+// "import() is disallowed on ServiceWorkerGlobalScope by the HTML specification"），
+// 见 https://github.com/w3c/ServiceWorker/issues/1356。
+// 哪怕是为了"按需懒加载"也不行——SW 里只能用顶部静态 import。
+import { publishViaBrowser } from "./wechat-browser-bridge.js";
 
 const MAX_RETRIES = 2;
 const TOPIC_PLANNER_AI_TIMEOUT_MS = 65_000;
@@ -499,7 +505,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // 通过 payload.publishMode（workspace-publish.js 根据所选 profile.mode 注入）
         // 进入这条分支；旧版 payload（不带 publishMode）天然走下面的 API 链路，向后兼容。
         if (message.payload?.publishMode === "browser") {
-          const { publishViaBrowser } = await import("./wechat-browser-bridge.js");
+          // publishViaBrowser 已在文件顶部静态 import（MV3 SW 禁用动态 import）。
           const result = await publishViaBrowser(message.payload, {
             profileLabel: accountLabel
           });

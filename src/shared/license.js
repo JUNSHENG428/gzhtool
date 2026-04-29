@@ -27,6 +27,10 @@
  */
 
 import { ensureOptionalHostPermission } from "./host-permissions.js";
+// 配额计数 —— 必须**静态** import：本模块经 service-worker.js 间接被 SW 加载，
+// `await import()` 会撞 MV3 "import() is disallowed on ServiceWorkerGlobalScope"。
+// usage-stats 无 license 反向依赖（已确认 grep），静态 import 不会形成循环。
+import { getUsageSnapshot } from "./usage-stats.js";
 
 const STORAGE_LICENSE = "wechatWriterLicense";
 const STORAGE_AUTH = "wechatWriterLicenseAuth";
@@ -656,8 +660,8 @@ export async function checkDailyQuota(kind = "rewrite", opts = {}) {
         : FREE_DAILY_REWRITE_QUOTA;
   let used = 0;
   try {
-    const mod = await import("./usage-stats.js");
-    const snap = await mod.getUsageSnapshot();
+    // getUsageSnapshot 已在文件顶部静态 import（MV3 SW 禁用动态 import）。
+    const snap = await getUsageSnapshot();
     used = Number(snap?.today?.[kind]) || 0;
   } catch {
     used = 0;
