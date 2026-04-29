@@ -18,7 +18,10 @@
     "check:features": "node scripts/check-features.mjs",
     "check:journey": "node scripts/check-journey.mjs",
     "check:all": "npm run test:smoke && npm run check:ext && npm run check:features",
-    "release:cws": "npm run test && npm run build:zip"
+    "build:floating-ball": "node scripts/build-floating-ball.mjs",
+    "dev:floating-ball": "node scripts/build-floating-ball.mjs --watch",
+    "check:bundle-fresh": "node scripts/check-bundle-fresh.mjs",
+    "release:cws": "npm run build:floating-ball && npm run test && npm run build:zip"
   },
   "keywords": [
     "chrome-extension",
@@ -34,9 +37,16 @@
   "devDependencies": {
     "@fontsource/dm-sans": "^5.2.8",
     "@fontsource/noto-serif-sc": "^5.2.9",
+    "@types/chrome": "^0.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.24.0",
     "mammoth": "^1.12.0",
     "marked": "^18.0.2",
     "pdfjs-dist": "^5.6.205",
-    "playwright": "^1.59.1"
+    "playwright": "^1.59.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "typescript": "^5.6.0"
   }
 }

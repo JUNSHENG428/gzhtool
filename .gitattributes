@@ -1,0 +1,3 @@
+# Bundle 文件按 binary 处理，git diff 不展开 minified 代码（每次源 .tsx 改动 bundle 都会变，避免 PR 噪声）
+# 真要看 bundle 内容跑 npm run build:floating-ball 后看产物即可
+src/content-scripts/floating-ball.bundle.js binary

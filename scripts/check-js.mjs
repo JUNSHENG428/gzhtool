@@ -33,6 +33,10 @@ function walkJs(dir, out = []) {
       if (ent.name === "node_modules" || ent.name === ".git" || ent.name === "vendor") continue;
       walkJs(p, out);
     } else if (ent.name.endsWith(".js") || ent.name.endsWith(".mjs")) {
+      // 跳过 esbuild 出的浮球 React bundle —— minified IIFE，node --check 会因
+      // 保留字使用（如 React 内部对象的 in 关键字）报假阳性。
+      // 源文件 floating-ball/*.tsx 通过 npm run build:floating-ball + tsc 校验。
+      if (ent.name === "floating-ball.bundle.js") continue;
       out.push(p);
     }
   }
