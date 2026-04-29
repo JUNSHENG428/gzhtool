@@ -27,7 +27,8 @@ import { formatRuntimeError, escapeHtml } from "../shared/utils.js";
 import {
   getPromptTemplates,
   getActiveTemplateId,
-  setActiveTemplateId
+  setActiveTemplateId,
+  getSettings
 } from "../shared/storage.js";
 import {
   STORAGE_KEYS,
@@ -422,6 +423,16 @@ async function runReroll(rec) {
   const cachedPool = _lastPlan?.data?.candidatePool || [];
   const itemId = rec.itemId;
   const previousAngle = rec.recommendedAngle || "";
+  // 必须在 click handler 用户手势上下文里同步申请 AI 接口 origin —— SW 端没有
+  // user activation，调 chrome.permissions.request 会抛 user gesture 错。
+  const settings = await getSettings();
+  const aiPermitted = await ensureHostPermissionFromGesture(
+    settings.apiBaseUrl,
+    "AI 选题接口"
+  );
+  if (!aiPermitted) {
+    throw new Error("需要授权访问 AI 接口域名才能换角度，请允许后再试。");
+  }
   const res = await sendMessageWithTimeout(
     {
       type: "PLAN_TOPICS",
@@ -757,6 +768,24 @@ async function runPlanning(metaEl, formEl) {
   submitBtn.disabled = true;
   submitBtn.innerHTML = "生成中…";
   try {
+    // 必须在 click handler 用户手势上下文里同步申请 AI 接口 origin —— SW 端没有
+    // user activation，调 chrome.permissions.request 会抛 user gesture 错。
+    const settings = await getSettings();
+    const aiPermitted = await ensureHostPermissionFromGesture(
+      settings.apiBaseUrl,
+      "AI 选题接口"
+    );
+    if (!aiPermitted) {
+      stopPlanningHints();
+      formEl.classList.remove("is-planning");
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = originalSubmitText;
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = "需要授权访问 AI 接口域名才能生成选题，请允许后再试。";
+      }
+      return;
+    }
     const res = await sendMessageWithTimeout(
       {
         type: "PLAN_TOPICS",

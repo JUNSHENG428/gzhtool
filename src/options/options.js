@@ -869,10 +869,21 @@ async function testHotTopicsBackend(kind) {
   button.disabled = true;
   setTestResult(resultEl, "loading", "正在测试...");
 
+  const baseUrl = baseField?.value?.trim() || "";
+
   try {
+    // 必须在 click handler 用户手势上下文里同步申请 origin 权限——否则 SW 端
+    // ensureOptionalHostPermission 会抛 "must be called during a user gesture"。
+    // 用户没填 baseUrl（走默认源）时也尝试 grant，helper 内部会判断空 URL 直接返回 true。
+    const permitted = await ensureHostPermissionFromUserGesture(baseUrl);
+    if (!permitted) {
+      setTestResult(resultEl, "error", "需要授权访问该热点接口域名才能测试，请允许后再试。");
+      return;
+    }
+
     const response = await chrome.runtime.sendMessage({
       type: "TEST_HOT_TOPICS_BACKEND",
-      payload: { kind, baseUrl: baseField?.value?.trim() || "" }
+      payload: { kind, baseUrl }
     });
 
     if (response?.ok) {

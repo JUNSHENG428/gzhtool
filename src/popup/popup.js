@@ -1,6 +1,7 @@
 import { formatRuntimeError } from "../shared/utils.js";
 import { getSettings } from "../shared/storage.js";
 import { STORAGE_KEYS } from "../shared/defaults.js";
+import { ensureHostPermissionFromGesture } from "../shared/host-permissions.js";
 import {
   getLicenseState,
   subscribeLicenseChanges,
@@ -385,6 +386,19 @@ async function loadHotTopics(forceRefresh) {
   setHotTopicsLoading(true);
 
   try {
+    // 用户配了自托 newsnow base 时，必须在 click 用户手势里同步申请 origin —— 否则
+    // SW 端 ensureOptionalHostPermission 会抛 "must be called during a user gesture"。
+    // 默认源的 origin 在固定 host_permissions 里，传空 URL 会被 helper 短路返回 true。
+    const settings = await getSettings();
+    const customBase = settings?.hotTopicsNewsnowBase || "";
+    if (customBase) {
+      const permitted = await ensureHostPermissionFromGesture(customBase, "热点接口");
+      if (!permitted) {
+        renderHotTopics([], { errorMessage: "需要授权访问该热点接口域名，请允许后再试。" });
+        return;
+      }
+    }
+
     const response = await chrome.runtime.sendMessage({
       type: "FETCH_HOT_TOPICS",
       payload: { source: activeHotSource, forceRefresh: Boolean(forceRefresh) }
