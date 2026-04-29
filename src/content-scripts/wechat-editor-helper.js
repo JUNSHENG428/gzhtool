@@ -566,6 +566,7 @@
       dock.id = HELPER_ID;
       dock.style.cssText = [
         "position:fixed",
+        "display:block",
         "right:18px",
         "bottom:18px",
         "width:320px",
@@ -579,6 +580,12 @@
       ].join(";");
       document.documentElement.appendChild(dock);
     }
+
+    // 每次渲染都强制 reset display：dock 折叠按钮会设 display:none，第二次浮球
+    // 展开时 dock 已存在不会走上面的 cssText 创建分支，display:none 会残留 →
+    // 浮球点击后 expandDockFromFloatingBall 把浮球 hide，dock 仍 hidden →
+    // 用户看到"浮球点击后什么都没了"（用户报告的 bug）。
+    dock.style.display = "block";
 
     const isBrowserMode = STATE.payload?.meta?.publishMode === "browser";
     const browserModeChecklist = isBrowserMode
