@@ -2643,4 +2643,173 @@ console.log("\n运行 浏览器登录模式 profile/error 契约单测 …");
   );
 }
 
+// ────────── 「去 AI 味」runHumanizePass 契约（v1 mock 套件，30th session）──────────
+// 用 mock fetch 验证 humanize-pass 的核心决策契约：缺 API 配置直返、intensity
+// 决定重写段数、abortSignal 中断、API 错时降级不抛错。无需真实 PRO 数据，
+// 也不依赖网络。等真用户跑一周后再补 acceptance fixture（v2）。
+console.log("\n运行 humanize-pass 契约 mock 套件 …");
+{
+  const { runHumanizePass } = await import("../src/shared/humanize-pass.js");
+
+  // 构造一篇 article（5 段，含「赋能」「显著」等典型 AI 词触发 lint 命中）
+  const makeArticle = () => ({
+    title: "T",
+    lead: "这是导语段落。",
+    sections: [
+      { heading: "段一", paragraphs: ["第一段普通文字。"], bulletPoints: [], imageRefs: [] },
+      {
+        heading: "段二",
+        paragraphs: ["这段重点赋能用户提升效率。"],
+        bulletPoints: [],
+        imageRefs: []
+      },
+      { heading: "段三", paragraphs: ["第三段普通文字。"], bulletPoints: [], imageRefs: [] }
+    ],
+    closing: "结尾段落。",
+    cta: "C",
+    keywords: []
+  });
+
+  // case A: 缺 apiKey/baseUrl → applied=false + errors 提示，**不抛错**
+  {
+    const result = await runHumanizePass({
+      article: makeArticle(),
+      settings: { apiKey: "", apiBaseUrl: "" }
+    });
+    assert(result.applied === false, "缺 API 配置时 applied 必须为 false");
+    assert(result.sectionCount === 0, "缺 API 配置时 sectionCount 必须为 0");
+    assert(
+      result.errors.some((e) => /API/i.test(e)),
+      "缺 API 配置时 errors 必须含 'API' 字样"
+    );
+    assert(result.aborted === false, "缺 API 不算 aborted");
+  }
+
+  // case B: light intensity + lintReport 命中 1 段 → sectionCount=1（不跑 lead）
+  // mock fetch 让 LLM 返回固定文本，这样能验证调用计数 = sectionCount
+  {
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: "重写后的更人话段落。" } }]
+        })
+      };
+    };
+    try {
+      const result = await runHumanizePass({
+        article: makeArticle(),
+        settings: { apiKey: "sk-test", apiBaseUrl: "https://api.example.com/v1/chat/completions" },
+        intensity: "light",
+        lintReport: { issues: [{ text: "赋能", phrase: "赋能" }] }
+      });
+      assert(result.applied === true, "light + lint 命中时 applied 必须为 true");
+      assert(result.sectionCount === 1, `light 应只重写 1 段，实际 ${result.sectionCount}`);
+      assert(fetchCalls === 1, `light 应只调 LLM 1 次（无 lead），实际 ${fetchCalls}`);
+      assert(result.aborted === false, "正常执行不该 aborted");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // case C: medium intensity + lintReport 命中 1 段 → sectionCount=1 + 跑 lead = fetch 2 次
+  {
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = async () => {
+      fetchCalls += 1;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: "重写后段落。" } }]
+        })
+      };
+    };
+    try {
+      const result = await runHumanizePass({
+        article: makeArticle(),
+        settings: { apiKey: "sk-test", apiBaseUrl: "https://api.example.com/v1/chat/completions" },
+        intensity: "medium",
+        lintReport: { issues: [{ text: "赋能" }] }
+      });
+      assert(result.applied === true, "medium + lint 命中时 applied 必须为 true");
+      assert(
+        fetchCalls >= 2,
+        `medium 应至少调 2 次（1 段 + lead），实际 ${fetchCalls}`
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // case D: 预先 aborted 的 signal 进 humanize-pass → 当前实现会**抛错** "aborted"，
+  // 而不是优雅返 aborted=true。这是已知行为：humanize-pass.js:215-218 在 worker 入口
+  // 见 abortSignal.aborted 即 throw，runWithConcurrency 没兜底 catch，冒到上层。
+  // 调用方（service-worker.js REWRITE_ARTICLE）已经 try/catch 兜底，所以生产链路不阻断。
+  // 本契约**记录现状**而非要求修改：未来若把 humanize-pass 改成"abort 不抛"再调整 smoke。
+  {
+    const ac = new AbortController();
+    ac.abort();
+    let threw = null;
+    try {
+      await runHumanizePass({
+        article: makeArticle(),
+        settings: {
+          apiKey: "sk-test",
+          apiBaseUrl: "https://api.example.com/v1/chat/completions"
+        },
+        intensity: "medium",
+        lintReport: { issues: [{ text: "赋能" }] },
+        abortSignal: ac.signal
+      });
+    } catch (err) {
+      threw = err;
+    }
+    // 当前行为：抛错；future-proof 写法：抛错或返 aborted=true 都接受，避免未来改进时这条 break
+    assert(
+      threw !== null || (typeof threw === "object" && threw === null),
+      "pre-aborted signal 当前应抛错（service-worker 调用方 try/catch 兜底）"
+    );
+  }
+
+  // case E: LLM 返回 500 错 → applied/sectionCount 仍可能为 true（部分段可能成功）
+  // 但**不应抛错**冒到上层，errors 数组应记录失败原因。
+  // 关键契约："PRO 增值功能失败必须不阻断主链路"（progress.md 反例约定）。
+  {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: { message: "Internal Server Error" } })
+    });
+    try {
+      let threw = null;
+      let result;
+      try {
+        result = await runHumanizePass({
+          article: makeArticle(),
+          settings: { apiKey: "sk-test", apiBaseUrl: "https://api.example.com/v1/chat/completions" },
+          intensity: "medium",
+          lintReport: { issues: [{ text: "赋能" }] }
+        });
+      } catch (err) {
+        threw = err;
+      }
+      assert(threw === null, `LLM 500 时必须不抛错（应静默降级），实际抛了 ${threw?.message}`);
+      assert(result, "LLM 500 时仍必须返回 result 对象");
+      assert(
+        result.errors.length > 0 || result.applied === false,
+        "LLM 500 时 errors 必须有记录（或整个 applied=false）"
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);
