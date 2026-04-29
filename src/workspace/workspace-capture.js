@@ -72,11 +72,18 @@ export async function captureSource(captureMode) {
   } = _ctx;
 
   const mode = VALID_CAPTURE_MODES.has(captureMode) ? captureMode : "readable";
+  const useTaskCenter = state.settings.useTaskCenter !== false;
+  const requestId = `cap-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  showLoading(
-    CAPTURE_MODE_LABELS[mode] || CAPTURE_MODE_LABELS.readable,
-    "通常 1–3 秒，结果会出现在「采集信息」面板。"
-  );
+  if (useTaskCenter) {
+    setStatus("已加入抓取队列，进度看右下角任务中心。可以继续做别的事。", "info");
+  } else {
+    showLoading(
+      CAPTURE_MODE_LABELS[mode] || CAPTURE_MODE_LABELS.readable,
+      "通常 1–3 秒，结果会出现在「采集信息」面板。"
+    );
+  }
+
   try {
     // 必须在 click handler 还在用户手势上下文时同步发起 grant，
     // 否则 SW 那边 chrome.permissions.request 会抛 "must be called during a user gesture"。
@@ -90,66 +97,131 @@ export async function captureSource(captureMode) {
       return;
     }
 
+    const currentForRequest = getCurrentArticle();
     const response = await chrome.runtime.sendMessage({
       type: "SCRAPE_LAST_SOURCE_TAB",
-      payload: { captureMode: mode }
+      payload: {
+        captureMode: mode,
+        requestId,
+        articleId: currentForRequest?.id || "",
+        articleTitle: currentForRequest?.meta?.title?.trim() || "抓取页面"
+      }
     });
     if (!response?.ok) {
       setErrorStatus(response?.error, "抓取失败。", () => captureSource(mode));
       return;
     }
 
-    state.source = response.data;
-    for (const article of state.articleBundle) {
-      if (!article.meta.contentSourceUrl) {
-        article.meta.contentSourceUrl = state.source.url || "";
-      }
-      if (!article.meta.coverImageIndex && state.source.images.length > 0) {
-        article.meta.coverImageIndex = 1;
-      }
+    if (useTaskCenter) {
+      // task-center 模式：apply 由 onTaskDone 触发（按 articleId 路由）。
+      // 但 capture 还有个特殊语义——抓取**当前**触发的页面，绝大多数场景用户就停在该 article，
+      // 所以为了"用户体验立刻反馈"在当前 article 也直接写一遍。task-center.onTaskDone 后续
+      // 触发 applyCaptureTaskResult 时会基于 articleId 二次确认（同 article 不会双重 apply，
+      // 已有 source 的话 autoFill 是幂等的）。
+      _applyCaptureSourceToCurrentArticle(response.data);
+      resetRetryCount();
+      return;
     }
 
-    // ── 当前正在编辑的这一篇：抓取动作必然代表"换页面 = 换正文"，
-    // 所以原文链接和结尾语都按"新一轮抓取"对齐：
-    //   • contentSourceUrl 必然被覆盖成新页面的 URL
-    //   • cta 清空 → applyCurrentArticleToControls 会回退到 settings.defaultCta，
-    //     避免上次手动改过的 CTA 锁住新内容（用户每次抓页面会重新决定 CTA 文案）
-    // 其他 bundle 文章保持原值，避免误伤多图文里另外几篇的署名 / 链接。
-    const currentForCapture = getCurrentArticle();
-    if (currentForCapture) {
-      currentForCapture.meta.contentSourceUrl = state.source.url || "";
-      currentForCapture.meta.cta = "";
-    }
-
-    if (!state.selectedImageIndex && state.source.images.length > 0) {
-      state.selectedImageIndex = 1;
-    }
-
-    // ── 抓取后自动套排版填正文 ──
-    const autoFilled = autoFillEditorFromSource(currentForCapture);
-
-    applyCurrentArticleToControls();
-    syncWorkspace();
-    schedulePersist();
-    await saveCurrentDraftRecord("抓取网页");
-
-    const blockCount = state.source.blocks?.length || 0;
-    const imageCount = state.source.images?.length || 0;
-    const themeLabel = controls?.theme?.value ? `（主题：${controls.theme.value}）` : "";
-    if (autoFilled) {
-      setStatus(
-        `已抓取 ${blockCount} 块内容、${imageCount} 张图片，并按当前排版填入正文${themeLabel}。可直接编辑或点「AI 改写」。`,
-        "success"
-      );
-    } else {
-      setStatus(`已抓取 ${blockCount} 个内容块和 ${imageCount} 张图片。`, "success");
-    }
-
+    // 老 modal 模式：直接 apply
+    _applyCaptureSourceToCurrentArticle(response.data);
     resetRetryCount();
-    view.emptyPromptCard.hidden = true;
   } finally {
-    hideLoading();
+    if (!useTaskCenter) {
+      hideLoading();
+    }
   }
+}
+
+/**
+ * 把抓取结果（source）apply 到当前 article。当前模式下用户大概率停在触发抓取的 article。
+ * task-center 模式 apply 路径与老 modal 模式共用此函数。
+ */
+function _applyCaptureSourceToCurrentArticle(source) {
+  const {
+    view,
+    state,
+    setStatus,
+    applyCurrentArticleToControls,
+    syncWorkspace,
+    schedulePersist,
+    saveCurrentDraftRecord,
+    getCurrentArticle,
+    controls
+  } = _ctx;
+
+  state.source = source;
+  for (const article of state.articleBundle) {
+    if (!article.meta.contentSourceUrl) {
+      article.meta.contentSourceUrl = state.source.url || "";
+    }
+    if (!article.meta.coverImageIndex && state.source.images.length > 0) {
+      article.meta.coverImageIndex = 1;
+    }
+  }
+
+  const currentForCapture = getCurrentArticle();
+  if (currentForCapture) {
+    currentForCapture.meta.contentSourceUrl = state.source.url || "";
+    currentForCapture.meta.cta = "";
+  }
+
+  if (!state.selectedImageIndex && state.source.images.length > 0) {
+    state.selectedImageIndex = 1;
+  }
+
+  const autoFilled = autoFillEditorFromSource(currentForCapture);
+
+  applyCurrentArticleToControls();
+  syncWorkspace();
+  schedulePersist();
+  void saveCurrentDraftRecord("抓取网页");
+
+  const blockCount = state.source.blocks?.length || 0;
+  const imageCount = state.source.images?.length || 0;
+  const themeLabel = controls?.theme?.value ? `（主题：${controls.theme.value}）` : "";
+  if (autoFilled) {
+    setStatus(
+      `已抓取 ${blockCount} 块内容、${imageCount} 张图片，并按当前排版填入正文${themeLabel}。可直接编辑或点「AI 改写」。`,
+      "success"
+    );
+  } else {
+    setStatus(`已抓取 ${blockCount} 个内容块和 ${imageCount} 张图片。`, "success");
+  }
+
+  view.emptyPromptCard.hidden = true;
+}
+
+/**
+ * task-center.onTaskDone 触发：处理用户已切走时回来点[查看]的场景。
+ * 当前 article 切回到任务关联 article 后再 apply source。
+ */
+export async function applyCaptureTaskResult(task) {
+  const {
+    state,
+    setStatus
+  } = _ctx;
+  const result = task?.result;
+  if (!result?.source) return;
+
+  const articleId = task.articleId || result.articleId || "";
+  // 用户切回了发起抓取的 article 才 apply（task-center.goToArticle 触发）
+  const idx = articleId
+    ? state.articleBundle.findIndex((a) => a.id === articleId)
+    : -1;
+  if (idx < 0) {
+    setStatus(
+      `《${task.articleTitle || "抓取页面"}》抓取完成，但目标稿件已删除。`,
+      "warning"
+    );
+    return;
+  }
+
+  // 切到该 article（如果还没切）+ apply
+  if (state.currentArticleIndex !== idx) {
+    state.currentArticleIndex = idx;
+  }
+  _applyCaptureSourceToCurrentArticle(result.source);
 }
 
 /**

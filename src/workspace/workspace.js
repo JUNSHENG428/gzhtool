@@ -11,6 +11,7 @@ import { initWorkspaceShortcuts } from "./shortcuts.js";
 import { initWorkspaceRouter } from "./workspace-router.js";
 import { initWorkspaceMember } from "./workspace-member.js";
 import { initImportFile } from "./workspace-import-file.js";
+import { mountTaskCenter } from "./workspace-task-center.js";
 
 import {
   init as initState,
@@ -61,8 +62,18 @@ import {
   applyTheme
 } from "./workspace-render.js";
 
-import { init as initCapture, captureSource, importCurrentSourceToArticle } from "./workspace-capture.js";
-import { init as initRewrite, rewriteArticle, copyManualPrompt } from "./workspace-rewrite.js";
+import {
+  init as initCapture,
+  captureSource,
+  importCurrentSourceToArticle,
+  applyCaptureTaskResult
+} from "./workspace-capture.js";
+import {
+  init as initRewrite,
+  rewriteArticle,
+  copyManualPrompt,
+  applyRewriteTaskResult
+} from "./workspace-rewrite.js";
 
 import {
   init as initEditor,
@@ -294,9 +305,9 @@ async function bootstrap() {
     toggleOutputPreviewTab, cycleEditorTheme, insertSourceImage, updateEditorWordCount,
     refreshFieldHints,
     // workspace-capture.js
-    captureSource, importCurrentSourceToArticle,
+    captureSource, importCurrentSourceToArticle, applyCaptureTaskResult,
     // workspace-rewrite.js
-    rewriteArticle, copyManualPrompt,
+    rewriteArticle, copyManualPrompt, applyRewriteTaskResult,
     // workspace-publish.js
     publishBundle, pollPublishStatus, syncCurrentToWebEditor, maybeResumePublishPolling,
     openHistoryDrawer, closeHistoryDrawer, refreshHistoryRecords,
@@ -330,6 +341,39 @@ async function bootstrap() {
   maybeResumePublishPolling();
   _loadWechatProfiles();
   _bindStorageSync();
+
+  // 挂载右下角任务中心。useTaskCenter=false 时直接跳过 mount，让 rewrite/capture 走老的全屏 modal。
+  // 默认开启（DEFAULT_SETTINGS.useTaskCenter = true，Phase 5 注入）。
+  if (state.settings.useTaskCenter !== false) {
+    mountTaskCenter({
+      getCurrentArticleId() {
+        return getCurrentArticle()?.id || "";
+      },
+      async goToArticle(articleId) {
+        const idx = state.articleBundle.findIndex((a) => a.id === articleId);
+        if (idx < 0) return false;
+        // 切到对应 article
+        switchArticle(idx);
+        // 如果当前不在 layout 路由，hash 切回去
+        if ((location.hash || "").replace(/^#/, "") !== "layout") {
+          location.hash = "layout";
+        }
+        return true;
+      },
+      async onTaskDone(task) {
+        // 改写完成时让 workspace-rewrite 应用结果到对应 article
+        if (task.type === "rewrite") {
+          await ctx.applyRewriteTaskResult?.(task);
+        }
+        // 抓取完成：applyCaptureTaskResult 内部按 articleId 找目标 article。
+        // 用户从抓取触发处直接等到完成的常见路径已经在 captureSource 内同步 apply
+        // 过一次了，此处只处理"用户切到别处后从 toast / chip [查看] 跳回"的场景。
+        if (task.type === "capture") {
+          await ctx.applyCaptureTaskResult?.(task);
+        }
+      }
+    });
+  }
 
   initWorkspaceShortcuts({
     schedulePersist, setStatus,

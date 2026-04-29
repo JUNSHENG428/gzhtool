@@ -313,6 +313,20 @@
           <span>默认结尾 CTA</span>
           <textarea id="defaultCta" rows="3"></textarea>
         </label>
+
+        <div class="checkbox-stack split-full" style="margin-top:8px;">
+          <label class="checkbox-row">
+            <input id="useTaskCenter" type="checkbox" />
+            <span>
+              改写 / 抓取走后台任务中心 <small class="field-meta">默认开启 · 推荐</small>
+            </span>
+          </label>
+          <small class="field-hint" style="margin-left:24px;">
+            开启后 AI 改写和抓取**不再阻塞编辑台**——任务挪到右下角浮窗后台跑，等待期间你可以切到别的草稿、抓下一个网页或看 dashboard。任务完成会弹 toast 提醒并能跳到对应文章。
+            <strong>什么时候关</strong>：习惯看到"全屏 loading 等结果"才安心；或并发跑多个改写时担心服务商速率限额。
+            <strong>关掉的后果</strong>：回到老的全屏 loading modal 模式，等待期间不能做其他操作。可以随时打开。
+          </small>
+        </div>
       </section>
 
       <section class="card split-grid" data-section-key="humanize" id="opt-anchor-humanize">

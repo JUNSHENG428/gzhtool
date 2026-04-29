@@ -203,6 +203,12 @@ function renderTemplateOptions() {
   _templateSelect.value = _selectedTemplateId || "";
 }
 
+/**
+ * 暂存每个 task 的 sourceImages（task center 模式下，apply 时需要）。
+ * 用 in-memory Map 即可：用户刷新页面会丢，但刷新页面 task 也丢了。
+ */
+const _sourceImagesByRequestId = new Map();
+
 export async function rewriteArticle() {
   const {
     state,
@@ -211,12 +217,8 @@ export async function rewriteArticle() {
     showLoading,
     hideLoading,
     getCurrentArticle,
-    applyCurrentArticleToControls,
     syncCurrentArticleFromControls,
-    syncWorkspace,
-    schedulePersist,
     collectRewritePreferences,
-    saveCurrentDraftRecord,
     resetRetryCount
   } = _ctx;
 
@@ -249,16 +251,32 @@ export async function rewriteArticle() {
   //  - SKIP_HUMANIZE_PASS 精确取消「这一篇」的 S2
   const requestId = `rw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   _currentRewriteRequestId = requestId;
-  showLoading(
-    "正在 AI 改写当前篇",
-    fromEditor
-      ? templateLabel
-        ? `正按当前编辑区正文 · 模板：${templateLabel} · 通常 8–25 秒，结果会更新到下方编辑器与预览。`
-        : "正按当前编辑区正文改写，结果会更新到下方编辑器与预览。通常 8–25 秒。"
-      : templateLabel
-        ? `模板：${templateLabel} · 通常 8–25 秒，结果会更新到下方编辑器与预览。`
-        : "通常 8–25 秒，结果会更新到下方编辑器与预览。"
-  );
+  _sourceImagesByRequestId.set(requestId, sourceForRewrite?.images || []);
+
+  // task center 模式（默认）：rewrite 不再阻塞 UI，结果由 task center 监听 TASK_LIST_CHANGED
+  // 触发 applyRewriteTaskResult 写回；老 modal 模式（settings.useTaskCenter=false）走全屏 loading。
+  const useTaskCenter = state.settings.useTaskCenter !== false;
+
+  if (useTaskCenter) {
+    setStatus(
+      fromEditor
+        ? `已加入改写队列（按当前编辑区正文）。可继续抓取或编辑其他文章——进度看右下角任务中心。`
+        : `已加入改写队列${templateLabel ? `（模板：${templateLabel}）` : ""}。可继续抓取或编辑其他文章——进度看右下角任务中心。`,
+      "info"
+    );
+  } else {
+    showLoading(
+      "正在 AI 改写当前篇",
+      fromEditor
+        ? templateLabel
+          ? `正按当前编辑区正文 · 模板：${templateLabel} · 通常 8–25 秒，结果会更新到下方编辑器与预览。`
+          : "正按当前编辑区正文改写，结果会更新到下方编辑器与预览。通常 8–25 秒。"
+        : templateLabel
+          ? `模板：${templateLabel} · 通常 8–25 秒，结果会更新到下方编辑器与预览。`
+          : "通常 8–25 秒，结果会更新到下方编辑器与预览。"
+    );
+  }
+
   try {
     const response = await chrome.runtime.sendMessage({
       type: "REWRITE_ARTICLE",
@@ -266,7 +284,16 @@ export async function rewriteArticle() {
         source: sourceForRewrite,
         preferences: collectRewritePreferences(),
         templateId,
-        requestId
+        requestId,
+        // 新加：让 SW 端 task-registry 能记录 article 关联。
+        // articleTitle 取最新 source 的 title 优先（用户刚抓新文章时 article.meta.title
+        // 可能还是旧值——autoFillEditorFromSource 是 if-empty 逻辑），保证任务面板
+        // chip 显示的是"当前正在改写的内容的标题"，而不是上一次的。
+        articleId: getCurrentArticle().id || "",
+        articleTitle:
+          sourceForRewrite?.title?.trim() ||
+          getCurrentArticle().meta?.title?.trim() ||
+          "未命名"
       }
     });
 
@@ -301,49 +328,153 @@ export async function rewriteArticle() {
         return;
       }
       setErrorStatus(response?.error, "改写失败。", () => rewriteArticle());
+      _sourceImagesByRequestId.delete(requestId);
       return;
     }
 
-    const draftState = createArticleDraftState(
-      response.data,
-      (sourceForRewrite && sourceForRewrite.images) || []
-    );
-    const current = getCurrentArticle();
-    current.meta = {
-      ...current.meta,
-      title: draftState.meta.title || current.meta.title,
-      subtitle: draftState.meta.subtitle || "",
-      lead: draftState.meta.lead || "",
-      cta: draftState.meta.cta || current.meta.cta,
-      digest: draftState.meta.digest || "",
-      coverImageIndex: draftState.meta.coverImageIndex || current.meta.coverImageIndex || 0,
-      titleOptions: draftState.meta.titleOptions || [],
-      keywords: draftState.meta.keywords || []
-    };
-    current.bodyHtml = draftState.bodyHtml || "";
+    if (useTaskCenter) {
+      // task center 模式：result 已挂到 SW 端 task.result，task-center 监听 TASK_LIST_CHANGED
+      // 检测到 task done → 调 applyRewriteTaskResult。这样用户切到别的 article 时 apply
+      // 也能找到正确目标。这里不再直接写当前 article。
+      resetRetryCount();
+      return;
+    }
 
-    applyCurrentArticleToControls();
-    syncWorkspace();
-    schedulePersist();
-    await saveCurrentDraftRecord("AI 改写完成");
-    const baseMessage = response.meta?.templateName
-      ? `当前篇改写完成（模板：${response.meta.templateName}），已生成标题建议、摘要和可编辑正文。`
-      : "当前篇改写完成，已生成标题建议、摘要和可编辑正文。";
-    const lengthHint = formatLengthHint(response.meta?.lengthCheck);
-    const successMessage = lengthHint ? `${baseMessage}${lengthHint}` : baseMessage;
-    setStatus(
-      successMessage,
-      response.meta?.lengthCheck && response.meta.lengthCheck.status !== "ok" && response.meta.lengthCheck.status !== "unknown"
-        ? "warning"
-        : "success"
-    );
-    renderHumanizeBadge(response.meta?.lint, response.meta?.humanizePass);
+    // 老 modal 模式：直接 apply 到当前 article（向后兼容 useTaskCenter=false）
+    await _applyRewriteResultToCurrentArticle(response, sourceForRewrite?.images || []);
     resetRetryCount();
   } finally {
     _currentRewriteRequestId = "";
     setSkipButtonVisible(false);
-    hideLoading();
+    if (state.settings.useTaskCenter === false) {
+      hideLoading();
+    }
   }
+}
+
+/**
+ * task-center.onTaskDone 触发：把 SW 端任务的改写结果写回对应 article。
+ * 按 task.articleId 找 articleBundle 里的目标，找不到（用户已删 article）静默跳过。
+ *
+ * 与老 modal 模式区别：老模式下 result 直接写"当前 article"；task center 模式下用户
+ * 可能已切走，必须按 articleId 路由。
+ */
+export async function applyRewriteTaskResult(task) {
+  const result = task?.result;
+  if (!result?.article) return;
+  const {
+    state,
+    applyCurrentArticleToControls,
+    syncWorkspace,
+    schedulePersist,
+    saveCurrentDraftRecord,
+    setStatus
+  } = _ctx;
+
+  const articleId = task.articleId || result.articleId || "";
+  const idx = articleId
+    ? state.articleBundle.findIndex((a) => a.id === articleId)
+    : -1;
+  if (idx < 0) {
+    setStatus(
+      `《${task.articleTitle || "未命名"}》改写完成，但目标稿件已删除，结果未写回。`,
+      "warning"
+    );
+    _sourceImagesByRequestId.delete(task.requestId);
+    return;
+  }
+
+  const sourceImages = _sourceImagesByRequestId.get(task.requestId) || [];
+  const draftState = createArticleDraftState(result.article, sourceImages);
+  const target = state.articleBundle[idx];
+
+  target.meta = {
+    ...target.meta,
+    title: draftState.meta.title || target.meta.title,
+    subtitle: draftState.meta.subtitle || "",
+    lead: draftState.meta.lead || "",
+    cta: draftState.meta.cta || target.meta.cta,
+    digest: draftState.meta.digest || "",
+    coverImageIndex: draftState.meta.coverImageIndex || target.meta.coverImageIndex || 0,
+    titleOptions: draftState.meta.titleOptions || [],
+    keywords: draftState.meta.keywords || []
+  };
+  target.bodyHtml = draftState.bodyHtml || "";
+
+  // 当前在该 article → 同步 controls + 编辑器 + history record + 文案
+  if (state.currentArticleIndex === idx) {
+    applyCurrentArticleToControls();
+    syncWorkspace();
+  }
+  schedulePersist();
+
+  if (state.currentArticleIndex === idx) {
+    try {
+      await saveCurrentDraftRecord("AI 改写完成");
+    } catch {
+      // history snapshot 失败不阻塞 apply
+    }
+    const baseMessage = result.meta?.templateName
+      ? `当前篇改写完成（模板：${result.meta.templateName}），已生成标题建议、摘要和可编辑正文。`
+      : "当前篇改写完成，已生成标题建议、摘要和可编辑正文。";
+    const lengthHint = formatLengthHint(result.meta?.lengthCheck);
+    const successMessage = lengthHint ? `${baseMessage}${lengthHint}` : baseMessage;
+    setStatus(
+      successMessage,
+      result.meta?.lengthCheck && result.meta.lengthCheck.status !== "ok" && result.meta.lengthCheck.status !== "unknown"
+        ? "warning"
+        : "success"
+    );
+    renderHumanizeBadge(result.meta?.lint, result.meta?.humanizePass);
+  }
+
+  _sourceImagesByRequestId.delete(task.requestId);
+}
+
+/**
+ * 老 modal 模式专用：直接把改写结果写到"当前" article。
+ */
+async function _applyRewriteResultToCurrentArticle(response, sourceImages) {
+  const {
+    getCurrentArticle,
+    applyCurrentArticleToControls,
+    syncWorkspace,
+    schedulePersist,
+    saveCurrentDraftRecord,
+    setStatus
+  } = _ctx;
+
+  const draftState = createArticleDraftState(response.data, sourceImages);
+  const current = getCurrentArticle();
+  current.meta = {
+    ...current.meta,
+    title: draftState.meta.title || current.meta.title,
+    subtitle: draftState.meta.subtitle || "",
+    lead: draftState.meta.lead || "",
+    cta: draftState.meta.cta || current.meta.cta,
+    digest: draftState.meta.digest || "",
+    coverImageIndex: draftState.meta.coverImageIndex || current.meta.coverImageIndex || 0,
+    titleOptions: draftState.meta.titleOptions || [],
+    keywords: draftState.meta.keywords || []
+  };
+  current.bodyHtml = draftState.bodyHtml || "";
+
+  applyCurrentArticleToControls();
+  syncWorkspace();
+  schedulePersist();
+  await saveCurrentDraftRecord("AI 改写完成");
+  const baseMessage = response.meta?.templateName
+    ? `当前篇改写完成（模板：${response.meta.templateName}），已生成标题建议、摘要和可编辑正文。`
+    : "当前篇改写完成，已生成标题建议、摘要和可编辑正文。";
+  const lengthHint = formatLengthHint(response.meta?.lengthCheck);
+  const successMessage = lengthHint ? `${baseMessage}${lengthHint}` : baseMessage;
+  setStatus(
+    successMessage,
+    response.meta?.lengthCheck && response.meta.lengthCheck.status !== "ok" && response.meta.lengthCheck.status !== "unknown"
+      ? "warning"
+      : "success"
+  );
+  renderHumanizeBadge(response.meta?.lint, response.meta?.humanizePass);
 }
 
 /**

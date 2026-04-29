@@ -665,8 +665,14 @@ h1 {
   border: 1px solid transparent;
 }
 
+/* 与 workspace.css 同步：fade 后保留 0.35 视觉存在，hover 还原 1 */
 .status.is-faded {
-  opacity: 0;
+  opacity: 0.35;
+  transition: opacity 250ms ease;
+}
+.status.is-faded:hover,
+.status.is-faded:focus-within {
+  opacity: 1;
 }
 
 .status[data-status-type="info"] {

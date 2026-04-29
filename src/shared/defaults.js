@@ -229,7 +229,12 @@ export const DEFAULT_SETTINGS = {
   // Phase 2 feature flag：true 时使用新版 React + Shadow DOM 实现，false 走原 vanilla strip。
   // 默认 false 保护老用户；用户在 options「浮球」区段可主动切换。
   // Phase 2.6 vanilla 退役后此 flag 删除，永远走 React 版本。
-  useReactFloatingBall: false
+  useReactFloatingBall: false,
+
+  // 任务中心模式：true（默认）时 AI 改写 / 抓取走右下角任务中心异步队列模式，
+  // 用户可以同时跑多个任务并切换 article / 路由不被阻塞；false 走老的全屏 modal。
+  // 「心里不踏实想看到全屏 loading」的用户可以在 options 关掉。
+  useTaskCenter: true
 };
 
 export const DEFAULT_ARTICLE_META = {

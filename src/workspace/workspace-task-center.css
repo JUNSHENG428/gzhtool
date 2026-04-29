@@ -1,0 +1,473 @@
+/**
+ * workspace-task-center.css
+ *
+ * 右下角浮动任务中心样式。
+ * Design tokens 来自 src/pages/design-tokens.css（--brand 墨绿 / --accent 暖橙）。
+ *
+ * z-index 1000 段：高于工作台主区域，但低于 modal（一般 9999）—— publish modal 仍可盖住。
+ */
+
+#taskCenterRoot {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  pointer-events: none;
+}
+#taskCenterRoot > * {
+  pointer-events: auto;
+}
+
+/* ===== 折叠气泡 ===== */
+.task-center__bubble {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--brand);
+  color: #fffdf8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  box-shadow: var(--shadow-md, 0 4px 16px rgba(23, 55, 34, 0.18));
+  opacity: 0.6;
+  transition: opacity 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+}
+.task-center__bubble:hover {
+  opacity: 1;
+  box-shadow: 0 8px 24px rgba(23, 55, 34, 0.28);
+}
+.task-center__bubble:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* 有任务跑时常驻显眼 */
+#taskCenterRoot[data-busy="true"] .task-center__bubble {
+  opacity: 1;
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-hover) 100%);
+}
+
+/* 展开时略小，让用户视觉聚焦到面板 */
+#taskCenterRoot[data-expanded="true"] .task-center__bubble {
+  transform: scale(0.9);
+}
+
+.task-center__bubble-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.task-center__bubble-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fffdf8;
+  font-size: 11px;
+  line-height: 20px;
+  text-align: center;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(184, 114, 46, 0.4);
+}
+
+/* ===== 展开面板 ===== */
+.task-center__panel {
+  width: 360px;
+  max-height: 480px;
+  background: var(--surface-elevated, #fffdf8);
+  border: 1px solid rgba(23, 55, 34, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(23, 55, 34, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: taskCenterPanelIn 200ms ease;
+}
+/* HTML5 [hidden] 属性的 UA 默认值 `display: none` 优先级最低，会被上面的
+ * `display: flex` 完全覆盖，导致 `_panel.hidden = true` 后视觉仍显示。
+ * 必须显式追加这条兜底（progress.md 已沉淀的反例约定，本次再次踩坑）。 */
+.task-center__panel[hidden] {
+  display: none;
+}
+@keyframes taskCenterPanelIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.task-center__panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(23, 55, 34, 0.06);
+  background: var(--brand-soft);
+}
+.task-center__panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+.task-center__panel-close {
+  position: relative;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.task-center__panel-close:hover {
+  background: rgba(23, 55, 34, 0.1);
+  color: var(--ink);
+}
+.task-center__panel-close:active {
+  background: rgba(23, 55, 34, 0.16);
+}
+
+.task-center__panel-body {
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ===== 区块 ===== */
+.task-center__section-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.task-center__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ===== 单个 chip ===== */
+.task-center__chip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface, rgba(255, 253, 248, 0.92));
+  border: 1px solid rgba(23, 55, 34, 0.08);
+  transition: border-color 150ms ease;
+}
+.task-center__chip:hover {
+  border-color: rgba(23, 55, 34, 0.18);
+}
+.task-center__chip--running { border-left: 3px solid var(--brand); }
+.task-center__chip--done { border-left: 3px solid #4a8f5a; }
+.task-center__chip--failed { border-left: 3px solid #c44a3a; }
+.task-center__chip--cancelled { border-left: 3px solid var(--ink-secondary); }
+
+.task-center__chip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.task-center__chip-status {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.task-center__chip--done .task-center__chip-status { color: #4a8f5a; }
+.task-center__chip--failed .task-center__chip-status { color: #c44a3a; }
+
+.task-center__chip-type {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.task-center__chip-type--rewrite {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.task-center__chip-type--capture {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.task-center__chip-title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.task-center__chip-pill {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.task-center__chip-pill--pending {
+  background: rgba(184, 114, 46, 0.16);
+  color: var(--accent);
+}
+
+.task-center__chip-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+.task-center__chip-phase {
+  flex: none;
+}
+
+/* progress bar */
+.task-center__progress {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(23, 55, 34, 0.08);
+  overflow: hidden;
+  position: relative;
+}
+.task-center__progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--brand) 0%, var(--accent) 100%);
+  border-radius: 2px;
+  transition: width 250ms ease;
+}
+.task-center__progress--indeterminate .task-center__progress-fill {
+  width: 30%;
+  animation: taskCenterIndeterminate 1.4s ease-in-out infinite;
+}
+@keyframes taskCenterIndeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+/* error message inside chip */
+.task-center__chip-error {
+  margin: 0;
+  font-size: 12px;
+  color: #c44a3a;
+  background: rgba(196, 74, 58, 0.06);
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-center__chip-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.task-center__chip-btn {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: #fffdf8;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 150ms ease, transform 150ms ease;
+}
+.task-center__chip-btn:hover {
+  background: var(--brand-hover);
+}
+.task-center__chip-btn:active {
+  transform: translateY(1px);
+}
+.task-center__chip-btn--ghost {
+  background: transparent;
+  color: var(--ink-secondary);
+  border-color: rgba(23, 55, 34, 0.18);
+}
+.task-center__chip-btn--ghost:hover {
+  color: var(--ink);
+  background: rgba(23, 55, 34, 0.04);
+}
+
+/* ===== 空态 ===== */
+.task-center__empty {
+  text-align: center;
+  padding: 24px 12px;
+  color: var(--ink-secondary);
+}
+.task-center__empty p {
+  margin: 0;
+}
+.task-center__empty-hint {
+  margin-top: 4px !important;
+  font-size: 12px;
+  color: rgba(61, 79, 69, 0.7);
+}
+
+/* ===== Toast ===== */
+.task-center__toasts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  pointer-events: auto;
+}
+/* toast 子元素显式可点，避免父级 pointer-events: none 透传 */
+.task-center__toasts > * {
+  pointer-events: auto;
+}
+
+.task-center__toast {
+  position: relative;
+  z-index: 1;
+  width: 320px;
+  background: var(--surface-elevated, #fffdf8);
+  border: 1px solid rgba(23, 55, 34, 0.08);
+  border-left: 3px solid var(--brand);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(23, 55, 34, 0.18);
+  animation: taskCenterToastIn 240ms ease;
+}
+.task-center__toast--done { border-left-color: #4a8f5a; }
+.task-center__toast--failed { border-left-color: #c44a3a; }
+.task-center__toast--cancelled { border-left-color: var(--ink-secondary); }
+@keyframes taskCenterToastIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.task-center__toast-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+}
+.task-center__toast-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  background: rgba(23, 55, 34, 0.08);
+  color: var(--brand);
+}
+.task-center__toast--done .task-center__toast-icon {
+  background: rgba(74, 143, 90, 0.14);
+  color: #4a8f5a;
+}
+.task-center__toast--failed .task-center__toast-icon {
+  background: rgba(196, 74, 58, 0.14);
+  color: #c44a3a;
+}
+.task-center__toast-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.task-center__toast-text strong {
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-center__toast-hint {
+  font-size: 12px;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-center__toast-cta {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: none;
+  background: var(--brand);
+  color: #fffdf8;
+  font-size: 12px;
+  cursor: pointer;
+}
+.task-center__toast-cta:hover { background: var(--brand-hover); }
+.task-center__toast-close {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 18px;
+  cursor: pointer;
+  border-radius: 4px;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.task-center__toast-close:hover {
+  background: rgba(23, 55, 34, 0.1);
+  color: var(--ink);
+}
+.task-center__toast-close:active {
+  background: rgba(23, 55, 34, 0.16);
+}
+
+/* ===== a11y / motion ===== */
+@media (prefers-reduced-motion: reduce) {
+  .task-center__panel,
+  .task-center__toast {
+    animation: none;
+  }
+  .task-center__progress--indeterminate .task-center__progress-fill {
+    animation: none;
+    width: 100%;
+    background: rgba(23, 55, 34, 0.18);
+  }
+  .task-center__bubble:hover {
+    transform: none;
+  }
+}

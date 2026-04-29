@@ -99,7 +99,10 @@ const fields = {
   floatingBallEnabled: document.querySelector("#floatingBallEnabled"),
   // React 浮球 feature flag（32nd session Phase 2）。saveForm 写 settings.useReactFloatingBall，
   // 切到 true 后 vanilla helper early-return + React bundle 接管渲染。下次刷新 mp 页生效。
-  useReactFloatingBall: document.querySelector("#useReactFloatingBall")
+  useReactFloatingBall: document.querySelector("#useReactFloatingBall"),
+  // 任务中心模式（队列 + 后台跑 + 右下角浮窗）。change 即时 saveSettings，
+  // 与 AI 配置解耦，避免 saveForm required 校验拦截（同 floatingBallEnabled 模式）。
+  useTaskCenter: document.querySelector("#useTaskCenter")
 };
 
 const statusElement = document.querySelector("#status");
@@ -288,6 +291,13 @@ fields.floatingBallEnabled?.addEventListener("change", async (event) => {
 // （同上，浮球与 AI 配置解耦，AI 没配也能切版本）。
 fields.useReactFloatingBall?.addEventListener("change", async (event) => {
   await saveSettings({ useReactFloatingBall: Boolean(event.target.checked) });
+});
+
+// 任务中心模式：change 即时保存（同上 saveForm 解耦原因）。
+// 关掉后下次开 workspace 走老的全屏 modal；已打开的 workspace 不影响（mountTaskCenter
+// 在 bootstrap 时一次性判定，热切换需用户刷新 workspace tab）。
+fields.useTaskCenter?.addEventListener("change", async (event) => {
+  await saveSettings({ useTaskCenter: Boolean(event.target.checked) });
 });
 
 // 闸门：DrissionPage 是 Pro 功能，免费用户尝试勾选时拦截并弹升级框

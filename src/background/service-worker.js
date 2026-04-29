@@ -58,6 +58,19 @@ import { ensureOptionalHostPermission } from "../shared/host-permissions.js";
 // 见 https://github.com/w3c/ServiceWorker/issues/1356。
 // 哪怕是为了"按需懒加载"也不行——SW 里只能用顶部静态 import。
 import { publishViaBrowser } from "./wechat-browser-bridge.js";
+import {
+  addTask as registerTask,
+  updateTask as updateRegistryTask,
+  completeTask as completeRegistryTask,
+  cancelTask as cancelRegistryTask,
+  cancelByRequestId as cancelRegistryByRequestId,
+  cancelRunningTasksForArticle as cancelRegistryTasksForArticle,
+  attachAbortController as attachTaskAbortController,
+  findTaskByRequestId as findTaskByReqId,
+  getTaskListSnapshot as snapshotTaskList,
+  getTaskResult as getRegistryTaskResult,
+  restoreAndCleanStale as restoreTaskRegistry
+} from "./task-registry.js";
 
 const MAX_RETRIES = 2;
 const TOPIC_PLANNER_AI_TIMEOUT_MS = 65_000;
@@ -87,6 +100,11 @@ const inflightHumanizeControllers = new Map();
 const pendingFloatingBallReady = new Map();
 
 // `collectPublishRemoteUrls` 已抽到 src/shared/wechat.js（前后端共用），从那里 import。
+
+// SW 冷启动 / 重装时立即恢复任务中心状态并清理 stale running task。
+// 不放在 onInstalled 里，因为冷启动（chrome 已开但 SW 被回收后被消息唤起）
+// 不会触发 onInstalled，但会执行顶层代码。
+void restoreTaskRegistry();
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   await getSettings();
@@ -212,10 +230,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "SCRAPE_LAST_SOURCE_TAB": {
-        const capture = await scrapeLastSourceTab(message.payload?.captureMode || "readable");
-        await saveSession({ lastCapture: capture });
-        void bumpUsage("capture");
-        sendResponse({ ok: true, data: capture });
+        // 注册到 task-registry：让任务中心能看到抓取进度。capture 没有 phase 进度推送，
+        // 状态停在 'capture:fetching' 直到完成；用户切走后回来通过 task-center.[查看]按钮
+        // 拿到 source（task.result.source）落到 article。
+        const captureArticleId = String(message.payload?.articleId || "").trim();
+        const captureArticleTitle = String(message.payload?.articleTitle || "").trim() || "抓取页面";
+        const captureRequestId = String(message.payload?.requestId || "").trim() || `cap-${Date.now()}`;
+        // 抓新内容 = 该 article 的老 rewrite 任务必然产出废弃数据（rewrite 用的是抓前的
+        // source 副本，跑完会覆盖用户刚抓的新内容）。先把同 article 的 in-flight rewrite
+        // 取消掉，避免"抓了新文章但任务列表里还在改写老文章"的诡异表现。
+        if (captureArticleId) {
+          const cancelled = cancelRegistryTasksForArticle(captureArticleId, "rewrite");
+          if (cancelled > 0) {
+            console.log(`[task-registry] 抓取触发取消同 article ${cancelled} 个 in-flight rewrite`);
+          }
+        }
+        const captureTaskHandle = registerTask({
+          type: "capture",
+          articleId: captureArticleId,
+          articleTitle: captureArticleTitle,
+          requestId: captureRequestId
+        });
+        const captureTaskId = captureTaskHandle.taskId;
+        updateRegistryTask(captureTaskId, { phase: "capture:fetching" });
+
+        try {
+          const capture = await scrapeLastSourceTab(message.payload?.captureMode || "readable");
+          await saveSession({ lastCapture: capture });
+          void bumpUsage("capture");
+          sendResponse({ ok: true, data: capture });
+          completeRegistryTask(captureTaskId, {
+            status: "done",
+            result: {
+              source: capture,
+              articleId: captureArticleId,
+              articleTitle: captureArticleTitle
+            }
+          });
+        } catch (captureErr) {
+          completeRegistryTask(captureTaskId, {
+            status: "failed",
+            error: String(captureErr?.message || captureErr || "抓取失败")
+          });
+          throw captureErr;
+        }
         break;
       }
       case "REWRITE_ARTICLE": {
@@ -237,6 +295,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // requestId 由 workspace-rewrite.js 生成，用于和后续 SKIP_HUMANIZE_PASS / REWRITE_PROGRESS 配对。
         // 兜底：UI 没传时自动生成一个，至少保证内部 Map 不混淆。
         const requestId = String(message.payload?.requestId || "").trim() || `rewrite-${Date.now()}`;
+
+        // 注册到 task-registry，让任务中心面板能看到本次改写。articleId / articleTitle 由
+        // workspace-rewrite.js 从 getCurrentArticle() 取，没传时降级用 requestId。
+        const articleId = String(message.payload?.articleId || "").trim();
+        const articleTitle = String(message.payload?.articleTitle || "").trim() || "未命名";
+        const taskHandle = registerTask({
+          type: "rewrite",
+          articleId,
+          articleTitle,
+          requestId
+        });
+        const taskId = taskHandle.taskId;
+
+        try {
 
         const settings = await getSettings();
         const requestedTemplateId = String(message.payload?.templateId || "").trim();
@@ -407,11 +479,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const baseMeta = template
           ? { templateId: template.id, templateName: template.name }
           : {};
-        sendResponse({
+        const responsePayload = {
           ok: true,
           data: article,
           meta: { ...baseMeta, requestId, lengthCheck, lint, humanizePass }
+        };
+        sendResponse(responsePayload);
+        // task 标 done，把完整结果挂到 task.result，前端通过 GET_TASK_RESULT 拉
+        // （前端切到别的 article 时，sendResponse 已发但前端没接住，从 task.result 兜底）
+        completeRegistryTask(taskId, {
+          status: humanizePass?.aborted ? "done" : "done",
+          result: {
+            article,
+            meta: { ...baseMeta, requestId, lengthCheck, lint, humanizePass },
+            articleId,
+            articleTitle
+          }
         });
+        } catch (rewriteErr) {
+          // 改写失败：标记 task failed，再让 outer catch 走 sendResponse({ok:false}) 链路
+          completeRegistryTask(taskId, {
+            status: "failed",
+            error: String(rewriteErr?.message || rewriteErr || "未知错误")
+          });
+          throw rewriteErr;
+        }
         break;
       }
       case "SKIP_HUMANIZE_PASS": {
@@ -431,6 +523,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         } else {
           sendResponse({ ok: true, data: { aborted: false, reason: "no-inflight" } });
         }
+        break;
+      }
+      case "LIST_TASKS": {
+        // 任务中心面板首次挂载或路由切回时拉一次全量。运行时主要靠 TASK_LIST_CHANGED 推。
+        sendResponse({ ok: true, data: snapshotTaskList() });
+        break;
+      }
+      case "CANCEL_TASK": {
+        // 用户点 chip 上[取消]：rewrite 任务等同于 SKIP_HUMANIZE_PASS（abort humanize fetch
+        // + 标 task cancelled）；capture 任务等到 Phase 4 加 ABORT_CAPTURE 走另一条路。
+        const taskId = String(message.payload?.taskId || "").trim();
+        const requestId = String(message.payload?.requestId || "").trim();
+        const target = taskId
+          ? null /* 直接传 taskId 时下面 cancelRegistryTask 处理 */
+          : requestId
+            ? findTaskByReqId(requestId)
+            : null;
+        const finalTaskId = taskId || target?.id || "";
+        if (!finalTaskId) {
+          sendResponse({ ok: false, error: { code: "TASK_NOT_FOUND", message: "找不到对应任务。" } });
+          break;
+        }
+        // 同步触发 humanize-pass 的 AbortController（兼容旧 inflightHumanizeControllers 路径）
+        const reqIdForAbort = requestId || target?.requestId || "";
+        if (reqIdForAbort) {
+          const ctl = inflightHumanizeControllers.get(reqIdForAbort);
+          if (ctl) {
+            try { ctl.abort(); } catch {}
+            inflightHumanizeControllers.delete(reqIdForAbort);
+          }
+        }
+        cancelRegistryTask(finalTaskId);
+        sendResponse({ ok: true, data: { cancelled: true } });
+        break;
+      }
+      case "GET_TASK_RESULT": {
+        // 前端从任务中心点[查看]按钮跳到对应 article 时，需要把改写结果应用到 article。
+        // sendResponse 已经把结果直接发给请求方了，但请求方如果当时不在该 article（用户切走了）
+        // 拿不到结果，从 registry 兜底取。
+        const taskId = String(message.payload?.taskId || "").trim();
+        if (!taskId) {
+          sendResponse({ ok: false, error: { code: "TASK_NOT_FOUND", message: "缺少 taskId。" } });
+          break;
+        }
+        const result = getRegistryTaskResult(taskId);
+        sendResponse({ ok: true, data: result });
         break;
       }
       case "TEST_AI_CONNECTION": {
@@ -812,6 +950,16 @@ function broadcastRewriteProgress(requestId, info) {
       .catch(() => {});
   } catch {
     // 老版本 chrome 在没有监听者时 sendMessage 直接 throw
+  }
+  // 同时把进度同步到 task-registry：让任务中心面板看到 chip 上的实时 phase / N/M 计数。
+  // task-registry 内部 schedulePersistAndNotify 会触发 TASK_LIST_CHANGED 广播。
+  const task = findTaskByReqId(requestId);
+  if (task) {
+    updateRegistryTask(task.id, {
+      phase: info?.phase || task.phase,
+      current: typeof info?.current === "number" ? info.current : task.current,
+      total: typeof info?.total === "number" ? info.total : task.total
+    });
   }
 }
 

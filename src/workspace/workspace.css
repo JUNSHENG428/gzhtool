@@ -1652,12 +1652,19 @@ h2 {
   border: 1px solid var(--line);
   backdrop-filter: blur(10px);
   box-shadow: var(--shadow);
-  transition: opacity 400ms ease, background-color 400ms ease, border-color 400ms ease;
+  transition: opacity 250ms ease, background-color 400ms ease, border-color 400ms ease;
   opacity: 1;
 }
 
+/* 4s/8s/10s 自动淡化：保留 opacity:0.35 让用户视觉知道"还有 status 在"，
+ * 不再 opacity:0 完全消失（之前用户报"鼠标移动到有颜色应该 hover 显示，而不是变浅消失"）。
+ * hover 时还原 opacity:1 让用户看清内容。 */
 .status.is-faded {
-  opacity: 0;
+  opacity: 0.35;
+}
+.status.is-faded:hover,
+.status.is-faded:focus-within {
+  opacity: 1;
 }
 
 .status[data-status-type="info"] {
