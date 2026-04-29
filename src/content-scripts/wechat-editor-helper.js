@@ -67,6 +67,15 @@
       const settingsChange = changes["wechatWriterSettings"];
       if (!settingsChange) return;
       const next = settingsChange.newValue || {};
+      // Phase 2.2 起：useReactFloatingBall=true 时把控制权让给 React bundle，
+      // 不再由 vanilla 这边渲染 strip（避免双 strip 重叠）。
+      // 切换 flag 时移除当前 vanilla strip，让 React 那边自己接管渲染。
+      if (Boolean(next.useReactFloatingBall)) {
+        removeFloatingBallAndMenu();
+        STATE.floatingBallEnabled = Boolean(next.floatingBallEnabled);
+        STATE.floatingBallPosition = next.floatingBallPosition || null;
+        return;
+      }
       const prevEnabled = STATE.floatingBallEnabled;
       const nextEnabled = Boolean(next.floatingBallEnabled);
       STATE.floatingBallEnabled = nextEnabled;
@@ -88,6 +97,16 @@
 
   async function initFloatingBall() {
     try {
+      // Phase 2.2 feature flag：要走 React 浮球时 vanilla 直接退出渲染逻辑，
+      // 但仍保留 IMPORT_ARTICLE_TO_WECHAT_EDITOR 监听 + window.__runbi_mp_helper 暴露
+      // （这两块是业务核心，与 strip UI 无关，必须永远在线）。
+      // 直接读 chrome.storage.local 不走 SW round trip：避免 SW 冷启延迟，
+      // 让 vanilla / React 几乎同时决定要不要渲染。
+      const got = await chrome.storage.local.get("wechatWriterSettings");
+      const settings = got["wechatWriterSettings"] || {};
+      if (settings.useReactFloatingBall) {
+        return; // React bundle 接管 UI 渲染
+      }
       const resp = await chrome.runtime.sendMessage({ type: "GET_FLOATING_BALL_STATE" });
       const data = resp?.data || {};
       STATE.floatingBallEnabled = Boolean(data.enabled);
@@ -1303,5 +1322,43 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  }
+
+  // ────────── React 浮球 bridge（Phase 2.2 起）──────────
+  // 把 vanilla 这边几个**纯读 / 复用**的函数挂到 window，让 React bundle
+  // （同 manifest content_scripts entry，共享 isolated world）能复用，
+  // 不必把整套 mp 后台 DOM 启发式重写一遍 TS 版本。
+  //
+  // freeze 防止 React 端误改；不暴露任何写操作。
+  // 字段契约见 src/content-scripts/floating-ball/types.ts 的 declare global window。
+  if (typeof window !== "undefined" && !window.__runbi_mp_helper) {
+    Object.defineProperty(window, "__runbi_mp_helper", {
+      value: Object.freeze({
+        readCurrentMpAccountName: () => {
+          try {
+            return readCurrentMpAccountName() || "";
+          } catch {
+            return "";
+          }
+        },
+        isEditorPage: () => {
+          try {
+            return Boolean(isEditorPage());
+          } catch {
+            return false;
+          }
+        },
+        renderHelperDock: (result) => {
+          try {
+            renderHelperDock(result);
+          } catch {
+            // 反馈面板渲染失败不应阻断业务，吞掉
+          }
+        }
+      }),
+      writable: false,
+      configurable: false,
+      enumerable: false
+    });
   }
 })();

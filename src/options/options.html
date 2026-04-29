@@ -669,6 +669,22 @@
           </small>
         </div>
 
+        <!-- React 浮球 feature flag · Phase 2 灰度开关（32nd+ session）-->
+        <div class="checkbox-stack split-full" style="margin-top:8px;">
+          <label class="checkbox-row">
+            <input id="useReactFloatingBall" type="checkbox" />
+            <span>
+              使用新版浮球 <small class="field-meta">React + Shadow DOM · 试用版</small>
+            </span>
+          </label>
+          <small class="field-hint" style="margin-left:24px;">
+            新版用 React + Shadow DOM 重写，视觉与老版完全一致但**贴边隐藏**等微交互更精致。
+            <strong>什么时候改</strong>：想试试更精致的浮球时打开。开关切换后下次刷新 mp 编辑页生效。
+            <strong>关掉的后果</strong>：自动回到老版（vanilla strip），所有数据通用。两版功能一致，可一键切回。
+            遇到任何异常请关掉新版并把现象告诉作者。
+          </small>
+        </div>
+
         <!-- 「请先了解」前置 modal · twenty-ninth session
              首次切到 ON 弹出，告知注入范围 + 不联网 + 可右键关闭。点确认后写
              floatingBallOnboardingShown=true，避免每次都弹。-->

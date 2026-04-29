@@ -43,7 +43,10 @@
   "content_scripts": [
     {
       "matches": ["https://mp.weixin.qq.com/*"],
-      "js": ["src/content-scripts/wechat-editor-helper.js"],
+      "js": [
+        "src/content-scripts/wechat-editor-helper.js",
+        "src/content-scripts/floating-ball.bundle.js"
+      ],
       "run_at": "document_idle"
     }
   ],

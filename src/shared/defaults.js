@@ -221,7 +221,15 @@ export const DEFAULT_SETTINGS = {
   floatingBallOnboardingShown: false,
   // 浮球拖拽位置 {x, y}（视口左上角为原点 px）。null = 默认右下 right:18 bottom:18。
   // 用户拖拽松手时由 SW SAVE_FLOATING_BALL_POSITION handler 写入。
-  floatingBallPosition: null
+  floatingBallPosition: null,
+  // 贴边隐藏（v0.1.1，仅 React 浮球读，vanilla strip 不读）：
+  //   true 时 strip 平移到屏幕外只露 12px，hover 唤醒 / 离开 1.5s 自动贴回。
+  //   用户在浮球右键菜单切换。
+  floatingBallEdgeTucked: false,
+  // Phase 2 feature flag：true 时使用新版 React + Shadow DOM 实现，false 走原 vanilla strip。
+  // 默认 false 保护老用户；用户在 options「浮球」区段可主动切换。
+  // Phase 2.6 vanilla 退役后此 flag 删除，永远走 React 版本。
+  useReactFloatingBall: false
 };
 
 export const DEFAULT_ARTICLE_META = {

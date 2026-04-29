@@ -96,7 +96,10 @@ const fields = {
   drissionTimeoutMs: document.querySelector("#drissionTimeoutMs"),
   // 公众号编辑页悬浮助手（twenty-ninth session）。toggle 进 fields 走 saveForm
   // 通用循环；onboardingShown / position 不进 fields，由 SW handler 直接写。
-  floatingBallEnabled: document.querySelector("#floatingBallEnabled")
+  floatingBallEnabled: document.querySelector("#floatingBallEnabled"),
+  // React 浮球 feature flag（32nd session Phase 2）。saveForm 写 settings.useReactFloatingBall，
+  // 切到 true 后 vanilla helper early-return + React bundle 接管渲染。下次刷新 mp 页生效。
+  useReactFloatingBall: document.querySelector("#useReactFloatingBall")
 };
 
 const statusElement = document.querySelector("#status");
