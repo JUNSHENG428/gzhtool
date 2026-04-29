@@ -417,7 +417,11 @@ async function handleChangePassword(request, env) {
 
   const expected = await pbkdf2Hash(oldPassword, base64Decode(user.password_salt));
   if (!constantTimeEqual(base64Encode(expected), user.password_hash)) {
-    return jsonResponse({ ok: false, error: "旧密码不正确" }, 401);
+    // 注意：这里必须用 400，不能用 401。
+    // 401 会被 site/assets/js/api.js 的 _onUnauthorized() 拦截 → 清 token + 跳登录。
+    // 旧密码错是已登录用户的"业务校验失败"，JWT 仍然有效，应留在当前页面让用户重输。
+    // 401 仅保留给 JWT 缺失/过期/签名失败（见 requireAuth 与 webhook signature）。
+    return jsonResponse({ ok: false, error: "旧密码不正确" }, 400);
   }
 
   const newSalt = crypto.getRandomValues(new Uint8Array(16));
@@ -524,9 +528,35 @@ async function handleRequestReset(request, env) {
   // 邮件发送：worker 暂未集成邮件服务（Resend / Mailgun / SES 等）。
   // 上线时在这里调对应服务即可；为方便联调，DEBUG 开关下把 reset URL 直接返回。
   const resetUrl = buildResetUrl(env, token);
-  await sendResetEmail(env, user.email, resetUrl);
+  const sendStatus = await sendResetEmail(env, user.email, resetUrl);
 
-  const debugReturn = env.DEBUG_RESET === "1" ? { resetUrl } : {};
+  // P0-3 hardening：DEBUG_RESET=1 单独不够，必须配合 ENVIRONMENT=development 才暴露
+  // resetUrl —— 防止生产环境意外开启 DEBUG_RESET 导致重置链接通过响应体外泄。
+  // 部署方在 .dev.vars 同时写 DEBUG_RESET=1 + ENVIRONMENT=development；生产 [vars]
+  // 永远别加 ENVIRONMENT=development（默认空 = 生产）。
+  const debugAllowed =
+    env.DEBUG_RESET === "1" && env.ENVIRONMENT === "development";
+  const debugReturn = debugAllowed ? { resetUrl } : {};
+
+  // P0-2：邮件实际没发出去时透明告诉前端（user 存在分支才暴露状态；user 不存在
+  // 仍走最早的 sent:true 防枚举语义）。"failed" 客户端可提示重试 / 联系运维；
+  // "not_configured" 是部署方漏配 RESEND_API_KEY，文案要明确"非用户问题"。
+  if (sendStatus === "not_configured") {
+    return jsonResponse({
+      ok: true,
+      sent: false,
+      reason: "email_not_configured",
+      ...debugReturn
+    });
+  }
+  if (sendStatus === "failed") {
+    return jsonResponse({
+      ok: true,
+      sent: false,
+      reason: "email_send_failed",
+      ...debugReturn
+    });
+  }
   return jsonResponse({ ok: true, sent: true, ...debugReturn });
 }
 
@@ -1575,6 +1605,14 @@ function buildResetUrl(env, token) {
  * 「请求 + 响应 status + body 前 500 字符」详细 log 出来，按项目 SOP
  * 排查必须用 `wrangler tail --status error` 看 log，不是看 HTTP 返回码。
  * 详见 docs/RESEND_EMAIL_SETUP.md。
+ *
+ * 返回状态字符串供 handleRequestReset 决定对外响应：
+ *   - "sent"            : 真实发出（Resend 200 OK）
+ *   - "not_configured"  : 未配置 RESEND_API_KEY（生产环境若返回此值说明运维漏配）
+ *   - "failed"          : Resend 接受了请求但返回非 2xx，或网络/TLS 失败
+ *
+ * 调用方对未注册邮箱仍要返回 ok:true sent:true（防枚举）；只有"用户存在但
+ * 邮件实际没发出去"的场景才把 sent:false + reason 透给前端。
  */
 async function sendResetEmail(env, toEmail, resetUrl) {
   const subject = "润笔 · 重置你的密码";
@@ -1596,7 +1634,7 @@ ${resetUrl}
       `[reset] (no email provider) to=${toEmail} url=${resetUrl} ` +
         `(配 RESEND_API_KEY 后会真发邮件，详见 docs/RESEND_EMAIL_SETUP.md)`
     );
-    return;
+    return "not_configured";
   }
 
   const fromEmail = env.RESET_EMAIL_FROM || "no-reply@docuearn.com";
@@ -1633,15 +1671,17 @@ ${resetUrl}
       console.error(
         `[reset] Resend FAILED status=${resp.status} body=${bodyPreview}`
       );
-    } else {
-      console.log(`[reset] Resend ok status=${resp.status} body=${bodyPreview}`);
+      return "failed";
     }
+    console.log(`[reset] Resend ok status=${resp.status} body=${bodyPreview}`);
+    return "sent";
   } catch (error) {
     // 网络层失败（DNS / 超时 / TLS）。永远不抛回上层。
     console.error(
       `[reset] Resend network error to=${toEmail}:`,
       error?.message || error
     );
+    return "failed";
   }
 }
 
