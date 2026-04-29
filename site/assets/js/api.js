@@ -64,6 +64,16 @@ export function setOnUnauthorized(fn) {
  * - 自动注入 Authorization
  * - HTTP !ok 时抛出 { status, message } 形式 Error
  * - 401 触发 onUnauthorized（避免每个调用方都写一遍）
+ *
+ * ⚠️ 契约（与 server/worker.js 守约配对）：
+ *   - 401 在本拦截器里**无差别**触发 _onUnauthorized() → 清 token + 跳登录页。
+ *   - 这意味着 worker 端**只允许** requireAuth (缺/坏 token) 与 webhook signature
+ *     失败返回 401；任何**已认证路径下的业务校验失败**（如旧密码错、状态非法、
+ *     数量超限）必须用 400/403/409/422 等其它状态码。否则用户输错一次旧密码
+ *     就会被踢登出，体验灾难（曾踩坑：handleChangePassword 历史返 401，
+ *     2026-04-29 twenty-fourth session 已修为 400）。
+ *   - 新加 worker 路由前必读本注释；改本拦截器（path-specific 例外、文案匹配等）
+ *     前先盘清服务端契约面是否还能一致维护。
  */
 export async function api(path, { method = "GET", body, auth = true, headers = {} } = {}) {
   const base = getApiBase();
