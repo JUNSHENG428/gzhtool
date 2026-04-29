@@ -300,40 +300,23 @@
         }
         return;
       }
-      if (action === "open-workspace") {
-        chrome.tabs?.create
-          ? chrome.tabs.create({
-              url: chrome.runtime.getURL("src/workspace/workspace.html"),
-              active: true
-            })
-          : window.open(chrome.runtime.getURL("src/workspace/workspace.html"), "_blank");
-        return;
-      }
-      if (action === "open-hot") {
-        chrome.tabs?.create
-          ? chrome.tabs.create({
-              url: chrome.runtime.getURL("src/pages/hot-topics.html"),
-              active: true
-            })
-          : window.open(chrome.runtime.getURL("src/pages/hot-topics.html"), "_blank");
-        return;
-      }
-      if (action === "open-options") {
-        chrome.tabs?.create
-          ? chrome.tabs.create({
-              url: chrome.runtime.getURL("src/options/options.html"),
-              active: true
-            })
-          : window.open(chrome.runtime.getURL("src/options/options.html"), "_blank");
-        return;
-      }
-      if (action === "open-help") {
-        chrome.tabs?.create
-          ? chrome.tabs.create({
-              url: chrome.runtime.getURL("src/pages/help.html"),
-              active: true
-            })
-          : window.open(chrome.runtime.getURL("src/pages/help.html"), "_blank");
+      // 4 个跳转球用 SW 中转 chrome.tabs.create —— content script 本身**没有**
+      // chrome.tabs API（v0.3 初版误用 chrome.tabs?.create 实际为 false 走 window.open
+      // fallback 被 Chrome ERR_BLOCKED_BY_CLIENT 拒绝）。SW 端 OPEN_EXTENSION_PAGE
+      // handler 只接受白名单 path，防止滥用。
+      const pathByAction = {
+        "open-workspace": "src/workspace/workspace.html",
+        "open-hot": "src/pages/hot-topics.html",
+        "open-options": "src/options/options.html",
+        "open-help": "src/pages/help.html"
+      };
+      const targetPath = pathByAction[action];
+      if (targetPath) {
+        chrome.runtime
+          .sendMessage({ type: "OPEN_EXTENSION_PAGE", payload: { path: targetPath } })
+          .catch((err) => {
+            renderToast(`打开失败：${err?.message || "未知错误"}`, "error");
+          });
       }
     });
   }

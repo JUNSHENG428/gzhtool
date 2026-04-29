@@ -582,6 +582,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // 与 PUBLISH_TO_WECHAT browser 模式互补 —— 那条是 push（workspace 主动发），
       // 这条是 pull（用户在 mp 后台主动拉）。共用 IMPORT_ARTICLE_TO_WECHAT_EDITOR 协议
       // 与 wechat-editor-helper.js 的 importArticle 写入逻辑（含 DOM safety net）。
+      case "OPEN_EXTENSION_PAGE": {
+        // 浮球 5 球侧边栏的 4 个跳转球（工作台 / 热点 / 设置 / 帮助）调用入口。
+        // 必须由 SW 调 chrome.tabs.create —— content script 没有 chrome.tabs API
+        // （也不能用 window.open(chrome-extension://...)，会被 Chrome 拒
+        // ERR_BLOCKED_BY_CLIENT）。这里只接受**自家扩展页**的相对路径，防止滥用。
+        const allowedPaths = new Set([
+          "src/workspace/workspace.html",
+          "src/options/options.html",
+          "src/pages/hot-topics.html",
+          "src/pages/help.html",
+          "src/popup/popup.html"
+        ]);
+        const path = String(message.payload?.path || "").replace(/^\/+/, "");
+        if (!allowedPaths.has(path)) {
+          sendResponse({ ok: false, error: `非法目标 path: ${path}` });
+          break;
+        }
+        await chrome.tabs.create({
+          url: chrome.runtime.getURL(path),
+          active: true
+        });
+        sendResponse({ ok: true });
+        break;
+      }
       case "GET_FLOATING_BALL_STATE": {
         const settings = await getSettings();
         sendResponse({
