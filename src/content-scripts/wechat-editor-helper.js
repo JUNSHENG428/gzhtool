@@ -5,12 +5,37 @@
   const STRIP_POPOVER_ID = "wechat-editor-sync-strip-popover"; // 多草稿弹层 / context menu 共用 ID
   const STRIP_TOAST_ID = "wechat-editor-sync-toast"; // 拉草稿后短暂状态反馈
   const FLOATING_BALL_MENU_ID = "wechat-editor-sync-floating-ball-menu"; // 兼容旧 ID
-  const BALL_SIZE = 44; // 单球直径
-  const BALL_GAP = 8; // 球间距
-  // strip 总尺寸：5 球 vertical = 5 * 44 + 4 * 8 = 252px 高 + padding 12 → 264px 高，宽 56px
-  const STRIP_WIDTH = BALL_SIZE + 12;
-  const STRIP_HEIGHT = 5 * BALL_SIZE + 4 * BALL_GAP + 16;
+  // v0.4 设计：主次球大小区分（核心拉草稿球 vs 次要跳转球）
+  const BALL_PRIMARY_SIZE = 48;
+  const BALL_SECONDARY_SIZE = 40;
+  const BALL_GAP = 6;
+  // strip 总尺寸：1*48 + 4*40 + 4*6 + 12 padding = 244px 高，主球宽决定外宽
+  const STRIP_WIDTH = BALL_PRIMARY_SIZE + 12;
+  const STRIP_HEIGHT =
+    BALL_PRIMARY_SIZE + 4 * BALL_SECONDARY_SIZE + 4 * BALL_GAP + 12;
   const FLOATING_BALL_SIZE = STRIP_WIDTH; // 兼容 storage onChanged 老引用
+
+  // v0.4 设计 token（hardcode in content-script，不靠 page :root，避免被 mp 后台 CSS 覆盖）
+  // 与 src/pages/design-tokens.css 一致：墨绿 brand + 暖纸 cream + 暖橙 accent
+  const TOKEN = {
+    brand: "#173722",
+    brandHover: "#1f4a2e",
+    accent: "#b8722e",
+    cream: "#f7f5ef",
+    creamMuted: "#f6f4ee",
+    surfaceElevated: "#fffdf8",
+    ink: "#1a2620",
+    inkSecondary: "#3d4f45",
+    softInk: "#5a6b62",
+    line: "#d4cfc3",
+    lineStrong: "#c4bdb0",
+    shadowMd: "0 12px 32px rgba(32,40,29,0.10),0 0 0 1px rgba(28,38,32,0.06)",
+    shadowLg: "0 20px 48px rgba(28,36,30,0.14)",
+    fontSans: '"DM Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif',
+    fontSerif: '"Noto Serif SC","Source Han Serif SC","Songti SC","SimSun",serif',
+    easeOut: "cubic-bezier(0.22,1,0.36,1)",
+    easeSpring: "cubic-bezier(0.34,1.56,0.64,1)"
+  };
   const STATE = {
     payload: null,
     result: null,
@@ -92,6 +117,7 @@
   }
 
   function renderFloatingBallStrip() {
+    ensureStripStyles(); // <style> 注入一次（hover/grab/reduced-motion 守卫等需要 :hover 选择器，inline style 做不到）
     let strip = document.getElementById(STRIP_ID);
     if (!strip) {
       strip = document.createElement("div");
@@ -100,12 +126,71 @@
       strip.innerHTML = stripBallsHtml();
       document.documentElement.appendChild(strip);
       attachStripEvents(strip);
+      // 进场动画：先 scale 0.85 + opacity 0，下一帧恢复 1 / 1
+      strip.style.transform = "scale(0.85)";
+      strip.style.opacity = "0";
+      requestAnimationFrame(() => {
+        strip.style.transform = "scale(1)";
+        strip.style.opacity = "1";
+      });
     } else {
       // 已存在：只更新 1 号球的 Profile 状态点（其它球内容不变）
       refreshPullBallStatus(strip);
     }
     applyStripPosition(strip);
     strip.style.display = "flex";
+  }
+
+  let _stripStylesInjected = false;
+  function ensureStripStyles() {
+    if (_stripStylesInjected) return;
+    const style = document.createElement("style");
+    style.id = "wechat-editor-sync-strip-styles";
+    // hover/active/focus 状态 + reduced-motion 守卫。content script 元素挂在
+    // documentElement 下与 mp 后台共享样式表作用域，但用我们的 ID 前缀作 selector
+    // 避免污染宿主页（mp 后台 CSS 也不会用到 rb-strip- 这种自定义前缀）。
+    style.textContent = `
+      #${STRIP_ID}:active { cursor: grabbing; }
+      #${STRIP_ID} button[data-strip-action]:hover {
+        transform: scale(1.08);
+        box-shadow: ${TOKEN.shadowLg};
+      }
+      #${STRIP_ID} button[data-strip-action="pull"]:hover {
+        background: ${TOKEN.brandHover};
+      }
+      #${STRIP_ID} button[data-strip-action="pull"][disabled]:hover {
+        transform: none;
+        background: ${TOKEN.brand};
+        box-shadow: 0 6px 16px rgba(23,55,34,0.24),inset 0 1px 0 rgba(255,253,248,0.08);
+      }
+      #${STRIP_ID} button[data-strip-action]:not([data-strip-action="pull"]):hover {
+        border-color: ${TOKEN.brand};
+        color: ${TOKEN.brandHover};
+      }
+      #${STRIP_ID} button[data-strip-action]:focus-visible {
+        outline: 2px solid ${TOKEN.accent};
+        outline-offset: 3px;
+      }
+      #${STRIP_ID} button[data-strip-action]:active {
+        transform: scale(0.96);
+      }
+      @keyframes rb-toast-in {
+        from { opacity: 0; transform: translate(-50%, 12px); }
+        to   { opacity: 1; transform: translate(-50%, 0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #${STRIP_ID},
+        #${STRIP_ID} button[data-strip-action] {
+          transition: none !important;
+          animation: none !important;
+        }
+        #${STRIP_ID} button[data-strip-action]:hover {
+          transform: none;
+        }
+      }
+    `;
+    document.documentElement.appendChild(style);
+    _stripStylesInjected = true;
   }
 
   function stripWrapperStyle() {
@@ -118,35 +203,51 @@
       "z-index:2147483646",
       "display:flex",
       "flex-direction:column",
+      "align-items:center",
       `gap:${BALL_GAP}px`,
-      "background:rgba(255,255,255,0.94)",
-      "border-radius:30px",
-      "box-shadow:0 12px 32px rgba(0,0,0,0.18),0 0 0 1px rgba(0,0,0,0.04)",
-      "font-family:IBM Plex Sans,PingFang SC,Hiragino Sans GB,sans-serif",
+      `background:${TOKEN.cream}`,
+      "border-radius:28px", // 与项目 --radius-xl 一致
+      `border:1px solid ${TOKEN.line}`,
+      `box-shadow:${TOKEN.shadowMd}`,
+      `font-family:${TOKEN.fontSans}`,
       "user-select:none",
-      "transition:box-shadow 160ms ease"
+      "cursor:grab",
+      `transition:box-shadow 220ms ${TOKEN.easeOut},transform 220ms ${TOKEN.easeOut},opacity 220ms ${TOKEN.easeOut}`,
+      "opacity:1",
+      "transform:scale(1)"
     ].join(";");
   }
 
+  // 单球样式。
+  //   - 主球：墨绿底 + 暖米色衬线字
+  //   - 次球：暖米底 + 墨绿衬线字 + 1px 边
+  //   - hover/active 用 inline event listener 控制 transform & box-shadow
   function ballStyle({ primary = false, disabled = false } = {}) {
+    const size = primary ? BALL_PRIMARY_SIZE : BALL_SECONDARY_SIZE;
+    const fontSize = primary ? "20px" : "16px";
     return [
-      `width:${BALL_SIZE}px`,
-      `height:${BALL_SIZE}px`,
+      `width:${size}px`,
+      `height:${size}px`,
       "border-radius:50%",
-      "border:none",
       primary
-        ? "background:linear-gradient(135deg,#1f6f4a 0%,#2a8a5a 100%)"
-        : "background:#f3f5f3",
-      primary ? "color:#fff" : "color:#3a4a3f",
-      "font-size:18px",
-      "cursor:pointer",
+        ? `background:${TOKEN.brand};border:1px solid ${TOKEN.brand};color:${TOKEN.cream}`
+        : `background:${TOKEN.surfaceElevated};border:1px solid ${TOKEN.line};color:${TOKEN.brand}`,
+      `font-family:${TOKEN.fontSerif}`,
+      "font-weight:700",
+      `font-size:${fontSize}`,
+      "line-height:1",
+      "letter-spacing:0",
+      disabled ? "cursor:not-allowed;opacity:0.42" : "cursor:pointer;opacity:1",
       "display:flex",
       "align-items:center",
       "justify-content:center",
       "position:relative",
-      "transition:transform 120ms ease,box-shadow 120ms ease",
-      primary ? "box-shadow:0 4px 10px rgba(31,111,74,0.32)" : "",
-      disabled ? "opacity:0.45;cursor:not-allowed;" : ""
+      "padding:0",
+      "outline:0",
+      primary
+        ? `box-shadow:0 6px 16px rgba(23,55,34,0.24),inset 0 1px 0 rgba(255,253,248,0.08)`
+        : "box-shadow:0 1px 2px rgba(28,38,32,0.04)",
+      `transition:transform 220ms ${TOKEN.easeSpring},box-shadow 220ms ${TOKEN.easeOut},background 180ms ${TOKEN.easeOut},border-color 180ms ${TOKEN.easeOut},color 180ms ${TOKEN.easeOut}`
     ].join(";");
   }
 
@@ -157,25 +258,27 @@
     const targetName = String(profile?.targetProfileName || "").trim();
     if (!targetName && drafts.length === 0) return ""; // 还没拉过 / 无 profile 关联，不显点
     const mpAccount = readCurrentMpAccountName();
-    let color = "#a0a8a8"; // 默认灰：targetName 空
+    // 状态点配色与项目语言对齐：用项目暖橙作 warning（替代纯红 #ef4444）；
+    // 绿色用项目 brand 派生的鲜绿（视觉舒适、和墨绿主球协调）；灰色用 muted 暖灰
+    let color = TOKEN.softInk;
     let title = "草稿未关联具体公众号";
     if (targetName) {
       if (!mpAccount) {
-        color = "#a0a8a8";
+        color = TOKEN.softInk;
         title = `草稿目标：${targetName}（未读到 mp 当前账号，按理由放行）`;
       } else if (
         targetName === mpAccount ||
         targetName.includes(mpAccount) ||
         mpAccount.includes(targetName)
       ) {
-        color = "#22c55e";
+        color = "#5fa56b"; // 和谐绿（比 #22c55e 更接近项目植物感）
         title = `账号匹配：${mpAccount}`;
       } else {
-        color = "#ef4444";
+        color = TOKEN.accent; // 项目暖橙警示色，比红色更"刊头"
         title = `不匹配 · mp 当前是 ${mpAccount}，草稿目标是 ${targetName}`;
       }
     }
-    return `<span class="rb-profile-dot" title="${escapeHtml(title)}" style="position:absolute;top:2px;right:2px;width:10px;height:10px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,0.06);"></span>`;
+    return `<span class="rb-profile-dot" title="${escapeHtml(title)}" style="position:absolute;top:1px;right:1px;width:10px;height:10px;border-radius:50%;background:${color};border:2px solid ${TOKEN.cream};box-shadow:0 0 0 1px rgba(28,38,32,0.10);pointer-events:none;"></span>`;
   }
 
   /** 1 号球 disabled 条件：① !isEditorPage（列表页）② Profile 不匹配（防写错号）*/
@@ -201,17 +304,19 @@
       : pullDisabled
         ? "mp 后台账号与草稿目标账号不一致，已禁用以防写错号"
         : drafts.length > 1
-          ? `从润笔工作台拉草稿（${drafts.length} 篇可选）`
-          : "从润笔工作台拉当前激活草稿";
+          ? `从润笔工作台取草稿（${drafts.length} 篇可选）`
+          : "从润笔工作台取当前激活草稿到 mp 编辑器";
+    // 5 球字符（衬线 700）：
+    //   取（拉草稿，主动作）/ 编（工作台 编辑台）/ 热（热点）/ 设（设置）/ 问（帮助）
     return `
-      <button data-strip-action="pull" type="button" title="${escapeHtml(pullTooltip)}" style="${ballStyle({ primary: true, disabled: pullDisabled })}">
-        📥
+      <button data-strip-action="pull" type="button" tabindex="0" aria-label="${escapeHtml(pullTooltip)}" title="${escapeHtml(pullTooltip)}" style="${ballStyle({ primary: true, disabled: pullDisabled })}">
+        取
         ${profileDotHtml()}
       </button>
-      <button data-strip-action="open-workspace" type="button" title="打开润笔工作台" style="${ballStyle()}">📂</button>
-      <button data-strip-action="open-hot" type="button" title="热点抓题" style="${ballStyle()}">🔥</button>
-      <button data-strip-action="open-options" type="button" title="打开设置" style="${ballStyle()}">⚙️</button>
-      <button data-strip-action="open-help" type="button" title="帮助 / 教程" style="${ballStyle()}">❓</button>
+      <button data-strip-action="open-workspace" type="button" tabindex="0" aria-label="打开润笔工作台" title="打开润笔工作台" style="${ballStyle()}">编</button>
+      <button data-strip-action="open-hot" type="button" tabindex="0" aria-label="热点抓题" title="热点抓题" style="${ballStyle()}">热</button>
+      <button data-strip-action="open-options" type="button" tabindex="0" aria-label="打开设置" title="打开设置" style="${ballStyle()}">设</button>
+      <button data-strip-action="open-help" type="button" tabindex="0" aria-label="帮助与教程" title="帮助与教程" style="${ballStyle()}">问</button>
     `;
   }
 
@@ -280,6 +385,20 @@
       event.preventDefault();
       renderStripContextMenu(event.clientX, event.clientY);
     });
+
+    // ── 键盘可达性：上下方向键在球间移动焦点；Enter/Space 已是 button 默认 ──
+    strip.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      const buttons = Array.from(strip.querySelectorAll("button[data-strip-action]"));
+      const idx = buttons.indexOf(document.activeElement);
+      if (idx < 0) return;
+      event.preventDefault();
+      const next =
+        event.key === "ArrowDown"
+          ? (idx + 1) % buttons.length
+          : (idx - 1 + buttons.length) % buttons.length;
+      buttons[next]?.focus();
+    });
   }
 
   function attachStripBallClicks(strip) {
@@ -333,29 +452,32 @@
     popover.style.cssText = [
       "position:fixed",
       `top:${rect.top}px`,
-      `right:${window.innerWidth - rect.left + 8}px`, // 球的左侧 8px gap
+      `right:${window.innerWidth - rect.left + 10}px`,
       "min-width:280px",
       "max-width:360px",
       "max-height:60vh",
       "overflow-y:auto",
       "z-index:2147483647",
-      "background:#fff",
-      "color:#1a2520",
-      "border-radius:14px",
+      `background:${TOKEN.surfaceElevated}`,
+      `color:${TOKEN.ink}`,
+      "border-radius:16px", // --radius-md
+      `border:1px solid ${TOKEN.line}`,
       "padding:10px 0",
-      "box-shadow:0 12px 32px rgba(0,0,0,0.18),0 0 0 1px rgba(0,0,0,0.06)",
-      "font:13px IBM Plex Sans,PingFang SC,sans-serif"
+      `box-shadow:${TOKEN.shadowLg}`,
+      `font-family:${TOKEN.fontSans}`,
+      "font-size:13px",
+      `animation:rb-toast-in 200ms ${TOKEN.easeOut}`
     ].join(";");
     popover.innerHTML = `
-      <div style="padding:6px 14px 8px;font-size:12px;color:#6b7670;border-bottom:1px solid #eef0ed;margin-bottom:4px;">
-        共 ${drafts.length} 篇，选一篇拉到 mp 编辑器：
+      <div style="padding:6px 14px 8px;font-size:12px;color:${TOKEN.softInk};border-bottom:1px solid ${TOKEN.line};margin-bottom:4px;">
+        共 ${drafts.length} 篇，选一篇取到 mp 编辑器：
       </div>
       ${drafts
         .map(
           (d) => `
-        <div data-draft-id="${escapeHtml(d.id)}" style="padding:9px 14px;cursor:pointer;line-height:1.5;border-radius:6px;margin:0 6px;${d.selected ? "background:rgba(31,111,74,0.08);" : ""}">
-          <div style="font-weight:600;font-size:13px;color:#1a2520;">${escapeHtml(d.title.slice(0, 28))}${d.title.length > 28 ? "…" : ""}</div>
-          <div style="font-size:11px;color:#6b7670;margin-top:2px;">
+        <div data-draft-id="${escapeHtml(d.id)}" style="padding:9px 14px;cursor:pointer;line-height:1.55;border-radius:8px;margin:0 6px;${d.selected ? `background:${TOKEN.brandSoft || "rgba(23,55,34,0.08)"};` : ""}transition:background 150ms ${TOKEN.easeOut};">
+          <div style="font-weight:600;font-size:13px;color:${TOKEN.ink};">${escapeHtml(d.title.slice(0, 28))}${d.title.length > 28 ? "…" : ""}</div>
+          <div style="font-size:11px;color:${TOKEN.softInk};margin-top:2px;">
             ${d.wordCount} 字${d.targetProfileName ? ` · 目标账号「${escapeHtml(d.targetProfileName)}」` : ""}${d.selected ? " · 当前激活" : ""}
           </div>
         </div>
@@ -366,10 +488,10 @@
     document.documentElement.appendChild(popover);
 
     popover.querySelectorAll("[data-draft-id]").forEach((row) => {
-      row.addEventListener("mouseenter", () => (row.style.background = "rgba(31,111,74,0.06)"));
+      row.addEventListener("mouseenter", () => (row.style.background = "rgba(23,55,34,0.06)"));
       row.addEventListener("mouseleave", () => {
         const isSelected = row.dataset.draftId === STATE.payload?.selectedArticleId;
-        row.style.background = isSelected ? "rgba(31,111,74,0.08)" : "";
+        row.style.background = isSelected ? "rgba(23,55,34,0.08)" : "";
       });
       row.addEventListener("click", async () => {
         const articleId = row.dataset.draftId;
@@ -414,29 +536,35 @@
     if (strip) refreshPullBallStatus(strip);
   }
 
-  /** 右下角短暂 toast（5 秒自动消失） */
+  /** 底部居中短暂 toast（5 秒自动消失，error 8 秒，loading 不自动关）。
+   *  视觉与项目 design tokens 对齐：墨绿（success）/ 暖橙（error）/ 暗墨（loading/info）+ cream 文字 + 衬线字体。 */
   function renderToast(text, kind = "info") {
+    ensureStripStyles(); // 复用 strip 那次注入的 keyframes
     document.getElementById(STRIP_TOAST_ID)?.remove();
     const toast = document.createElement("div");
     toast.id = STRIP_TOAST_ID;
     const bg =
-      kind === "success" ? "rgba(31,111,74,0.96)" : kind === "error" ? "rgba(190,18,60,0.96)" : "rgba(25,32,27,0.96)";
-    // strip 在右侧，toast 放底部居中位置避免遮挡
+      kind === "success"
+        ? TOKEN.brand
+        : kind === "error"
+          ? "#a8443a" // popup.css --danger 对齐
+          : "#2a3530"; // info / loading：暖暗
     toast.style.cssText = [
       "position:fixed",
       "left:50%",
-      "transform:translateX(-50%)",
-      "bottom:24px",
+      "transform:translate(-50%,0)",
+      "bottom:28px",
       "max-width:520px",
-      "padding:11px 18px",
+      "padding:12px 20px",
       `background:${bg}`,
-      "color:#fff",
-      "border-radius:10px",
+      `color:${TOKEN.cream}`,
+      "border-radius:14px", // --radius-md
       "z-index:2147483647",
-      "font:13px IBM Plex Sans,PingFang SC,sans-serif",
-      "line-height:1.6",
-      "box-shadow:0 12px 32px rgba(0,0,0,0.28)",
-      "animation:rb-toast-in 200ms ease-out"
+      `font-family:${TOKEN.fontSans}`,
+      "font-size:13px",
+      "line-height:1.65",
+      `box-shadow:${TOKEN.shadowLg}`,
+      `animation:rb-toast-in 220ms ${TOKEN.easeOut}`
     ].join(";");
     toast.textContent = text;
     document.documentElement.appendChild(toast);
@@ -483,25 +611,28 @@
     menu.id = STRIP_POPOVER_ID;
     menu.style.cssText = [
       "position:fixed",
-      `left:${Math.min(x, window.innerWidth - 220)}px`,
-      `top:${Math.min(y, window.innerHeight - 100)}px`,
+      `left:${Math.min(x, window.innerWidth - 230)}px`,
+      `top:${Math.min(y, window.innerHeight - 110)}px`,
       "width:220px",
       "z-index:2147483647",
-      "background:#fff",
-      "color:#1a2520",
-      "border-radius:10px",
+      `background:${TOKEN.surfaceElevated}`,
+      `color:${TOKEN.ink}`,
+      "border-radius:14px",
+      `border:1px solid ${TOKEN.line}`,
       "padding:6px 0",
-      "box-shadow:0 12px 32px rgba(0,0,0,0.18),0 0 0 1px rgba(0,0,0,0.06)",
-      "font:13px IBM Plex Sans,PingFang SC,sans-serif"
+      `box-shadow:${TOKEN.shadowLg}`,
+      `font-family:${TOKEN.fontSans}`,
+      "font-size:13px",
+      `animation:rb-toast-in 180ms ${TOKEN.easeOut}`
     ].join(";");
     menu.innerHTML = `
-      <div data-menu-action="reset-position" style="padding:9px 14px;cursor:pointer;line-height:1.5;">
+      <div data-menu-action="reset-position" style="padding:9px 14px;cursor:pointer;line-height:1.5;transition:background 150ms;" onmouseenter="this.style.background='rgba(23,55,34,0.06)'" onmouseleave="this.style.background=''">
         重置位置（回到右下角）
       </div>
-      <div style="height:1px;background:#eef0ed;margin:2px 0;"></div>
-      <div data-menu-action="disable" style="padding:9px 14px;cursor:pointer;line-height:1.5;color:#b91c1c;">
+      <div style="height:1px;background:${TOKEN.line};margin:2px 0;"></div>
+      <div data-menu-action="disable" style="padding:9px 14px;cursor:pointer;line-height:1.5;color:${TOKEN.accent};transition:background 150ms;" onmouseenter="this.style.background='rgba(184,114,46,0.08)'" onmouseleave="this.style.background=''">
         在公众号后台永久隐藏<br />
-        <span style="font-size:11px;color:#9aa3a8;">去扩展设置页可重新启用</span>
+        <span style="font-size:11px;color:${TOKEN.softInk};">去扩展设置页可重新启用</span>
       </div>
     `;
     document.documentElement.appendChild(menu);
