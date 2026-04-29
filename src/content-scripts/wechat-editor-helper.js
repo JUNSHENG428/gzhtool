@@ -145,12 +145,26 @@
       strip.innerHTML = stripBallsHtml();
       document.documentElement.appendChild(strip);
       attachStripEvents(strip);
-      // 进场动画：先 scale 0.85 + opacity 0，下一帧恢复 1 / 1
-      strip.style.transform = "scale(0.85)";
-      strip.style.opacity = "0";
+      // 进场：5 球错落滑入（translateX(-5px)→0 + opacity 0→1，stagger 50ms × index）
+      // 整条 strip 立刻渲染（不再整体 scale），让节奏感来自球之间的依次到位
+      const balls = strip.querySelectorAll("button[data-strip-action]");
+      balls.forEach((ball) => {
+        ball.style.opacity = "0";
+        ball.style.transform = "translateX(-5px)";
+      });
       requestAnimationFrame(() => {
-        strip.style.transform = "scale(1)";
-        strip.style.opacity = "1";
+        balls.forEach((ball, index) => {
+          ball.style.transitionDelay = `${index * 50}ms`;
+          ball.style.opacity = "1";
+          ball.style.transform = "translateX(0)";
+        });
+        // 入场最长 ~450ms（4*50ms stagger + 250ms transition），500ms 后清掉
+        // transition-delay，避免后续 hover/active 反馈被 stagger 残值卡住
+        setTimeout(() => {
+          balls.forEach((ball) => {
+            ball.style.transitionDelay = "0ms";
+          });
+        }, 500);
       });
     } else {
       // 已存在：只更新 1 号球的 Profile 状态点（其它球内容不变）
@@ -266,7 +280,9 @@
       primary
         ? `box-shadow:0 6px 16px rgba(23,55,34,0.24),inset 0 1px 0 rgba(255,253,248,0.08)`
         : "box-shadow:0 1px 2px rgba(28,38,32,0.04)",
-      `transition:transform 220ms ${TOKEN.easeSpring},box-shadow 220ms ${TOKEN.easeOut},background 180ms ${TOKEN.easeOut},border-color 180ms ${TOKEN.easeOut},color 180ms ${TOKEN.easeOut}`
+      // transform/opacity 用 250ms ease-out 给入场 stagger 用；hover 的 scale(1.08)
+      // 也走同一条曲线（牺牲了原 easeSpring 的微回弹换取入场节奏，v0.4.1 取舍）
+      `transition:transform 250ms ${TOKEN.easeOut},opacity 250ms ${TOKEN.easeOut},box-shadow 220ms ${TOKEN.easeOut},background 180ms ${TOKEN.easeOut},border-color 180ms ${TOKEN.easeOut},color 180ms ${TOKEN.easeOut}`
     ].join(";");
   }
 
