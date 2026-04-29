@@ -336,6 +336,11 @@ export function collectRewritePreferences() {
 export function collectCurrentArticleMeta() {
   const { controls } = _ctx;
   const current = getCurrentArticle();
+  // 当前编辑台「发布账号」下拉选中的 wechatProfile index。-1 = 默认账号（未关联具体 profile）。
+  // 浮球 PULL 时与 mp 后台导航栏当前账号名做匹配防止串号。每次 syncCurrentArticleFromControls
+  // 都同步写一次，让用户在编辑台切换发布账号时草稿元数据立刻更新。
+  const profileIndexRaw = Number(controls.wechatProfileSelect?.value ?? -1);
+  const targetProfileIndex = Number.isFinite(profileIndexRaw) ? profileIndexRaw : -1;
   return {
     ...DEFAULT_ARTICLE_META,
     ...current.meta,
@@ -348,7 +353,8 @@ export function collectCurrentArticleMeta() {
     coverImageIndex: Number(controls.coverImageIndex.value || 0),
     needOpenComment: controls.needOpenComment.checked,
     onlyFansCanComment: controls.onlyFansCanComment.checked,
-    publishMode: controls.publishMode.value
+    publishMode: controls.publishMode.value,
+    targetProfileIndex
   };
 }
 

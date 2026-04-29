@@ -237,7 +237,14 @@ export const DEFAULT_ARTICLE_META = {
   keywords: [],
   needOpenComment: false,
   onlyFansCanComment: false,
-  publishMode: "draft"
+  publishMode: "draft",
+  // 草稿创建/改写时记下"为哪个 wechatProfile 而写"。
+  // -1 = 未指定（向后兼容老草稿，浮球 PULL 时不做账号匹配）。
+  // 取值是 settings.wechatProfiles 的 index。当用户在 workspace 编辑台改了
+  // 「发布账号」下拉时，下次 capture / rewrite / saveCurrentDraftRecord 写入此字段。
+  // mp 编辑页悬浮助手 PULL 时与 mp 后台导航栏当前账号名做匹配，不一致时 dock
+  // 显示警告 + 拉草稿按钮 disabled，避免把"为账号 A 写的稿"误推进账号 B 的编辑器。
+  targetProfileIndex: -1
 };
 
 export const MAX_WECHAT_ARTICLES = 8;

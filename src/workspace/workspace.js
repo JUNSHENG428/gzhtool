@@ -350,6 +350,12 @@ async function bootstrap() {
   const params = new URLSearchParams(location.search);
   const wantAutoCapture = params.get("autocapture") === "1";
   const wantImportSession = params.get("import") === "1";
+  // mp 编辑页悬浮助手「后台静默 workspace」标记：SW 在用户点浮球但找不到打开的
+  // workspace tab 时，会用 chrome.tabs.create({ url: "...workspace.html?invisible_for_pull=1",
+  // active: false }) 后台开一个；本入口跳过 first-run / autocapture / import 等用户感知副作用，
+  // 让 BUILD_PULL_READY_PAYLOAD listener（由 workspace-publish.js init 注册）就绪后
+  // 给 SW 发 WORKSPACE_READY_FOR_PULL 通知。整个过程对用户透明（active=false 不夺焦）。
+  const isInvisibleForPull = params.get("invisible_for_pull") === "1";
   const validCaptureModes = new Set(["selection", "raw", "readable"]);
   const requestedCaptureMode = params.get("mode");
   const pendingCaptureMode =
@@ -361,6 +367,15 @@ async function bootstrap() {
     !state.session?.lastSourceUrl && !state.settings?.apiKey && !state.settings?.apiBaseUrl;
 
   // 从工具栏「抓取并打开」或「热点一键入库」进入时优先完成入库，避免被首次引导挡住
+  // invisible_for_pull tab 跳过所有用户感知副作用（first-run / autocapture / import）
+  // 但 init 已经全跑完，BUILD_PULL_READY_PAYLOAD listener 已就绪，发 ready signal 让 SW 转入 PULL 流程
+  if (isInvisibleForPull) {
+    chrome.runtime
+      .sendMessage({ type: "WORKSPACE_READY_FOR_PULL" })
+      .catch(() => {});
+    return;
+  }
+
   const incomingFlow = wantAutoCapture || wantImportSession;
   if (isFirstRun && !incomingFlow) {
     view.firstRunOverlay.hidden = false;

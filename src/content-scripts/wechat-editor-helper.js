@@ -222,6 +222,32 @@
     return Math.min(Math.max(value, min), max);
   }
 
+  /**
+   * 读 mp 后台导航栏上的「当前账号名」。启发式扫常见 selector + 文本特征：
+   *   - .weui-desktop-account__nickname 老版导航栏右上角
+   *   - .account-name / .nickname / [class*="nickname"]
+   *   - 兜底：扫所有可见文本含「账号」「公众号」字样的小元素
+   * 返 trim 后的字符串，找不到返空字符串。失败不抛错（profile 比对降级为不比对）。
+   */
+  function readCurrentMpAccountName() {
+    const selectors = [
+      ".weui-desktop-account__nickname",
+      ".js_account_nickname",
+      ".account_nickname",
+      "[class*='nickname']",
+      "[class*='account__name']",
+      "[class*='accountName']"
+    ];
+    for (const sel of selectors) {
+      try {
+        const node = document.querySelector(sel);
+        const text = normalizeText(node?.textContent || "");
+        if (text && text.length <= 32) return text;
+      } catch {}
+    }
+    return "";
+  }
+
   function floatingBallStyle() {
     return [
       "position:fixed",
@@ -567,13 +593,61 @@
       ? "浏览器登录模式 · 编辑器助手"
       : "公众号网页编辑器助手";
 
-    // 「📥 从润笔取最新草稿」按钮：浮球点开 dock 后的主 CTA。
-    // disabled 条件：当前不是编辑页（isEditor=false） —— 避免在列表/管理页点拉报错。
-    const pullDisabled = !result.isEditor;
+    // ── 「📥 从润笔取最新草稿」区域（v0.2: 多草稿选择器 + Profile 联动）──
+    // 1. 多草稿 select：STATE.payload.drafts 由 SW PULL 转发时 merge 进 payload，
+    //    用户切 select 后重新 PULL 那篇（articleId 透传给 SW → workspace BUILD）。
+    // 2. Profile 联动：草稿 meta.targetProfileIndex 对应的 profile.name 跟 mp 后台
+    //    导航栏当前账号名做匹配，不一致时显示橙色 banner + pull 按钮 disabled
+    //    防止把"为账号 A 写的稿"推进账号 B 的编辑器。
+    const drafts = Array.isArray(STATE.payload?.drafts) ? STATE.payload.drafts : [];
+    const selectedDraftId = STATE.payload?.selectedArticleId || drafts.find((d) => d.selected)?.id || "";
+    const draftSelect =
+      STATE.floatingBallEnabled && drafts.length > 1
+        ? `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#b9c7bb;">
+             <span>选哪篇：</span>
+             <select data-helper-action="draft-picker" style="flex:1;padding:5px 8px;border-radius:6px;border:1px solid #3f4f43;background:#101713;color:#f4f8f2;">
+               ${drafts
+                 .map(
+                   (d) =>
+                     `<option value="${escapeHtml(d.id)}" ${d.id === selectedDraftId ? "selected" : ""}>${escapeHtml(d.title.slice(0, 20))}${d.targetProfileName ? `（${escapeHtml(d.targetProfileName)}）` : ""} · ${d.wordCount}字</option>`
+                 )
+                 .join("")}
+             </select>
+           </label>`
+        : "";
+
+    // Profile 比对：targetProfileName 非空 + mp 后台读到当前账号名 + 不匹配 → banner + 禁用 pull
+    const draftProfile = STATE.payload?.profile || null;
+    const targetProfileName = String(draftProfile?.targetProfileName || "").trim();
+    const mpAccountName = STATE.floatingBallEnabled && targetProfileName ? readCurrentMpAccountName() : "";
+    // 模糊匹配：互相 includes（草稿 profile 名可能写成"主号"，mp 显示"主号-认证"等长名）
+    const profileMatches =
+      !targetProfileName ||
+      !mpAccountName ||
+      targetProfileName === mpAccountName ||
+      targetProfileName.includes(mpAccountName) ||
+      mpAccountName.includes(targetProfileName);
+    const profileWarning =
+      STATE.floatingBallEnabled && targetProfileName && mpAccountName && !profileMatches
+        ? `<div style="margin-top:4px;padding:8px 10px;background:rgba(255,176,55,0.12);border:1px solid rgba(255,176,55,0.45);border-radius:8px;font-size:12px;line-height:1.6;color:#ffe2a8;">
+             ⚠️ 当前 mp 后台账号：「${escapeHtml(mpAccountName)}」<br />
+             这篇草稿是为「${escapeHtml(targetProfileName)}」写的，写错号会引起串号。<br />
+             <strong>请先切到正确账号，或在润笔工作台改「发布账号」。</strong>
+           </div>`
+        : "";
+
+    // pull 按钮 disabled 条件：① 不在编辑页；② profile 不匹配（防写错号）。
+    const pullDisabled = !result.isEditor || (STATE.floatingBallEnabled && targetProfileName && mpAccountName && !profileMatches);
     const pullDisabledAttr = pullDisabled ? "disabled" : "";
     const pullDisabledStyle = pullDisabled ? "opacity:0.5;cursor:not-allowed;" : "";
+    const pullTooltip = !result.isEditor
+      ? "不在 mp 编辑页，无法写入"
+      : !profileMatches
+        ? "mp 后台账号与草稿目标账号不一致，已禁用以防写错号"
+        : "从润笔工作台拉这一篇到 mp 编辑器";
+    const pullLabel = drafts.length > 1 ? "📥 拉这一篇" : "📥 从润笔取最新草稿";
     const pullButton = STATE.floatingBallEnabled
-      ? `<button data-helper-action="pull" ${pullDisabledAttr} title="${pullDisabled ? "不在 mp 编辑页，无法写入" : "从润笔工作台拉当前激活草稿"}" style="${buttonStyle("#1f6f4a")};${pullDisabledStyle}">📥 从润笔取最新草稿</button>`
+      ? `<button data-helper-action="pull" ${pullDisabledAttr} title="${escapeHtml(pullTooltip)}" style="${buttonStyle("#1f6f4a")};${pullDisabledStyle}">${pullLabel}</button>`
       : "";
 
     dock.innerHTML = `
@@ -586,6 +660,8 @@
           正文：${result.bodyWritten ? "已写入" : "未写入"}
         </div>
         ${browserModeChecklist}
+        ${draftSelect}
+        ${profileWarning}
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${pullButton}
           <button data-helper-action="retry" style="${buttonStyle()}">重试导入</button>
@@ -594,6 +670,38 @@
         </div>
       </div>
     `;
+
+    // 多草稿 select 切换 → 重新 PULL 选中那篇（articleId 透传给 SW → workspace BUILD）
+    dock.querySelector("[data-helper-action='draft-picker']")?.addEventListener("change", async (event) => {
+      const articleId = event.target?.value || "";
+      const pullBtn = dock.querySelector("[data-helper-action='pull']");
+      if (pullBtn) {
+        pullBtn.disabled = true;
+        pullBtn.textContent = "切换中…";
+      }
+      try {
+        const resp = await chrome.runtime.sendMessage({
+          type: "PULL_DRAFT_TO_MP_EDITOR",
+          payload: { articleId }
+        });
+        if (!resp?.ok) {
+          const next = {
+            ...(STATE.result || result),
+            message: resp?.error || "切换草稿失败。"
+          };
+          STATE.result = next;
+          renderHelperDock(next);
+        }
+        // ok 路径走 IMPORT_ARTICLE_TO_WECHAT_EDITOR 自动 renderHelperDock
+      } catch (error) {
+        const next = {
+          ...(STATE.result || result),
+          message: `切换草稿失败：${error?.message || "未知错误"}`
+        };
+        STATE.result = next;
+        renderHelperDock(next);
+      }
+    });
 
     dock.querySelector("[data-helper-action='pull']")?.addEventListener("click", async () => {
       // 反馈即时性：先把状态切到 loading（用户体验：浮球 PULL 不快，约 1-3s）

@@ -100,13 +100,15 @@ function _bindPublishEvents() {
   if (chrome?.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message?.type !== "BUILD_PULL_READY_PAYLOAD") return false;
-      _buildPullReadyPayloadForCurrent()
-        .then((payload) => sendResponse({ ok: true, payload }))
+      // payload.articleId（可选，多草稿选择器 v0.2）：指明拉哪一篇；不传则拉当前激活那篇
+      const requestedArticleId = String(message.payload?.articleId || "").trim();
+      _buildPullReadyPayload(requestedArticleId)
+        .then((result) => sendResponse({ ok: true, ...result }))
         .catch((err) => {
           sendResponse({
             ok: false,
             error: err?.message || "构造 payload 失败",
-            errorCode: "FLOATING_BALL_BUILD_FAILED"
+            errorCode: err?.code || "FLOATING_BALL_BUILD_FAILED"
           });
         });
       return true; // async sendResponse
@@ -560,42 +562,98 @@ async function _buildWechatPublishPayload(mode) {
 }
 
 /**
- * 「mp 编辑页悬浮助手」专用：构造单篇 IMPORT_ARTICLE_TO_WECHAT_EDITOR payload。
- * 与 _buildWechatPublishPayload 不同：
- *   - 只处理 currentArticleIndex 那篇（不是整个 bundle）
- *   - **跳过封面 fallback** 生成（封面由用户在 mp 后台手动上传 = 合规底线）
- *   - **跳过** _tokenizeImages（PULL 不走 cgi-bin/draft/add，不需要 wxbiz 占位符）
- *   - 失败抛错，由 listener 转成结构化 errorCode
- * 复用 buildExportHtmlForArticle + prepareHtmlForWechat 与 push 路径完全一致，
- * 用户 PULL 拿到的 HTML 跟 push 拿到的一致（包含主题装饰）。
+ * 「mp 编辑页悬浮助手」专用 payload 构造（v0.2 升级支持多草稿 + profile 联动）。
+ *
+ * 返回结构：
+ *   { payload: { meta, html, fromFloatingBall, profile }, drafts: [...] }
+ *   - payload  → 即将发给 mp content script 的 IMPORT_ARTICLE_TO_WECHAT_EDITOR
+ *   - drafts   → 浮球 dock 渲染多草稿选择器用：当前 articleBundle 各篇 + (未来 v0.3) 历史归档
+ *
+ * 与 _buildWechatPublishPayload 的区别：
+ *   - 只处理一篇（articleId 指定，缺省 = currentArticleIndex 当前激活那篇）
+ *   - 跳过封面 fallback（合规：mp 后台手动上传）
+ *   - 跳过 _tokenizeImages（PULL 不走 cgi-bin/draft/add）
+ *   - 注入 profile 元信息（articleId / targetProfileIndex / targetProfileName）让 mp 浮球做账号比对
+ *
+ * @param {string} articleId - 可选；指明拉哪篇。空 = 当前激活那篇。
  */
-async function _buildPullReadyPayloadForCurrent() {
+async function _buildPullReadyPayload(articleId = "") {
   const { state, buildExportHtmlForArticle } = _ctx;
-  const article = state.articleBundle?.[state.currentArticleIndex || 0];
-  if (!article) {
+  const bundle = Array.isArray(state.articleBundle) ? state.articleBundle : [];
+
+  if (bundle.length === 0) {
     const err = new Error("润笔工作台还没有草稿，请先抓一篇内容或 AI 改写一次。");
     err.code = "FLOATING_BALL_NO_DRAFT";
     throw err;
   }
-  if (!String(article.meta?.title || "").trim()) {
-    const err = new Error("当前篇没有填写标题，请在工作台编辑器里补上标题再来拉。");
+
+  // 选哪一篇
+  let chosenIndex = -1;
+  if (articleId) {
+    chosenIndex = bundle.findIndex((a) => a?.id === articleId);
+  }
+  if (chosenIndex < 0) {
+    chosenIndex = Number(state.currentArticleIndex || 0);
+    if (chosenIndex < 0 || chosenIndex >= bundle.length) chosenIndex = 0;
+  }
+  const article = bundle[chosenIndex];
+
+  if (!String(article?.meta?.title || "").trim()) {
+    const err = new Error(
+      `${articleId ? "选中的草稿" : "当前篇"}没有填写标题，请在工作台编辑器里补上标题再来拉。`
+    );
     err.code = "FLOATING_BALL_NO_TITLE";
     throw err;
   }
+
   const themedHtml = buildExportHtmlForArticle(article);
   const sanitizedHtml = prepareHtmlForWechat(themedHtml);
+
+  // 解析 article 关联的 wechatProfile（v0.2 profile 联动完整版）。
+  // article.meta.targetProfileIndex 由 collectCurrentArticleMeta 自动跟 wechatProfileSelect 同步。
+  // 缺失（老草稿 / 默认账号）→ -1，浮球端 mp 比对时知道"不强制比对"。
+  const profiles = Array.isArray(state.settings?.wechatProfiles) ? state.settings.wechatProfiles : [];
+  const targetProfileIndex = Number.isFinite(Number(article?.meta?.targetProfileIndex))
+    ? Number(article.meta.targetProfileIndex)
+    : -1;
+  const targetProfileName =
+    targetProfileIndex >= 0 && profiles[targetProfileIndex]
+      ? String(profiles[targetProfileIndex].name || "").trim()
+      : "";
+
+  // 多草稿列表：当前 bundle 所有篇 + 标记当前选中那篇
+  const drafts = bundle.map((a, i) => ({
+    id: a?.id || `idx-${i}`,
+    title: String(a?.meta?.title || "").trim() || `第 ${i + 1} 篇（未命名）`,
+    wordCount: typeof a?.bodyHtml === "string" ? a.bodyHtml.replace(/<[^>]+>/g, "").trim().length : 0,
+    targetProfileIndex: Number(a?.meta?.targetProfileIndex ?? -1),
+    targetProfileName:
+      profiles[Number(a?.meta?.targetProfileIndex ?? -1)]?.name || "",
+    selected: i === chosenIndex
+  }));
+
   return {
-    meta: {
-      title: article.meta.title.trim(),
-      author: String(article.meta.author || "").trim(),
-      digest: String(article.meta.digest || "").trim() || _ctx.deriveDigestFromArticle(article),
-      contentSourceUrl: String(article.meta.contentSourceUrl || "").trim(),
-      // 标记浏览器登录模式同款 publishMode，让 wechat-editor-helper.js dock
-      // 复用「合规清单：手动上传封面 + 手动保存草稿」的既有 UI 提示。
-      publishMode: "browser"
+    payload: {
+      meta: {
+        title: article.meta.title.trim(),
+        author: String(article.meta.author || "").trim(),
+        digest:
+          String(article.meta.digest || "").trim() || _ctx.deriveDigestFromArticle(article),
+        contentSourceUrl: String(article.meta.contentSourceUrl || "").trim(),
+        // 与浏览器登录模式 push 通道同款：dock 显示合规清单
+        publishMode: "browser"
+      },
+      html: sanitizedHtml,
+      fromFloatingBall: true,
+      // profile 联动元数据：mp 端 content script 读 mp 后台导航栏当前账号名做匹配
+      profile: {
+        targetProfileIndex,
+        targetProfileName
+      },
+      // 当前选中的 article id（dock 多草稿 select 默认选中项）
+      selectedArticleId: article.id || `idx-${chosenIndex}`
     },
-    html: sanitizedHtml,
-    fromFloatingBall: true
+    drafts
   };
 }
 

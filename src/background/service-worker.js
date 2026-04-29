@@ -77,6 +77,15 @@ const TOPIC_PLANNER_AI_TIMEOUT_MS = 65_000;
  */
 const inflightHumanizeControllers = new Map();
 
+/**
+ * 浮球 PULL 流程里"等待后台静默 workspace tab init 就绪"的 resolver 表。
+ * key = tabId（chrome.tabs.create 后的 tab.id）；value = Promise resolver。
+ * workspace.js 在 invisible_for_pull tab init 完成后发 WORKSPACE_READY_FOR_PULL，
+ * SW handler 读这个 Map 把对应 promise resolve 掉，让 runFloatingBallPull 能继续。
+ * 防泄漏：用 5s 超时兜底，超时后从 Map 删除并抛错。
+ */
+const pendingFloatingBallReady = new Map();
+
 // `collectPublishRemoteUrls` 已抽到 src/shared/wechat.js（前后端共用），从那里 import。
 
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -611,57 +620,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: "无法识别当前 mp 编辑页 tab。" });
           break;
         }
-        const workspaceUrl = chrome.runtime.getURL("src/workspace/workspace.html");
-        const workspaceTabs = await chrome.tabs
-          .query({ url: `${workspaceUrl}*` })
-          .catch(() => []);
-        if (workspaceTabs.length === 0) {
-          sendResponse({
-            ok: false,
-            error: "请先打开润笔工作台 tab（让它把当前草稿拼好再来拉）。",
-            errorCode: "FLOATING_BALL_WORKSPACE_NOT_OPEN"
-          });
-          break;
-        }
-        // 取第一个 workspace tab 作 payload 构造方。多 workspace tab 用户场景罕见，
-        // 用第一个即可（用户大多只开一个 workspace）。
-        let buildResp;
         try {
-          buildResp = await chrome.tabs.sendMessage(workspaceTabs[0].id, {
-            type: "BUILD_PULL_READY_PAYLOAD"
-          });
+          const result = await runFloatingBallPull(senderTabId, message.payload || {});
+          sendResponse(result);
         } catch (error) {
           sendResponse({
             ok: false,
-            error: `润笔工作台未响应：${error?.message || "未知错误"}。请刷新工作台后重试。`,
-            errorCode: "FLOATING_BALL_WORKSPACE_TIMEOUT"
+            error: error?.message || "拉草稿失败",
+            errorCode: error?.code || "FLOATING_BALL_UNKNOWN"
           });
-          break;
         }
-        if (!buildResp?.ok) {
-          sendResponse({
-            ok: false,
-            error: buildResp?.error || "润笔工作台没能拼出可用的草稿 payload。",
-            errorCode: buildResp?.errorCode || "FLOATING_BALL_BUILD_FAILED"
-          });
-          break;
+        break;
+      }
+      case "WORKSPACE_READY_FOR_PULL": {
+        // 后台静默打开的 workspace tab init 完成后会发这条消息。我们用一个 module-level
+        // 的 Map 把 tabId → resolver 映射起来，runFloatingBallPull 那边在等这个 promise。
+        const tabId = sender?.tab?.id;
+        if (tabId && pendingFloatingBallReady.has(tabId)) {
+          pendingFloatingBallReady.get(tabId)();
+          pendingFloatingBallReady.delete(tabId);
         }
-        // 拿到 payload 后转发给原 mp tab 的 content script，复用现有 importArticle
-        let importResp;
-        try {
-          importResp = await chrome.tabs.sendMessage(senderTabId, {
-            type: "IMPORT_ARTICLE_TO_WECHAT_EDITOR",
-            payload: buildResp.payload
-          });
-        } catch (error) {
-          sendResponse({
-            ok: false,
-            error: `mp 编辑页未响应：${error?.message || "未知错误"}。请刷新页面后重试。`,
-            errorCode: "FLOATING_BALL_MP_TIMEOUT"
-          });
-          break;
-        }
-        sendResponse({ ok: importResp?.ok !== false, data: importResp });
+        sendResponse({ ok: true });
         break;
       }
       case "FETCH_HOT_TOPICS": {
@@ -1420,5 +1399,109 @@ async function runTopicPlanning(payload = {}) {
         droppedByAI: parsed.diagnostics?.droppedReasons || []
       }
     }
+  };
+}
+
+/**
+ * 公众号编辑页悬浮助手 PULL 主流程：
+ *   ① 找/开 workspace tab → ② BUILD_PULL_READY_PAYLOAD → ③ IMPORT_ARTICLE_TO_WECHAT_EDITOR
+ *
+ * SW 不能直接拼装 HTML（DOMParser 限制），所以这里把"拼"委托给 workspace tab。
+ * workspace tab 找不到时**后台静默打开**一个（active=false 不夺焦），让 BUILD listener
+ * 跑完，跑完后**关掉这个临时 tab**避免污染用户工作环境。
+ *
+ * @param {number} mpTabId   - 浮球所在的 mp 编辑页 tab id
+ * @param {object} extraPayload - 透传给 BUILD（articleId / 目标 profileIndex 等，v0.2 多草稿选择器用）
+ */
+async function runFloatingBallPull(mpTabId, extraPayload = {}) {
+  const workspaceUrl = chrome.runtime.getURL("src/workspace/workspace.html");
+  const existing = await chrome.tabs.query({ url: `${workspaceUrl}*` }).catch(() => []);
+
+  let workspaceTabId;
+  let isTransientTab = false;
+
+  if (existing.length > 0) {
+    workspaceTabId = existing[0].id;
+  } else {
+    // 后台静默开 workspace tab：active=false 不夺焦，url 加 invisible_for_pull=1 让
+    // workspace.js bootstrap 跳过 first-run / autocapture / import 等用户感知副作用。
+    const transient = await chrome.tabs.create({
+      url: `${workspaceUrl}?invisible_for_pull=1`,
+      active: false
+    });
+    workspaceTabId = transient.id;
+    isTransientTab = true;
+
+    // 等 WORKSPACE_READY_FOR_PULL signal（workspace.js bootstrap 末尾发）。
+    // 5s 超时：bootstrap 慢于此说明初始化卡住，关 tab 报错让用户重试。
+    try {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          pendingFloatingBallReady.delete(workspaceTabId);
+          const err = new Error("后台 workspace 初始化超过 5 秒，请打开扩展工作台重试。");
+          err.code = "FLOATING_BALL_WORKSPACE_BOOT_TIMEOUT";
+          reject(err);
+        }, 5000);
+        pendingFloatingBallReady.set(workspaceTabId, () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    } catch (err) {
+      // 启动失败，关掉临时 tab 不留痕
+      chrome.tabs.remove(workspaceTabId).catch(() => {});
+      throw err;
+    }
+  }
+
+  // 让 workspace 端构造 payload
+  let buildResp;
+  try {
+    buildResp = await chrome.tabs.sendMessage(workspaceTabId, {
+      type: "BUILD_PULL_READY_PAYLOAD",
+      payload: extraPayload
+    });
+  } catch (error) {
+    if (isTransientTab) chrome.tabs.remove(workspaceTabId).catch(() => {});
+    const err = new Error(`润笔工作台未响应：${error?.message || "未知错误"}。请刷新工作台后重试。`);
+    err.code = "FLOATING_BALL_WORKSPACE_TIMEOUT";
+    throw err;
+  }
+
+  // 临时 tab 完成使命就关掉，不污染用户 tab 列表
+  if (isTransientTab) {
+    chrome.tabs.remove(workspaceTabId).catch(() => {});
+  }
+
+  if (!buildResp?.ok) {
+    const err = new Error(buildResp?.error || "润笔工作台没能拼出可用的草稿 payload。");
+    err.code = buildResp?.errorCode || "FLOATING_BALL_BUILD_FAILED";
+    throw err;
+  }
+
+  // 转发给 mp tab，复用现有 importArticle。
+  // 把 drafts 列表（多草稿选择器用）merge 进 payload，让 content script 端 STATE.payload.drafts
+  // 直接拿到，避免再起一条单独的消息通道。
+  const enrichedPayload = {
+    ...buildResp.payload,
+    drafts: buildResp.drafts || []
+  };
+  let importResp;
+  try {
+    importResp = await chrome.tabs.sendMessage(mpTabId, {
+      type: "IMPORT_ARTICLE_TO_WECHAT_EDITOR",
+      payload: enrichedPayload
+    });
+  } catch (error) {
+    const err = new Error(`mp 编辑页未响应：${error?.message || "未知错误"}。请刷新页面后重试。`);
+    err.code = "FLOATING_BALL_MP_TIMEOUT";
+    throw err;
+  }
+
+  return {
+    ok: importResp?.ok !== false,
+    data: importResp,
+    payloadMeta: buildResp.payload?.meta || null,
+    drafts: buildResp.drafts || null
   };
 }
