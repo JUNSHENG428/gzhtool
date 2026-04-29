@@ -16,6 +16,7 @@ import {
 import { WECHAT_WEB_EDITOR_URL } from "../shared/defaults.js";
 import { classifyError } from "../shared/errors.js";
 import {
+  collectPublishRemoteUrls,
   listUserTags,
   publishToWechat,
   queryPublishStatus,
@@ -70,19 +71,7 @@ const TOPIC_PLANNER_AI_TIMEOUT_MS = 65_000;
  */
 const inflightHumanizeControllers = new Map();
 
-function collectPublishRemoteUrls(payload) {
-  const urls = [];
-  const articles = Array.isArray(payload?.articles) ? payload.articles : [];
-  for (const article of articles) {
-    if (article?.cover?.src) urls.push(article.cover.src);
-    if (Array.isArray(article?.inlineImages)) {
-      article.inlineImages.forEach((image) => {
-        if (image?.src) urls.push(image.src);
-      });
-    }
-  }
-  return urls;
-}
+// `collectPublishRemoteUrls` 已抽到 src/shared/wechat.js（前后端共用），从那里 import。
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   await getSettings();

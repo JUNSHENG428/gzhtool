@@ -9,6 +9,33 @@ import { getSettings } from "../shared/storage.js";
 import { WECHAT_WEB_EDITOR_URL, THEME_PRESETS } from "../shared/defaults.js";
 import { clampIndex, formatRuntimeError } from "../shared/utils.js";
 import { prepareHtmlForWechat } from "../shared/wechat-html.js";
+import { ensureHostPermissionFromGesture } from "../shared/host-permissions.js";
+import { collectPublishRemoteUrls } from "../shared/wechat.js";
+
+/**
+ * 判断当前 settings 是否有任何"可发布"的公众号通道。
+ *
+ * - browser 模式 profile：有 name 即可（不需要 AppID/AppSecret，靠 mp 登录态）
+ * - api 模式 profile：必须 appId + appSecret 都非空
+ * - 兼容历史：用户从未建 profile，但单独填了 settings.wechatAppId/AppSecret 也算可用
+ *
+ * 用于 publishBundle 早拦截 —— 没绑公众号时给用户清晰的"先去设置页"提示，
+ * 而不是让流程跑到 SW 调 chrome.permissions.request 撞 user gesture 错。
+ */
+function hasAnyUsableWechatProfile(settings) {
+  const profiles = Array.isArray(settings?.wechatProfiles) ? settings.wechatProfiles : [];
+  const hasUsableProfile = profiles.some((p) => {
+    if (!p) return false;
+    if (p.mode === "browser") return Boolean(String(p.name || "").trim());
+    return Boolean(String(p.appId || "").trim() && String(p.appSecret || "").trim());
+  });
+  if (hasUsableProfile) return true;
+  // 兼容旧用户：没建 profile 但单独填了默认 AppID/AppSecret
+  return Boolean(
+    String(settings?.wechatAppId || "").trim() &&
+      String(settings?.wechatAppSecret || "").trim()
+  );
+}
 
 let _ctx;
 
@@ -226,6 +253,19 @@ export async function publishBundle(mode) {
 
     state.settings = await getSettings();
 
+    // 早拦截：用户连一个可发布的公众号通道都没有时，给清晰文案直接 return；
+    // 否则流程会跑到 SW 端调 chrome.permissions.request 撞 user gesture，
+    // 用户只能看到无意义的 "This function must be called during a user gesture"。
+    if (!hasAnyUsableWechatProfile(state.settings)) {
+      setStatus(
+        "尚未绑定公众号。请到设置页「公众号发布」分区新建一个账号 —— " +
+          "推荐用「浏览器登录模式」（不需要 AppID/AppSecret，复用浏览器登录态），" +
+          "或填好 AppID + AppSecret 走 API 模式。",
+        "warning"
+      );
+      return;
+    }
+
     // 多账号切换：把"用户在编辑台选的发布账号"作为 payload 显式传给 background。
     // 之前的实现只在 workspace 端 mutate state.settings，但 background 收到 PUBLISH_TO_WECHAT
     // 后会重新 getSettings()，于是又退回到默认账号——这是多账号发布失效的根因。
@@ -277,6 +317,30 @@ export async function publishBundle(mode) {
     }
     // P1.2 · 把发布面板里临时选的群发策略带过去（API 模式才用得到）
     Object.assign(payload, _readSendStrategyFromUi());
+
+    // 必须在 click handler 用户手势上下文里申请 host permission ——
+    // SW 端的 ensureOptionalHostPermission 没有 user activation，调
+    // chrome.permissions.request 会抛 "must be called during a user gesture"。
+    // 这里 grant 三类 origin：① wechatApiBase 自定义代理（非空才需要） ② 远端
+    // 封面 / 正文图片 URL（用户从外部贴入或抓取来源不在 host_permissions 时）。
+    // browser 模式下 SW 走 wechat-browser-bridge.js 不调 cgi-bin，但封面图仍可能
+    // 是远端 URL，所以这条 grant 对两种 mode 都适用。
+    const publishOrigins = [
+      state.settings.wechatApiBase || "",
+      ...collectPublishRemoteUrls(payload)
+    ];
+    const permitted = await ensureHostPermissionFromGesture(
+      publishOrigins,
+      `公众号发布（${accountLabel}）`
+    );
+    if (!permitted) {
+      setStatus(
+        `账号「${accountLabel}」：发布需要授权访问相关网站（公众号 API / 封面图来源等），请在弹窗里点「允许」后重试。`,
+        "warning"
+      );
+      return;
+    }
+
     const response = await chrome.runtime.sendMessage({ type: "PUBLISH_TO_WECHAT", payload });
 
     if (!response?.ok) {
