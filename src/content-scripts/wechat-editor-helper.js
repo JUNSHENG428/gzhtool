@@ -1,8 +1,13 @@
 (() => {
   const HELPER_ID = "wechat-editor-sync-helper";
+  const FLOATING_BALL_ID = "wechat-editor-sync-floating-ball";
+  const FLOATING_BALL_MENU_ID = "wechat-editor-sync-floating-ball-menu";
+  const FLOATING_BALL_SIZE = 56;
   const STATE = {
     payload: null,
-    result: null
+    result: null,
+    floatingBallEnabled: false,
+    floatingBallPosition: null
   };
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -16,6 +21,229 @@
 
     return true;
   });
+
+  // ────────── 公众号编辑页悬浮助手（v0.1，twenty-ninth session）──────────
+  // 初始化：问 SW 当前 floatingBallEnabled + 位置，决定是否注入浮球。
+  // 监听 storage.onChanged 同步 toggle / 位置变化。
+  void initFloatingBall();
+  if (chrome?.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local") return;
+      // settings 主对象用同一个 storage key 保存，任何字段变化都会触发；
+      // 这里只需要在 floatingBallEnabled / floatingBallPosition 变化时刷新 UI。
+      const settingsChange = changes["wechatWriterSettings"];
+      if (!settingsChange) return;
+      const next = settingsChange.newValue || {};
+      const prevEnabled = STATE.floatingBallEnabled;
+      const nextEnabled = Boolean(next.floatingBallEnabled);
+      STATE.floatingBallEnabled = nextEnabled;
+      STATE.floatingBallPosition = next.floatingBallPosition || null;
+      if (nextEnabled && !prevEnabled) {
+        renderFloatingBall();
+      } else if (!nextEnabled && prevEnabled) {
+        removeFloatingBallAndMenu();
+        // 用户禁用浮球时也顺手把 dock 收掉（避免遗留 UI 元素）
+        const dock = document.getElementById(HELPER_ID);
+        if (dock) dock.style.display = "none";
+      } else if (nextEnabled) {
+        // 仅位置变化时只更新坐标
+        const ball = document.getElementById(FLOATING_BALL_ID);
+        applyFloatingBallPosition(ball);
+      }
+    });
+  }
+
+  async function initFloatingBall() {
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: "GET_FLOATING_BALL_STATE" });
+      const data = resp?.data || {};
+      STATE.floatingBallEnabled = Boolean(data.enabled);
+      STATE.floatingBallPosition = data.position || null;
+      if (STATE.floatingBallEnabled) {
+        renderFloatingBall();
+      }
+    } catch {
+      // SW 暂不可达（首次加载偶发），降级为不显示浮球；下次 storage 变化会再渲染
+    }
+  }
+
+  function renderFloatingBall() {
+    let ball = document.getElementById(FLOATING_BALL_ID);
+    if (!ball) {
+      ball = document.createElement("button");
+      ball.id = FLOATING_BALL_ID;
+      ball.type = "button";
+      ball.title = "润笔助手 · 点击展开 / 拖拽移动 / 右键关闭";
+      ball.setAttribute("aria-label", "润笔助手");
+      ball.style.cssText = floatingBallStyle();
+      ball.textContent = "📥";
+      // 用 documentElement 而非 body 挂载，避免被 mp 后台 body 替换/重渲染时丢失
+      document.documentElement.appendChild(ball);
+
+      // click 事件：注意要与 drag 区分（drag 时不触发 click）
+      let dragInfo = null;
+      ball.addEventListener("mousedown", (event) => {
+        if (event.button !== 0) return;
+        const rect = ball.getBoundingClientRect();
+        dragInfo = {
+          startX: event.clientX,
+          startY: event.clientY,
+          ballX: rect.left,
+          ballY: rect.top,
+          moved: false
+        };
+        event.preventDefault();
+      });
+      window.addEventListener("mousemove", (event) => {
+        if (!dragInfo) return;
+        const dx = event.clientX - dragInfo.startX;
+        const dy = event.clientY - dragInfo.startY;
+        if (!dragInfo.moved && Math.hypot(dx, dy) < 4) return; // 4px 阈值过滤抖动
+        dragInfo.moved = true;
+        const x = clamp(dragInfo.ballX + dx, 0, window.innerWidth - FLOATING_BALL_SIZE);
+        const y = clamp(dragInfo.ballY + dy, 0, window.innerHeight - FLOATING_BALL_SIZE);
+        ball.style.left = `${x}px`;
+        ball.style.top = `${y}px`;
+        ball.style.right = "auto";
+        ball.style.bottom = "auto";
+      });
+      window.addEventListener("mouseup", () => {
+        if (!dragInfo) return;
+        const moved = dragInfo.moved;
+        if (moved) {
+          const rect = ball.getBoundingClientRect();
+          chrome.runtime
+            .sendMessage({
+              type: "SAVE_FLOATING_BALL_POSITION",
+              payload: { x: rect.left, y: rect.top }
+            })
+            .catch(() => {});
+        }
+        dragInfo = null;
+        // 拖拽后立即触发的 click 抑制：标记一个短期 flag
+        if (moved) {
+          ball.dataset.justDragged = "1";
+          setTimeout(() => delete ball.dataset.justDragged, 150);
+        }
+      });
+
+      ball.addEventListener("click", (event) => {
+        if (ball.dataset.justDragged) return; // 拖拽误触发的 click
+        event.preventDefault();
+        expandDockFromFloatingBall();
+      });
+
+      ball.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        renderFloatingBallContextMenu(event.clientX, event.clientY);
+      });
+    }
+    applyFloatingBallPosition(ball);
+    ball.style.display = "flex";
+  }
+
+  function applyFloatingBallPosition(ball) {
+    if (!ball) return;
+    const pos = STATE.floatingBallPosition;
+    if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) {
+      const x = clamp(pos.x, 0, window.innerWidth - FLOATING_BALL_SIZE);
+      const y = clamp(pos.y, 0, window.innerHeight - FLOATING_BALL_SIZE);
+      ball.style.left = `${x}px`;
+      ball.style.top = `${y}px`;
+      ball.style.right = "auto";
+      ball.style.bottom = "auto";
+    } else {
+      ball.style.left = "auto";
+      ball.style.top = "auto";
+      ball.style.right = "18px";
+      ball.style.bottom = "18px";
+    }
+  }
+
+  function removeFloatingBallAndMenu() {
+    document.getElementById(FLOATING_BALL_ID)?.remove();
+    document.getElementById(FLOATING_BALL_MENU_ID)?.remove();
+  }
+
+  function renderFloatingBallContextMenu(x, y) {
+    document.getElementById(FLOATING_BALL_MENU_ID)?.remove();
+    const menu = document.createElement("div");
+    menu.id = FLOATING_BALL_MENU_ID;
+    menu.style.cssText = [
+      "position:fixed",
+      `left:${Math.min(x, window.innerWidth - 220)}px`,
+      `top:${Math.min(y, window.innerHeight - 60)}px`,
+      "width:200px",
+      "z-index:2147483647",
+      "background:#1f2228",
+      "color:#f4f8f2",
+      "border-radius:10px",
+      "padding:6px 0",
+      "box-shadow:0 8px 20px rgba(0,0,0,0.35)",
+      "font:13px IBM Plex Sans,PingFang SC,sans-serif"
+    ].join(";");
+    menu.innerHTML = `
+      <div data-menu-action="disable" style="padding:9px 14px;cursor:pointer;line-height:1.5;">
+        在公众号后台永久隐藏<br />
+        <span style="font-size:11px;color:#9aa3a8;">去扩展设置页可重新启用</span>
+      </div>
+    `;
+    document.documentElement.appendChild(menu);
+    const close = () => menu.remove();
+    menu.querySelector("[data-menu-action='disable']")?.addEventListener("click", () => {
+      chrome.runtime.sendMessage({ type: "DISABLE_FLOATING_BALL" }).catch(() => {});
+      removeFloatingBallAndMenu();
+    });
+    // 点击 menu 外部关闭
+    setTimeout(() => {
+      document.addEventListener("mousedown", close, { once: true });
+    }, 0);
+  }
+
+  function expandDockFromFloatingBall() {
+    // 先 hide 浮球（dock 占据右下角空间）
+    const ball = document.getElementById(FLOATING_BALL_ID);
+    if (ball) ball.style.display = "none";
+    // 复用 renderHelperDock，以 STATE.result 兜底（首次展开 STATE.result 为空）
+    const baseResult = STATE.result || {
+      pageUrl: location.href,
+      isEditor: isEditorPage(),
+      titleWritten: false,
+      digestWritten: false,
+      authorWritten: false,
+      sourceUrlWritten: false,
+      bodyWritten: false,
+      message: ""
+    };
+    renderHelperDock(baseResult);
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function floatingBallStyle() {
+    return [
+      "position:fixed",
+      "right:18px",
+      "bottom:18px",
+      `width:${FLOATING_BALL_SIZE}px`,
+      `height:${FLOATING_BALL_SIZE}px`,
+      "border-radius:50%",
+      "border:none",
+      "background:linear-gradient(135deg,#173722 0%,#2a5840 100%)",
+      "color:#f4f8f2",
+      "font-size:24px",
+      "z-index:2147483646",
+      "box-shadow:0 12px 24px rgba(0,0,0,0.28)",
+      "cursor:pointer",
+      "display:flex",
+      "align-items:center",
+      "justify-content:center",
+      "transition:transform 120ms ease",
+      "user-select:none"
+    ].join(";");
+  }
 
   async function importArticle(payload) {
     STATE.payload = payload;
@@ -339,6 +567,15 @@
       ? "浏览器登录模式 · 编辑器助手"
       : "公众号网页编辑器助手";
 
+    // 「📥 从润笔取最新草稿」按钮：浮球点开 dock 后的主 CTA。
+    // disabled 条件：当前不是编辑页（isEditor=false） —— 避免在列表/管理页点拉报错。
+    const pullDisabled = !result.isEditor;
+    const pullDisabledAttr = pullDisabled ? "disabled" : "";
+    const pullDisabledStyle = pullDisabled ? "opacity:0.5;cursor:not-allowed;" : "";
+    const pullButton = STATE.floatingBallEnabled
+      ? `<button data-helper-action="pull" ${pullDisabledAttr} title="${pullDisabled ? "不在 mp 编辑页，无法写入" : "从润笔工作台拉当前激活草稿"}" style="${buttonStyle("#1f6f4a")};${pullDisabledStyle}">📥 从润笔取最新草稿</button>`
+      : "";
+
     dock.innerHTML = `
       <div style="display:grid;gap:8px;">
         <strong style="font-size:15px;">${escapeHtml(heading)}</strong>
@@ -350,12 +587,45 @@
         </div>
         ${browserModeChecklist}
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${pullButton}
           <button data-helper-action="retry" style="${buttonStyle()}">重试导入</button>
           <button data-helper-action="copy" style="${buttonStyle()}">复制正文 HTML</button>
           <button data-helper-action="close" style="${buttonStyle("#3f4f43")}">关闭</button>
         </div>
       </div>
     `;
+
+    dock.querySelector("[data-helper-action='pull']")?.addEventListener("click", async () => {
+      // 反馈即时性：先把状态切到 loading（用户体验：浮球 PULL 不快，约 1-3s）
+      const pullBtn = dock.querySelector("[data-helper-action='pull']");
+      if (pullBtn) {
+        pullBtn.disabled = true;
+        pullBtn.textContent = "拉取中…";
+      }
+      try {
+        const resp = await chrome.runtime.sendMessage({ type: "PULL_DRAFT_TO_MP_EDITOR" });
+        if (!resp?.ok) {
+          // 把后端拼好的友好错误文案直接显示给用户
+          const next = {
+            ...(STATE.result || result),
+            message: resp?.error || "从润笔拉草稿失败，请检查工作台是否已打开。"
+          };
+          STATE.result = next;
+          renderHelperDock(next);
+          return;
+        }
+        // SW 已经把 IMPORT_ARTICLE_TO_WECHAT_EDITOR 发给本 tab，
+        // onMessage listener 会收到并调用 importArticle → renderHelperDock，
+        // 这里不重复渲染。
+      } catch (error) {
+        const next = {
+          ...(STATE.result || result),
+          message: `拉草稿失败：${error?.message || "未知错误"}`
+        };
+        STATE.result = next;
+        renderHelperDock(next);
+      }
+    });
 
     dock.querySelector("[data-helper-action='retry']")?.addEventListener("click", async () => {
       if (!STATE.payload) {
@@ -388,7 +658,20 @@
     });
 
     dock.querySelector("[data-helper-action='close']")?.addEventListener("click", () => {
-      dock.remove();
+      // 浮球启用时：关闭 dock = 折叠回浮球（保留 STATE.result，下次点浮球展开继续看）
+      // 浮球未启用时：保留旧行为，dock 直接销毁（浏览器登录模式 push 完事后状态板的语义）
+      if (STATE.floatingBallEnabled) {
+        dock.style.display = "none";
+        const ball = document.getElementById(FLOATING_BALL_ID);
+        if (ball) {
+          ball.style.display = "flex";
+        } else {
+          // 浮球被某种原因丢失（DOM 重渲染等）→ 重新渲染一次
+          renderFloatingBall();
+        }
+      } else {
+        dock.remove();
+      }
     });
   }
 

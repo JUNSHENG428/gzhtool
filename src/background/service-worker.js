@@ -568,6 +568,102 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: true, data: result });
         break;
       }
+      // ────────── 公众号编辑页悬浮助手（v0.1，twenty-ninth session）──────────
+      // 注入仅 mp.weixin.qq.com，从润笔 workspace 反向 pull 当前激活草稿到 mp 编辑器。
+      // 与 PUBLISH_TO_WECHAT browser 模式互补 —— 那条是 push（workspace 主动发），
+      // 这条是 pull（用户在 mp 后台主动拉）。共用 IMPORT_ARTICLE_TO_WECHAT_EDITOR 协议
+      // 与 wechat-editor-helper.js 的 importArticle 写入逻辑（含 DOM safety net）。
+      case "GET_FLOATING_BALL_STATE": {
+        const settings = await getSettings();
+        sendResponse({
+          ok: true,
+          data: {
+            enabled: Boolean(settings.floatingBallEnabled),
+            position: settings.floatingBallPosition || null
+          }
+        });
+        break;
+      }
+      case "DISABLE_FLOATING_BALL": {
+        // 用户在浮球右键「永久隐藏」。saveSettings 写入后 chrome.storage.onChanged
+        // 会自动通知所有打开的 mp tab，content script 监听变化后移除浮球 DOM。
+        await saveSettings({ floatingBallEnabled: false });
+        sendResponse({ ok: true });
+        break;
+      }
+      case "SAVE_FLOATING_BALL_POSITION": {
+        // 用户拖拽松手时调。x/y 已由 content script clamp 到视口范围。
+        const x = Number(message.payload?.x);
+        const y = Number(message.payload?.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          await saveSettings({ floatingBallPosition: { x, y } });
+        }
+        sendResponse({ ok: true });
+        break;
+      }
+      case "PULL_DRAFT_TO_MP_EDITOR": {
+        // 浮球点「📥 从润笔取最新草稿」按钮触发。需要找一个打开的润笔工作台 tab
+        // 让它构造 IMPORT_ARTICLE_TO_WECHAT_EDITOR payload（复用 _buildWechatPublishPayload
+        // 的 themed HTML + sanitize 链路）—— SW 端不能直接调那条链路因为它依赖
+        // DOMParser（MV3 SW 无 DOM API，已是 systemPatterns 反例约定）。
+        const senderTabId = sender?.tab?.id;
+        if (!senderTabId) {
+          sendResponse({ ok: false, error: "无法识别当前 mp 编辑页 tab。" });
+          break;
+        }
+        const workspaceUrl = chrome.runtime.getURL("src/workspace/workspace.html");
+        const workspaceTabs = await chrome.tabs
+          .query({ url: `${workspaceUrl}*` })
+          .catch(() => []);
+        if (workspaceTabs.length === 0) {
+          sendResponse({
+            ok: false,
+            error: "请先打开润笔工作台 tab（让它把当前草稿拼好再来拉）。",
+            errorCode: "FLOATING_BALL_WORKSPACE_NOT_OPEN"
+          });
+          break;
+        }
+        // 取第一个 workspace tab 作 payload 构造方。多 workspace tab 用户场景罕见，
+        // 用第一个即可（用户大多只开一个 workspace）。
+        let buildResp;
+        try {
+          buildResp = await chrome.tabs.sendMessage(workspaceTabs[0].id, {
+            type: "BUILD_PULL_READY_PAYLOAD"
+          });
+        } catch (error) {
+          sendResponse({
+            ok: false,
+            error: `润笔工作台未响应：${error?.message || "未知错误"}。请刷新工作台后重试。`,
+            errorCode: "FLOATING_BALL_WORKSPACE_TIMEOUT"
+          });
+          break;
+        }
+        if (!buildResp?.ok) {
+          sendResponse({
+            ok: false,
+            error: buildResp?.error || "润笔工作台没能拼出可用的草稿 payload。",
+            errorCode: buildResp?.errorCode || "FLOATING_BALL_BUILD_FAILED"
+          });
+          break;
+        }
+        // 拿到 payload 后转发给原 mp tab 的 content script，复用现有 importArticle
+        let importResp;
+        try {
+          importResp = await chrome.tabs.sendMessage(senderTabId, {
+            type: "IMPORT_ARTICLE_TO_WECHAT_EDITOR",
+            payload: buildResp.payload
+          });
+        } catch (error) {
+          sendResponse({
+            ok: false,
+            error: `mp 编辑页未响应：${error?.message || "未知错误"}。请刷新页面后重试。`,
+            errorCode: "FLOATING_BALL_MP_TIMEOUT"
+          });
+          break;
+        }
+        sendResponse({ ok: importResp?.ok !== false, data: importResp });
+        break;
+      }
       case "FETCH_HOT_TOPICS": {
         const settings = await getSettings();
         await ensureOptionalHostPermission(

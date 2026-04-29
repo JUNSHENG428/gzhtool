@@ -211,7 +211,17 @@ export const DEFAULT_SETTINGS = {
   // 并由 options.js 在 saveSettings 之前同步到这个字段。
   // 留空 = helper 也未开启鉴权（兼容老用户），扩展不会附带 X-Runbi-Helper-Token。
   drissionHelperToken: "",
-  drissionTimeoutMs: 30000
+  drissionTimeoutMs: 30000,
+  // mp 编辑页悬浮助手 v0.1（2026-04-29 twenty-ninth session）：
+  //   - 默认关：CWS 加分项 + 避免新装用户在 mp 后台被陌生 UI 吓到
+  //   - 用户在 options 主动开 → 浏览器登录模式之外的反向 pull 入口（mp → 拉润笔最新草稿）
+  //   - 注入仅 mp.weixin.qq.com（已在 manifest content_scripts），不涉及任意网页注入
+  // floatingBallOnboardingShown：toggle 切到 ON 时如果未弹过 modal 就弹一次告知，避免每次都弹。
+  floatingBallEnabled: false,
+  floatingBallOnboardingShown: false,
+  // 浮球拖拽位置 {x, y}（视口左上角为原点 px）。null = 默认右下 right:18 bottom:18。
+  // 用户拖拽松手时由 SW SAVE_FLOATING_BALL_POSITION handler 写入。
+  floatingBallPosition: null
 };
 
 export const DEFAULT_ARTICLE_META = {

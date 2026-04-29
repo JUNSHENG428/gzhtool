@@ -92,6 +92,27 @@ function _bindPublishEvents() {
   if (bindBackdrop) bindBackdrop.addEventListener("click", _closeNeedWechatProfileModal);
   if (goBindBtn) goBindBtn.addEventListener("click", _openOptionsToBindProfile);
 
+  // mp 编辑页悬浮助手「📥 从润笔取最新草稿」按钮 → SW 转发回 workspace tab
+  // 让我们在这里构造 payload。复用 _buildWechatPublishPayload 的 themed HTML +
+  // sanitize 链路，但跳过封面 fallback 与 _tokenizeImages（PULL 不需要 wxbiz
+  // 替换占位符，封面在合规底线下由用户在 mp 后台手动上传）。
+  // SW 不能直接调拼装链路因为它依赖 DOMParser（MV3 SW 无 DOM API）。
+  if (chrome?.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type !== "BUILD_PULL_READY_PAYLOAD") return false;
+      _buildPullReadyPayloadForCurrent()
+        .then((payload) => sendResponse({ ok: true, payload }))
+        .catch((err) => {
+          sendResponse({
+            ok: false,
+            error: err?.message || "构造 payload 失败",
+            errorCode: "FLOATING_BALL_BUILD_FAILED"
+          });
+        });
+      return true; // async sendResponse
+    });
+  }
+
   // 历史记录抽屉
   document.querySelector("#historyButton").addEventListener("click", () => void openHistoryDrawer());
   document.querySelector("#closeHistoryDrawerButton").addEventListener("click", closeHistoryDrawer);
@@ -536,6 +557,46 @@ async function _buildWechatPublishPayload(mode) {
   }
 
   return { articles, publishMode: mode };
+}
+
+/**
+ * 「mp 编辑页悬浮助手」专用：构造单篇 IMPORT_ARTICLE_TO_WECHAT_EDITOR payload。
+ * 与 _buildWechatPublishPayload 不同：
+ *   - 只处理 currentArticleIndex 那篇（不是整个 bundle）
+ *   - **跳过封面 fallback** 生成（封面由用户在 mp 后台手动上传 = 合规底线）
+ *   - **跳过** _tokenizeImages（PULL 不走 cgi-bin/draft/add，不需要 wxbiz 占位符）
+ *   - 失败抛错，由 listener 转成结构化 errorCode
+ * 复用 buildExportHtmlForArticle + prepareHtmlForWechat 与 push 路径完全一致，
+ * 用户 PULL 拿到的 HTML 跟 push 拿到的一致（包含主题装饰）。
+ */
+async function _buildPullReadyPayloadForCurrent() {
+  const { state, buildExportHtmlForArticle } = _ctx;
+  const article = state.articleBundle?.[state.currentArticleIndex || 0];
+  if (!article) {
+    const err = new Error("润笔工作台还没有草稿，请先抓一篇内容或 AI 改写一次。");
+    err.code = "FLOATING_BALL_NO_DRAFT";
+    throw err;
+  }
+  if (!String(article.meta?.title || "").trim()) {
+    const err = new Error("当前篇没有填写标题，请在工作台编辑器里补上标题再来拉。");
+    err.code = "FLOATING_BALL_NO_TITLE";
+    throw err;
+  }
+  const themedHtml = buildExportHtmlForArticle(article);
+  const sanitizedHtml = prepareHtmlForWechat(themedHtml);
+  return {
+    meta: {
+      title: article.meta.title.trim(),
+      author: String(article.meta.author || "").trim(),
+      digest: String(article.meta.digest || "").trim() || _ctx.deriveDigestFromArticle(article),
+      contentSourceUrl: String(article.meta.contentSourceUrl || "").trim(),
+      // 标记浏览器登录模式同款 publishMode，让 wechat-editor-helper.js dock
+      // 复用「合规清单：手动上传封面 + 手动保存草稿」的既有 UI 提示。
+      publishMode: "browser"
+    },
+    html: sanitizedHtml,
+    fromFloatingBall: true
+  };
 }
 
 function _tokenizeImages(html) {

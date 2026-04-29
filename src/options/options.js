@@ -84,7 +84,10 @@ const fields = {
   hotTopicsNewsnowBase: document.querySelector("#hotTopicsNewsnowBase"),
   drissionEnabled: document.querySelector("#drissionEnabled"),
   drissionHelperUrl: document.querySelector("#drissionHelperUrl"),
-  drissionTimeoutMs: document.querySelector("#drissionTimeoutMs")
+  drissionTimeoutMs: document.querySelector("#drissionTimeoutMs"),
+  // 公众号编辑页悬浮助手（twenty-ninth session）。toggle 进 fields 走 saveForm
+  // 通用循环；onboardingShown / position 不进 fields，由 SW handler 直接写。
+  floatingBallEnabled: document.querySelector("#floatingBallEnabled")
 };
 
 const statusElement = document.querySelector("#status");
@@ -213,6 +216,47 @@ fields.drissionHelperUrl?.addEventListener("change", () => {
 });
 fields.drissionHelperUrl?.addEventListener("blur", () => {
   applyHelperUrlInput(fields.drissionHelperUrl.value);
+});
+
+// 公众号编辑页悬浮助手 toggle：首次切到 ON 时弹 onboarding modal 强提醒注入范围 + 隐私边界。
+// 用户点确认才真正写入 floatingBallEnabled=true；点取消则回滚 checkbox。已弹过的 session
+// 不再弹（onboardingShown=true）。这是 CWS 审核加分项 + 用户隐私感知保护。
+fields.floatingBallEnabled?.addEventListener("change", async (event) => {
+  if (!event.target.checked) return; // 关掉不需要确认
+  const settings = await getSettings();
+  if (settings.floatingBallOnboardingShown) return; // 已弹过，直接放行（saveForm 时写入）
+  // 弹 modal 拦截
+  event.target.checked = false; // 先回滚，等用户确认
+  const modal = document.querySelector("#floatingBallOnboardingModal");
+  const backdrop = document.querySelector("#floatingBallOnboardingBackdrop");
+  if (!modal || !backdrop) {
+    // modal 元素缺失（HTML 没编译进去？）→ fail open，直接放行
+    event.target.checked = true;
+    return;
+  }
+  modal.hidden = false;
+  modal.removeAttribute("aria-hidden");
+  backdrop.hidden = false;
+  const closeModal = () => {
+    modal.hidden = true;
+    modal.setAttribute("aria-hidden", "true");
+    backdrop.hidden = true;
+  };
+  const onConfirm = async () => {
+    closeModal();
+    event.target.checked = true;
+    await saveSettings({ floatingBallOnboardingShown: true });
+    // 立即 saveForm 把 toggle 状态持久化（避免用户点确认后没点保存按钮就关页面，
+    // 浮球状态丢失给 mp tab）
+    await saveForm();
+  };
+  const onCancel = () => {
+    closeModal();
+    // event.target.checked 已是 false（前面回滚）
+  };
+  document.querySelector("#confirmFloatingBallOnboardingButton")?.addEventListener("click", onConfirm, { once: true });
+  document.querySelector("#cancelFloatingBallOnboardingButton")?.addEventListener("click", onCancel, { once: true });
+  backdrop.addEventListener("click", onCancel, { once: true });
 });
 
 // 闸门：DrissionPage 是 Pro 功能，免费用户尝试勾选时拦截并弹升级框
