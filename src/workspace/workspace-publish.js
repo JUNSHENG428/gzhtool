@@ -60,9 +60,16 @@ function _bindPublishEvents() {
   document.querySelector("#publishCurrentButton").addEventListener("click", () =>
     publishBundle(controls.publishMode.value)
   );
+  // 立即发布是危险操作（直连 mass/sendall 推到粉丝可见无法撤回），加二次确认 modal
   document.querySelector("#publishNowButton").addEventListener("click", () =>
-    publishBundle("publish")
+    _openPublishConfirmModal()
   );
+  document.querySelector("#cancelPublishConfirmButton")?.addEventListener("click", _closePublishConfirmModal);
+  document.querySelector("#publishConfirmBackdrop")?.addEventListener("click", _closePublishConfirmModal);
+  document.querySelector("#confirmPublishNowButton")?.addEventListener("click", () => {
+    _closePublishConfirmModal();
+    void publishBundle("publish");
+  });
   document.querySelector("#pollStatusButton").addEventListener("click", () =>
     pollPublishStatus({ auto: false })
   );
@@ -990,6 +997,20 @@ async function deleteHistoryRecord(id) {
     deleted ? "已删除这条草稿记录。" : "这条草稿记录已经不存在了。",
     deleted ? "success" : "warning"
   );
+}
+
+// =====================================================================
+// 「立即发布」二次确认 modal（38th session 续优化）
+// =====================================================================
+
+function _openPublishConfirmModal() {
+  document.querySelector("#publishConfirmBackdrop")?.removeAttribute("hidden");
+  document.querySelector("#publishConfirmModal")?.removeAttribute("hidden");
+}
+
+function _closePublishConfirmModal() {
+  document.querySelector("#publishConfirmBackdrop")?.setAttribute("hidden", "");
+  document.querySelector("#publishConfirmModal")?.setAttribute("hidden", "");
 }
 
 // =====================================================================

@@ -771,11 +771,21 @@
                 -->
                 <p id="publishModeHint" class="publish-mode-hint" data-mode="api" hidden></p>
 
+                <!--
+                  按钮分组（38th session 续优化）：
+                    - primary 组：推送到草稿箱（左）+ 立即发布（右）—— 真正的发布动作
+                    - secondary 组：查询发布状态 + 同步到网页编辑器 —— 辅助 / 备用通道
+                  视觉用 flex-wrap + 一条细分隔线区分两组层次。
+                -->
                 <div class="publish-actions">
-                  <button id="publishCurrentButton" data-publish-channel="api">推送到草稿箱</button>
-                  <button id="publishNowButton" class="primary" data-publish-channel="api">立即发布</button>
-                  <button id="pollStatusButton" class="ghost" data-publish-channel="api">查询发布状态</button>
-                  <button id="syncWebEditorButton" class="ghost" data-publish-channel="any">同步到公众号编辑页</button>
+                  <div class="publish-actions-primary">
+                    <button id="publishCurrentButton" data-publish-channel="api">推送到草稿箱</button>
+                    <button id="publishNowButton" class="primary" data-publish-channel="api">立即发布</button>
+                  </div>
+                  <div class="publish-actions-secondary">
+                    <button id="pollStatusButton" class="ghost" data-publish-channel="api">查询发布状态</button>
+                    <button id="syncWebEditorButton" class="ghost" data-publish-channel="any">同步到公众号编辑页</button>
+                  </div>
                 </div>
 
                 <div id="publishResult" class="publish-result"></div>
@@ -1063,6 +1073,32 @@
         <button id="closeNeedWechatProfileModalButton" type="button" class="ghost">稍后再说</button>
       </footer>
     </div>
+    <!--
+      「立即发布」二次确认 modal · 38th session 续优化
+      ──────────────────────────────────────────────────────────────────
+      立即发布 = 直连 mass/sendall 直接推到所有粉丝可见，**无法撤回**。
+      这是危险操作，必须二次确认。点「推送到草稿箱」是安全操作不弹此 modal。
+    -->
+    <div id="publishConfirmBackdrop" class="modal-backdrop" hidden></div>
+    <div id="publishConfirmModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="publishConfirmModalTitle" hidden>
+      <header class="modal-header">
+        <h2 id="publishConfirmModalTitle">⚠️ 确认立即发布到公众号？</h2>
+      </header>
+      <div class="modal-body">
+        <p><strong>这是直接发布操作，所有关注者会立刻看到这条推送，且无法撤回。</strong></p>
+        <ul>
+          <li>已审核完封面、标题、正文、原文链接？</li>
+          <li>当前选中的发布账号是否正确？请仔细核对下拉框里的账号名</li>
+          <li>群发策略命中"群发全员"会消耗本月配额（未认证账号上限 4 次/月）</li>
+        </ul>
+        <p class="muted">如果还想再看一眼或自动保留底稿，建议先点「推送到草稿箱」预览，再到公众号后台手动选时间发布。</p>
+      </div>
+      <footer class="modal-footer">
+        <button id="cancelPublishConfirmButton" type="button" class="ghost">再检查一下</button>
+        <button id="confirmPublishNowButton" type="button" class="primary">确认发布</button>
+      </footer>
+    </div>
+
     <!--
       「从历史草稿拉入文章」picker modal · 36th session 后续
       ──────────────────────────────────────────────────────────────────

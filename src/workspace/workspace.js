@@ -546,10 +546,13 @@ function _refreshPublishActionsForCurrentProfile() {
   const mode = profile?.mode === "browser" ? "browser" : "api";
 
   const hint = document.querySelector("#publishModeHint");
+  const publishActions = document.querySelector(".publish-actions");
   const publishCurrentBtn = document.querySelector("#publishCurrentButton");
   const publishNowBtn = document.querySelector("#publishNowButton");
   const pollStatusBtn = document.querySelector("#pollStatusButton");
   const syncWebEditorBtn = document.querySelector("#syncWebEditorButton");
+
+  if (publishActions) publishActions.dataset.mode = mode;
 
   if (mode === "browser") {
     if (hint) {
@@ -566,12 +569,20 @@ function _refreshPublishActionsForCurrentProfile() {
       syncWebEditorBtn.textContent = "💬 同步到公众号编辑页";
     }
   } else {
-    if (hint && profile) {
-      hint.dataset.mode = "api";
-      hint.textContent = `当前账号「${profile.name || `账号 ${idx + 1}`}」走「API 模式」：直连微信接口创建草稿/发布，需要 AppID + AppSecret 且公众号后台已加白本机出口 IP。`;
-      hint.hidden = false;
-    } else if (hint) {
-      hint.hidden = true;
+    // API 模式 / 默认账号
+    if (hint) {
+      if (profile) {
+        // 用户选了一个具体的 API 模式 profile
+        hint.dataset.mode = "api";
+        hint.textContent = `当前账号「${profile.name || `账号 ${idx + 1}`}」走「API 模式」：直连微信接口创建草稿/发布，需要 AppID + AppSecret 且公众号后台已加白本机出口 IP。`;
+        hint.hidden = false;
+      } else {
+        // "默认账号"（select.value === "-1"）—— 用户没选具体 profile，
+        // 此时无法判断模式，给出引导文案让用户先选/绑定账号
+        hint.dataset.mode = "default";
+        hint.textContent = "尚未选择具体的公众号账号。请在上方「发布账号」下拉里选一个，或到设置页 → 公众号 → 添加账号。否则点发布会被拦截弹窗引导你先绑定。";
+        hint.hidden = false;
+      }
     }
     if (publishCurrentBtn) {
       publishCurrentBtn.hidden = false;

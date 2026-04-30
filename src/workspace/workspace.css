@@ -1056,8 +1056,60 @@ h2 {
   border-left: 3px solid var(--accent, #b8722e);
   background: rgba(184, 114, 46, 0.06);
 }
+.publish-mode-hint[data-mode="default"] {
+  border-left: 3px solid #c44a3a;
+  background: rgba(196, 74, 58, 0.06);
+  color: #8a3a3a;
+}
 button[hidden] {
   display: none !important;
+}
+
+/* 发布按钮分组（38th session 续优化）：主操作组（推送草稿/立即发布）+
+ * 辅助组（查询状态/同步编辑器），用 flex-wrap 自动换行 + 一条细分隔线 */
+.publish-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.publish-actions-primary,
+.publish-actions-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.publish-actions-secondary {
+  position: relative;
+  padding-left: 12px;
+  border-left: 1px solid rgba(23, 55, 34, 0.12);
+}
+.publish-actions-secondary::before {
+  content: "辅助：";
+  font-size: 11px;
+  color: var(--ink-secondary, #3d4f45);
+  margin-right: 4px;
+  letter-spacing: 0.04em;
+}
+/* 浏览器模式下，"同步到公众号编辑页"是主按钮（虽 HTML 在 secondary 容器
+ * 里），不应被标为"辅助"。隐藏 secondary 的分隔线 + "辅助：" 前缀。 */
+.publish-actions[data-mode="browser"] .publish-actions-secondary {
+  padding-left: 0;
+  border-left: none;
+}
+.publish-actions[data-mode="browser"] .publish-actions-secondary::before {
+  display: none;
+}
+@media (max-width: 720px) {
+  .publish-actions-secondary {
+    padding-left: 0;
+    border-left: none;
+    width: 100%;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(23, 55, 34, 0.08);
+  }
 }
 
 /* picker modal 列表 */
