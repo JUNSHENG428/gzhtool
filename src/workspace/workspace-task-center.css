@@ -25,8 +25,8 @@
 /* ===== 折叠气泡 ===== */
 .task-center__bubble {
   position: relative;
-  width: 56px;
-  height: 56px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: none;
   background: var(--brand);
@@ -35,10 +35,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  box-shadow: var(--shadow-md, 0 4px 16px rgba(23, 55, 34, 0.18));
-  opacity: 0.6;
-  transition: opacity 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+  font-size: 18px;
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(23, 55, 34, 0.14));
+  opacity: 0.4;
+  transition: opacity 200ms ease, width 200ms ease, height 200ms ease,
+    font-size 200ms ease, box-shadow 200ms ease;
 }
 .task-center__bubble:hover {
   opacity: 1;
@@ -49,10 +50,14 @@
   outline-offset: 3px;
 }
 
-/* 有任务跑时常驻显眼 */
+/* 有任务跑时常驻显眼 + 恢复正常尺寸（0 任务时缩到 44px、字号小、半透明，几乎不打扰） */
 #taskCenterRoot[data-busy="true"] .task-center__bubble {
   opacity: 1;
+  width: 56px;
+  height: 56px;
+  font-size: 22px;
   background: linear-gradient(135deg, var(--brand) 0%, var(--brand-hover) 100%);
+  box-shadow: 0 6px 20px rgba(23, 55, 34, 0.22);
 }
 
 /* 展开时略小，让用户视觉聚焦到面板 */
