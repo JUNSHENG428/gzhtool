@@ -209,7 +209,22 @@ function renderTemplateOptions() {
  */
 const _sourceImagesByRequestId = new Map();
 
+/**
+ * 防抖：rewrite 按钮被连点时，1s 内重复触发直接 return（避免手抖造成双倍 token）。
+ * 33rd session 在 task-registry 里加过同类型 dedup，34th 移除（用户主动连点想跑两次
+ * 的合理场景被误伤）。这里 UI 防抖只防 1s 内的"明显手抖"，不影响用户主动跑多次：
+ * 等过 1s 再点就会注册新 task。
+ */
+const REWRITE_CLICK_DEBOUNCE_MS = 1000;
+let _lastRewriteClickAt = 0;
+
 export async function rewriteArticle() {
+  const now = Date.now();
+  if (now - _lastRewriteClickAt < REWRITE_CLICK_DEBOUNCE_MS) {
+    return;
+  }
+  _lastRewriteClickAt = now;
+
   const {
     state,
     setStatus,

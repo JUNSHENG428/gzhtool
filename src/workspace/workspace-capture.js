@@ -54,7 +54,19 @@ const CAPTURE_MODE_LABELS = {
   readable: "正在抓取页面内容..."
 };
 
+/**
+ * 抓取按钮防抖：1s 内重复触发直接 return（避免手抖连点产生两个并发 capture
+ * 任务、覆盖式 apply 时序混乱）。等过 1s 用户主动想抓另一篇时仍能正常工作。
+ */
+const CAPTURE_CLICK_DEBOUNCE_MS = 1000;
+let _lastCaptureClickAt = 0;
+
 export async function captureSource(captureMode) {
+  const now = Date.now();
+  if (now - _lastCaptureClickAt < CAPTURE_CLICK_DEBOUNCE_MS) {
+    return;
+  }
+  _lastCaptureClickAt = now;
   const {
     view,
     state,
