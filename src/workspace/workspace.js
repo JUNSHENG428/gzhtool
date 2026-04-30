@@ -371,6 +371,15 @@ async function bootstrap() {
         if (task.type === "capture") {
           await ctx.applyCaptureTaskResult?.(task);
         }
+      },
+      async retryTask(task) {
+        // 用户从 task chip / toast 点 [重试]：goToArticle 已切到目标 article，
+        // 这里直接调原入口重发任务（产生新 task，老 task 仍在 done 历史里展示）
+        if (task.type === "rewrite") {
+          await rewriteArticle();
+        } else if (task.type === "capture") {
+          await captureSource();
+        }
       }
     });
   }

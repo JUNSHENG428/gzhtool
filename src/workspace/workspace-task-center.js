@@ -111,6 +111,15 @@ export function mountTaskCenter(ctx) {
       void handleGoToTask(taskId);
       return;
     }
+    const retryBtn = target.closest("[data-task-retry]");
+    if (retryBtn) {
+      event.stopPropagation();
+      const taskId = retryBtn.dataset.taskRetry;
+      const toastEl = retryBtn.closest(".task-center__toast");
+      toastEl?.remove();
+      void handleRetryTask(taskId);
+      return;
+    }
   });
 
   // 监听后台推送的 task list change
@@ -245,6 +254,32 @@ async function cancelTask(taskId) {
     await chrome.runtime.sendMessage({ type: "CANCEL_TASK", payload: { taskId } });
   } catch (err) {
     console.warn("[task-center] CANCEL_TASK 失败", err);
+  }
+}
+
+/**
+ * 用户点 [重试] 按钮：先切到 task 关联的 article，再让 ctx 重发同类型操作。
+ *
+ * 不在 SW 端做"复活老 task"——LLM payload 已发完，老 task 的输入数据未必还在
+ * task.result 里（rewrite 失败时常常 result 为 null）。最稳的做法是让前端切回
+ * 该 article 后，调原入口（rewriteArticle / captureSource）重新发起一个新 task。
+ */
+async function handleRetryTask(taskId) {
+  const task = findTaskById(taskId);
+  if (!task || !task.articleId) return;
+  const ok = await _ctx?.goToArticle?.(task.articleId);
+  if (!ok) {
+    showToast({
+      ...task,
+      status: "failed",
+      _customMessage: "重试失败：找不到对应文章"
+    });
+    return;
+  }
+  try {
+    await _ctx?.retryTask?.(task);
+  } catch (err) {
+    console.warn("[task-center] retry 触发失败", err);
   }
 }
 
@@ -385,6 +420,10 @@ function renderDoneChip(task) {
   const goButton = task.articleId
     ? `<button type="button" class="task-center__chip-btn" data-task-goto="${escapeHtml(task.id)}">查看</button>`
     : "";
+  // 失败 / 取消的任务都给一个 [重试] 按钮，省去用户切回 layout 重新点改写的累
+  const retryButton = (task.status === "failed" || task.status === "cancelled") && task.articleId
+    ? `<button type="button" class="task-center__chip-btn task-center__chip-btn--ghost" data-task-retry="${escapeHtml(task.id)}">重试</button>`
+    : "";
 
   return `
     <li class="task-center__chip ${statusClass}" data-task-id="${escapeHtml(task.id)}">
@@ -398,6 +437,7 @@ function renderDoneChip(task) {
       </div>
       ${error}
       <div class="task-center__chip-actions">
+        ${retryButton}
         ${goButton}
       </div>
     </li>
@@ -494,6 +534,10 @@ function showToast(task) {
       </div>
       ${task.articleId && task.status === "done"
         ? `<button type="button" class="task-center__toast-cta" data-task-goto="${escapeHtml(task.id)}">查看</button>`
+        : ""
+      }
+      ${task.articleId && (task.status === "failed" || task.status === "cancelled")
+        ? `<button type="button" class="task-center__toast-cta" data-task-retry="${escapeHtml(task.id)}">重试</button>`
         : ""
       }
       <button type="button" class="task-center__toast-close" aria-label="关闭" data-task-toast-close>×</button>
