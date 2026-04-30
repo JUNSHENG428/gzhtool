@@ -513,7 +513,83 @@ function _loadWechatProfiles() {
       } catch (error) {
         console.warn("[gzh] persist active wechat profile failed:", error);
       }
+      // profile 切换 → 重渲染发布按钮主次（浏览器模式 vs API 模式 UX 不同）
+      _refreshPublishActionsForCurrentProfile();
     });
+  }
+  // 初次加载（含 storageSync 触发的重新填充）后立即同步一次按钮 UX
+  _refreshPublishActionsForCurrentProfile();
+}
+
+/**
+ * 根据当前 wechatProfileSelect 选中的 profile 的 mode 切换发布按钮的主次/显隐。
+ *
+ * 浏览器登录模式（profile.mode === "browser"）：
+ *   - 主按钮 = 「同步到公众号编辑页」 → 升 primary
+ *   - 推送草稿/立即发布/查询状态 = API 专用，必然失败 → 隐藏
+ *   - 顶部 hint 解释合规底线"最后一步保存草稿你手动点"
+ *
+ * API 模式（profile.mode !== "browser"，含未配 mode 的旧 profile）：
+ *   - 主按钮 = 「立即发布」（保留旧默认）
+ *   - 同步到编辑页改 ghost 备用
+ *   - 顶部 hint 解释"直连微信接口创建草稿/发布"
+ *
+ * 没有可用 profile 时（select 选了 -1 默认账号且没 wechatAppId）：
+ *   - 全部按钮保留默认（旧体验），让 publishBundle 早拦截 modal 引导用户去设置
+ */
+function _refreshPublishActionsForCurrentProfile() {
+  const select = controls.wechatProfileSelect;
+  if (!select) return;
+  const profiles = state.settings?.wechatProfiles || [];
+  const idx = Number(select.value);
+  const profile = idx >= 0 && idx < profiles.length ? profiles[idx] : null;
+  const mode = profile?.mode === "browser" ? "browser" : "api";
+
+  const hint = document.querySelector("#publishModeHint");
+  const publishCurrentBtn = document.querySelector("#publishCurrentButton");
+  const publishNowBtn = document.querySelector("#publishNowButton");
+  const pollStatusBtn = document.querySelector("#pollStatusButton");
+  const syncWebEditorBtn = document.querySelector("#syncWebEditorButton");
+
+  if (mode === "browser") {
+    if (hint) {
+      hint.dataset.mode = "browser";
+      hint.textContent = `当前账号「${profile.name || `账号 ${idx + 1}`}」走「浏览器登录模式」：扩展会自动打开公众号编辑页并把内容写入，最后一步「保存草稿」由你手动点（合规底线）。下方主操作请用「同步到公众号编辑页」。`;
+      hint.hidden = false;
+    }
+    if (publishCurrentBtn) publishCurrentBtn.hidden = true;
+    if (publishNowBtn) publishNowBtn.hidden = true;
+    if (pollStatusBtn) pollStatusBtn.hidden = true;
+    if (syncWebEditorBtn) {
+      syncWebEditorBtn.classList.remove("ghost");
+      syncWebEditorBtn.classList.add("primary");
+      syncWebEditorBtn.textContent = "💬 同步到公众号编辑页";
+    }
+  } else {
+    if (hint && profile) {
+      hint.dataset.mode = "api";
+      hint.textContent = `当前账号「${profile.name || `账号 ${idx + 1}`}」走「API 模式」：直连微信接口创建草稿/发布，需要 AppID + AppSecret 且公众号后台已加白本机出口 IP。`;
+      hint.hidden = false;
+    } else if (hint) {
+      hint.hidden = true;
+    }
+    if (publishCurrentBtn) {
+      publishCurrentBtn.hidden = false;
+      publishCurrentBtn.textContent = "推送到草稿箱";
+    }
+    if (publishNowBtn) {
+      publishNowBtn.hidden = false;
+      publishNowBtn.classList.add("primary");
+      publishNowBtn.textContent = "立即发布";
+    }
+    if (pollStatusBtn) {
+      pollStatusBtn.hidden = false;
+    }
+    if (syncWebEditorBtn) {
+      syncWebEditorBtn.classList.remove("primary");
+      syncWebEditorBtn.classList.add("ghost");
+      syncWebEditorBtn.textContent = "同步到网页编辑器";
+    }
   }
 }
 

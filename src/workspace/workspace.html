@@ -757,11 +757,25 @@
 
                 <div id="coverPreview" class="cover-preview"></div>
 
+                <!--
+                  发布通道提示 + 按钮主次切换（37th session 后续）
+                  ──────────────────────────────────────────────────────────────────
+                  浏览器登录模式（profile.mode="browser"）：
+                    - 「同步到公众号编辑页」是主操作（升 primary）
+                    - 「推送到草稿箱 / 立即发布 / 查询发布状态」隐藏（这 3 个走
+                       cgi-bin API，没 AppID/Secret 用户点了必然失败）
+                  API 模式（profile.mode="api" 或缺）：
+                    - 「推送到草稿箱 / 立即发布」是主操作（沿用旧默认）
+                    - 「同步到网页编辑器」改 ghost 备用（API 用户也偶尔会用到）
+                  动态切换由 _refreshPublishActionsForMode 在 profile 变更时调用。
+                -->
+                <p id="publishModeHint" class="publish-mode-hint" data-mode="api" hidden></p>
+
                 <div class="publish-actions">
-                  <button id="publishCurrentButton">按上方模式执行</button>
-                  <button id="publishNowButton" class="primary">立即发布</button>
-                  <button id="pollStatusButton" class="ghost">查询发布状态</button>
-                  <button id="syncWebEditorButton" class="ghost">同步到网页编辑器</button>
+                  <button id="publishCurrentButton" data-publish-channel="api">推送到草稿箱</button>
+                  <button id="publishNowButton" class="primary" data-publish-channel="api">立即发布</button>
+                  <button id="pollStatusButton" class="ghost" data-publish-channel="api">查询发布状态</button>
+                  <button id="syncWebEditorButton" class="ghost" data-publish-channel="any">同步到公众号编辑页</button>
                 </div>
 
                 <div id="publishResult" class="publish-result"></div>
