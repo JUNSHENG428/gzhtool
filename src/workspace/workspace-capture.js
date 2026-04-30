@@ -256,10 +256,33 @@ export async function importCurrentSourceToArticle() {
     syncWorkspace,
     schedulePersist,
     saveCurrentDraftRecord,
-    getCurrentArticle
+    getCurrentArticle,
+    addSubArticle
   } = _ctx;
 
   if (!state.source) return false;
+
+  // 用户在热点页 / topic-planner 点「抓取并改写」时走这条路径：state.source 是
+  // 新抓的内容，而 articleBundle[currentArticleIndex] 可能是用户上次留下的旧草稿
+  // （restoreSession 从 session.articleBundle 恢复）。直接覆盖会让 bodyHtml 是新的、
+  // meta.title/lead/digest 是旧的（autoFillEditorFromSource 是 if-empty 逻辑），
+  // 用户视觉上感觉"我的旧草稿被改写覆盖了"。
+  //
+  // 判定：当前 article 已有用户编辑过的有意义内容 → 自动新建空白副篇承载新抓的
+  // 内容，旧草稿原样保留；当前 article 是空白则保持原行为（覆盖空白 article 是
+  // 期望的、首次用户的流畅体验）。addSubArticle 内部会顺手 syncCurrentArticleFromControls
+  // 保留当前编辑 + push 一篇空 article + 切 currentArticleIndex 到末尾。
+  // 达到 MAX_WECHAT_ARTICLES 上限时 addSubArticle 静默不动 + setStatus warning，
+  // 此时回退到覆盖逻辑（保持可用，不破坏既有体验）。
+  const currentBeforeImport = getCurrentArticle();
+  if (typeof addSubArticle === "function" && _hasMeaningfulArticle(currentBeforeImport)) {
+    const lengthBefore = state.articleBundle.length;
+    addSubArticle();
+    // addSubArticle 失败（达上限）时 length 不变，回退覆盖
+    if (state.articleBundle.length === lengthBefore) {
+      setStatus("已达多图文上限 8 篇，新内容直接覆盖到当前篇。", "warning");
+    }
+  }
 
   for (const article of state.articleBundle) {
     if (!article.meta.contentSourceUrl) {
@@ -303,6 +326,31 @@ export async function importCurrentSourceToArticle() {
   );
   view.emptyPromptCard.hidden = true;
   return true;
+}
+
+/**
+ * 判断 article 是否已有"用户编辑过的有意义内容"。用于 importCurrentSourceToArticle
+ * 决定是覆盖当前 article 还是新建副篇。
+ *
+ * 阈值与 isEditorBodySubstantiveForRewrite 对齐（≥ 8 个有效字符 OR 含图片）。
+ */
+function _hasMeaningfulArticle(article) {
+  if (!article) return false;
+  const meta = article.meta || {};
+  if (meta.title && String(meta.title).trim()) return true;
+  if (meta.lead && String(meta.lead).trim()) return true;
+  if (meta.digest && String(meta.digest).trim()) return true;
+  const raw = String(article.bodyHtml || "").trim();
+  if (!raw) return false;
+  if (/<\s*img\b/i.test(raw) || /<\s*figure\b/i.test(raw)) return true;
+  try {
+    const text = (
+      new DOMParser().parseFromString(raw, "text/html").body.textContent || ""
+    ).replace(/\s+/g, "").trim();
+    return text.length >= 8;
+  } catch {
+    return false;
+  }
 }
 
 /**
