@@ -261,7 +261,10 @@ export function normalizeArticleDoc(articleDoc) {
     meta: {
       ...meta,
       titleOptions: Array.isArray(meta.titleOptions) ? meta.titleOptions : [],
-      keywords: Array.isArray(meta.keywords) ? meta.keywords : []
+      keywords: Array.isArray(meta.keywords) ? meta.keywords : [],
+      // 旧 storage 没 publishEnabled 字段时默认 true，向后兼容（首次升级用户
+      // 看到的行为：所有现有文章都默认勾选 = 原行为，无任何破坏）
+      publishEnabled: meta.publishEnabled !== false
     },
     bodyHtml: sanitizeHtml(String(articleDoc?.bodyHtml || ""))
   };

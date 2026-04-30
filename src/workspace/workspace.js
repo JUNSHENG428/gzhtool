@@ -102,7 +102,8 @@ import {
   refreshHistoryRecords,
   saveCurrentDraftRecord,
   clearPublishPolling,
-  isPolling
+  isPolling,
+  renderPublishArticleList
 } from "./workspace-publish.js";
 
 // ── DOM 引用 ──
@@ -311,7 +312,8 @@ async function bootstrap() {
     // workspace-publish.js
     publishBundle, pollPublishStatus, syncCurrentToWebEditor, maybeResumePublishPolling,
     openHistoryDrawer, closeHistoryDrawer, refreshHistoryRecords,
-    saveCurrentDraftRecord, clearPublishPolling, isPolling
+    saveCurrentDraftRecord, clearPublishPolling, isPolling,
+    renderPublishArticleList
   };
 
   // 初始化各子模块（顺序：state → render → editor → capture → rewrite → publish）

@@ -257,7 +257,12 @@ export const DEFAULT_ARTICLE_META = {
   // 「发布账号」下拉时，下次 capture / rewrite / saveCurrentDraftRecord 写入此字段。
   // mp 编辑页悬浮助手 PULL 时与 mp 后台导航栏当前账号名做匹配，不一致时 dock
   // 显示警告 + 拉草稿按钮 disabled，避免把"为账号 A 写的稿"误推进账号 B 的编辑器。
-  targetProfileIndex: -1
+  targetProfileIndex: -1,
+  // 是否在本次「推送到草稿箱 / 直接发布」时把这一篇包含进去。默认 true。
+  // 发布页右侧「本次发布」列表的 checkbox 切换此字段，让用户能在多图文 bundle
+  // 里逐篇挑选哪几篇本次发出去（剩下的留着继续编辑，不必删除）。
+  // 旧 storage 没有该字段时由 normalizeArticleDoc 默认补 true，向后兼容。
+  publishEnabled: true
 };
 
 export const MAX_WECHAT_ARTICLES = 8;

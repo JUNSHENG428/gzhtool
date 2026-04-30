@@ -666,6 +666,26 @@
                   </div>
                 </div>
 
+                <!--
+                  「本次发布」列表 · 36th session 后续：发布页支持挑选哪几篇文章本次发出去
+                  ──────────────────────────────────────────────────────────────────
+                  - 列出当前 articleBundle 全部文章 + checkbox（勾选 = 本次发；取消 = 跳过）
+                  - 每条 chip 显示标题/字数/校验状态，点[编辑]切到 #layout 该篇
+                  - 「📜 从历史草稿拉入」按钮 → 弹 #pickHistoryModal 选历史快照里的某篇追加
+                  - 全部未勾选时发布按钮 disabled，避免空发
+                  - data 字段 publishEnabled 是 article.meta 上的，跟着 bundle 一起 persist
+                -->
+                <section class="publish-bundle-selector" id="publishBundleSelector">
+                  <header class="publish-bundle-head">
+                    <h3>本次发布</h3>
+                    <button type="button" class="ghost-button" id="pickFromHistoryButton">
+                      📜 从历史草稿拉入
+                    </button>
+                  </header>
+                  <ul id="publishArticleList" class="publish-bundle-list" role="list" aria-label="本次发布的文章列表"></ul>
+                  <p class="field-hint">勾选的文章会作为多图文一起推到公众号草稿箱（最多 8 篇）。取消勾选不会删除草稿，只是本次跳过；下次发布前可重新勾上。</p>
+                </section>
+
                 <div class="publish-grid">
                   <label>
                     <span>封面图</span>
@@ -1027,6 +1047,28 @@
       <footer class="modal-footer">
         <button id="goBindWechatProfileButton" type="button" class="primary">去设置页绑定 →</button>
         <button id="closeNeedWechatProfileModalButton" type="button" class="ghost">稍后再说</button>
+      </footer>
+    </div>
+    <!--
+      「从历史草稿拉入文章」picker modal · 36th session 后续
+      ──────────────────────────────────────────────────────────────────
+      两层选择：① 选某条历史快照 record ② 选该 record 里的某篇 article
+      → 追加到当前 articleBundle 末尾（默认 publishEnabled=true）
+      与 history drawer 「整体恢复」语义互补，不替代。
+    -->
+    <div id="pickHistoryBackdrop" class="modal-backdrop" hidden></div>
+    <div id="pickHistoryModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="pickHistoryModalTitle" hidden>
+      <header class="modal-header">
+        <h2 id="pickHistoryModalTitle">从历史草稿拉入文章</h2>
+      </header>
+      <div class="modal-body">
+        <p class="field-hint" id="pickHistoryHint">先选一份历史快照，再选其中一篇文章追加到本次发布。</p>
+        <ul id="pickHistoryRecordList" class="pick-history-list"></ul>
+        <ul id="pickHistoryArticleList" class="pick-history-list pick-history-articles" hidden></ul>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="ghost" id="pickHistoryBackButton" hidden>← 返回快照列表</button>
+        <button type="button" class="ghost" id="closePickHistoryButton">取消</button>
       </footer>
     </div>
     <div

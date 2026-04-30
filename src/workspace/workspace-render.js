@@ -25,6 +25,8 @@ export function syncWorkspace() {
   renderWebEditorSyncResult();
   renderPreview();
   syncOutputs();
+  // 36th session 后续：发布面板「本次发布」列表跟着 bundle 同步
+  _ctx.renderPublishArticleList?.();
   _ctx.applyTheme(_ctx.controls.theme.value);
 }
 

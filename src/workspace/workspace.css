@@ -931,6 +931,157 @@ h2 {
   gap: 8px;
 }
 
+/* 发布面板「本次发布」列表（36th session 后续） */
+.publish-bundle-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line, rgba(23, 55, 34, 0.12));
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.6);
+}
+.publish-bundle-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.publish-bundle-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink, #1a2620);
+}
+.publish-bundle-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.publish-bundle-empty {
+  padding: 12px;
+  color: var(--ink-secondary, #3d4f45);
+  font-size: 13px;
+  text-align: center;
+  background: rgba(23, 55, 34, 0.04);
+  border-radius: 6px;
+}
+.publish-bundle-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface-elevated, #fffdf8);
+  border: 1px solid rgba(23, 55, 34, 0.06);
+  border-radius: 8px;
+  transition: opacity 150ms ease, border-color 150ms ease;
+}
+.publish-bundle-item:hover {
+  border-color: rgba(23, 55, 34, 0.16);
+}
+.publish-bundle-item.is-disabled {
+  opacity: 0.55;
+  background: rgba(23, 55, 34, 0.03);
+}
+.publish-bundle-label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  min-width: 0;
+}
+.publish-bundle-label input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.publish-bundle-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.publish-bundle-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink, #1a2620);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.publish-bundle-meta {
+  font-size: 11px;
+  color: var(--ink-secondary, #3d4f45);
+}
+.ghost-button-mini {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(23, 55, 34, 0.18);
+  background: transparent;
+  color: var(--ink-secondary, #3d4f45);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.ghost-button-mini:hover {
+  background: rgba(23, 55, 34, 0.05);
+  color: var(--ink, #1a2620);
+}
+
+/* picker modal 列表 */
+.pick-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.pick-history-list li {
+  margin: 0;
+}
+.pick-history-record-btn,
+.pick-history-article-btn {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(23, 55, 34, 0.08);
+  background: var(--surface-elevated, #fffdf8);
+  color: var(--ink, #1a2620);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.pick-history-record-btn:hover,
+.pick-history-article-btn:hover {
+  border-color: var(--brand, #173722);
+  background: var(--brand-soft, rgba(23, 55, 34, 0.08));
+}
+.pick-history-record-btn strong,
+.pick-history-article-btn strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.pick-history-record-btn small,
+.pick-history-article-btn small {
+  font-size: 11px;
+  color: var(--ink-secondary, #3d4f45);
+}
+
 .checkbox-stack {
   display: grid;
   gap: 10px;
