@@ -197,7 +197,8 @@ function pickPublicFields(t) {
     total: t.total,
     startedAt: t.startedAt,
     finishedAt: t.finishedAt,
-    error: t.error
+    error: t.error,
+    cancelReason: t.cancelReason
     // result 不下发到前端 list（可能很大，前端按需另取）
   };
 }
@@ -357,9 +358,12 @@ export function cancelByRequestId(requestId) {
  * 调用点：service-worker.js SCRAPE_LAST_SOURCE_TAB handler 在 register 新 capture task
  * 之后立即调 `cancelRunningTasksForArticle(articleId, "rewrite")`。
  *
+ * 取消时给每个被 cancel 的 task 写一个 cancelReason，前端 task-center 读到这个
+ * reason 后能给用户显示"为什么被取消"的归因 toast。
+ *
  * 返回被取消的 task 数。
  */
-export function cancelRunningTasksForArticle(articleId, type) {
+export function cancelRunningTasksForArticle(articleId, type, cancelReason) {
   if (!articleId) return 0;
   const targets = [];
   for (const t of tasks.values()) {
@@ -371,6 +375,12 @@ export function cancelRunningTasksForArticle(articleId, type) {
       targets.push(t.id);
     }
   }
-  for (const id of targets) cancelTask(id);
+  for (const id of targets) {
+    if (cancelReason) {
+      const t = tasks.get(id);
+      if (t) t.cancelReason = cancelReason;
+    }
+    cancelTask(id);
+  }
   return targets.length;
 }

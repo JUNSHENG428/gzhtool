@@ -240,7 +240,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // source 副本，跑完会覆盖用户刚抓的新内容）。先把同 article 的 in-flight rewrite
         // 取消掉，避免"抓了新文章但任务列表里还在改写老文章"的诡异表现。
         if (captureArticleId) {
-          const cancelled = cancelRegistryTasksForArticle(captureArticleId, "rewrite");
+          const cancelled = cancelRegistryTasksForArticle(
+            captureArticleId,
+            "rewrite",
+            "因抓取新内容自动取消（避免老改写覆盖新源）"
+          );
           if (cancelled > 0) {
             console.log(`[task-registry] 抓取触发取消同 article ${cancelled} 个 in-flight rewrite`);
           }

@@ -414,8 +414,14 @@ function renderDoneChip(task) {
   const statusLabel = task.status === "done" ? "完成"
     : task.status === "failed" ? "失败"
       : "已取消";
-  const error = task.status === "failed" && task.error
-    ? `<p class="task-center__chip-error" title="${escapeHtml(task.error)}">${escapeHtml(task.error)}</p>`
+  // 错误 / 取消原因都用同一行展示（cancelReason 是 cross-type 自动 cancel 写的归因）
+  const errorOrReason = task.status === "failed" && task.error
+    ? task.error
+    : task.status === "cancelled" && task.cancelReason
+      ? task.cancelReason
+      : "";
+  const error = errorOrReason
+    ? `<p class="task-center__chip-error" title="${escapeHtml(errorOrReason)}">${escapeHtml(errorOrReason)}</p>`
     : "";
   const goButton = task.articleId
     ? `<button type="button" class="task-center__chip-btn" data-task-goto="${escapeHtml(task.id)}">查看</button>`
@@ -520,16 +526,20 @@ function showToast(task) {
   const customMessage = task._customMessage;
   const title = escapeHtml(task.articleTitle || "未命名");
 
+  // 取消归因：cancelReason 是 task-registry 在 cross-type cancel 时写入的，
+  // 比如 capture 触发自动取消同 article 的 rewrite 时会写"因抓取新内容自动取消…"
+  const hint = customMessage
+    || (task.status === "cancelled" && task.cancelReason)
+    || (task.status === "failed" && task.error);
+
   el.innerHTML = `
     <div class="task-center__toast-body">
       <span class="task-center__toast-icon" aria-hidden="true">${task.status === "done" ? "✓" : task.status === "failed" ? "✗" : "⊘"}</span>
       <div class="task-center__toast-text">
         <strong>《${title}》${typeLabel}${statusLabel}</strong>
-        ${customMessage
-          ? `<span class="task-center__toast-hint">${escapeHtml(customMessage)}</span>`
-          : task.status === "failed" && task.error
-            ? `<span class="task-center__toast-hint" title="${escapeHtml(task.error)}">${escapeHtml(task.error)}</span>`
-            : ""
+        ${hint
+          ? `<span class="task-center__toast-hint" title="${escapeHtml(hint)}">${escapeHtml(hint)}</span>`
+          : ""
         }
       </div>
       ${task.articleId && task.status === "done"
