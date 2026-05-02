@@ -216,7 +216,18 @@ function _applyCaptureSourceToCurrentArticle(source) {
   const blockCount = state.source.blocks?.length || 0;
   const imageCount = state.source.images?.length || 0;
   const themeLabel = controls?.theme?.value ? `（主题：${controls.theme.value}）` : "";
-  if (autoFilled) {
+
+  // 抓取 fallback 标记（38th 续 6）：SW scrapeLastSourceTab 在 readable 抓空时
+  // 自动回退到 raw mode，captureMode === "readable-fallback-raw" 时告诉用户
+  // "建议在编辑前剔除噪声段"——raw 不过滤 BOILERPLATE_RE，杂质会多
+  const usedFallback = state.source.captureMode === "readable-fallback-raw";
+
+  if (usedFallback) {
+    setStatus(
+      `已自动回退到原样抓取（智能识别正文失败 → ${blockCount} 块内容、${imageCount} 张图片）。建议在改写前删除评论 / 推荐 / 广告等噪声段。`,
+      "warning"
+    );
+  } else if (autoFilled) {
     setStatus(
       `已抓取 ${blockCount} 块内容、${imageCount} 张图片，并按当前排版填入正文${themeLabel}。可直接编辑或点「AI 改写」。`,
       "success"

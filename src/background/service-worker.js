@@ -1124,7 +1124,31 @@ async function scrapeLastSourceTab(captureMode = "readable") {
     args: [safeMode]
   });
 
-  const capture = results?.[0]?.result;
+  let capture = results?.[0]?.result;
+
+  // 抓取 fallback（38th 续 6）：readable 模式抓到空 blocks 时（SPA / 不规范站点
+  // 命中 ROOT_SELECTORS 但内部 BOILERPLATE_RE 把所有段过滤光，或者 pickBestRoot
+  // 选错根），自动回退一次 raw mode 重新提取。raw 不走 BOILERPLATE_RE 过滤，
+  // 拿到所有可见块——虽然有杂质，但**总比让用户看到"抓取为空"无所适从强**。
+  // capture.captureMode 标记 "readable-fallback-raw"，前端 UI 可以借此提示
+  // "已自动回退原样抓取，建议在编辑前剔除噪声段"。
+  if (
+    safeMode === "readable" &&
+    (!capture || !Array.isArray(capture.blocks) || capture.blocks.length === 0)
+  ) {
+    const rawResults = await chrome.scripting.executeScript({
+      target: { tabId: sourceTab.id },
+      func: async () => {
+        if (typeof window.__gzhRunFullCapture !== "function") return null;
+        return window.__gzhRunFullCapture({ mode: "raw" });
+      }
+    });
+    const rawCapture = rawResults?.[0]?.result;
+    if (rawCapture && Array.isArray(rawCapture.blocks) && rawCapture.blocks.length > 0) {
+      capture = { ...rawCapture, captureMode: "readable-fallback-raw" };
+    }
+  }
+
   if (!capture || !Array.isArray(capture.blocks) || capture.blocks.length === 0) {
     if (safeMode === "selection") {
       throw new Error("没有检测到选中文字，请在原网页里先选中一段文字再点击「只抓选中文字」。");
