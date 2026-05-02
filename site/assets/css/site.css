@@ -966,6 +966,61 @@ code {
   align-items: flex-start;
 }
 
+/* 39th session · 平台 LLM 月度用量卡（dashboard 全宽 row） */
+.dash-ai-usage .dash-ai-usage-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.dash-ai-usage h2 {
+  margin-bottom: 0;
+}
+.ai-usage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.ai-usage-headline strong {
+  font-size: 1.6rem;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  color: var(--ink);
+}
+.ai-usage-bar {
+  height: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 6px 0 12px;
+}
+.ai-usage-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6db66f, #d4a843);
+  transition: width 280ms;
+}
+.ai-usage-bar-fill.is-warning {
+  background: linear-gradient(90deg, #d4a843, #d97757);
+}
+.ai-usage-bar-fill.is-danger {
+  background: #d97757;
+}
+.ai-usage-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  font-size: 0.86rem;
+  color: var(--ink-muted, #6b6256);
+}
+.ai-usage-meta strong {
+  color: var(--ink);
+}
+
 @media (max-width: 880px) {
   .dash-grid {
     grid-template-columns: 1fr;

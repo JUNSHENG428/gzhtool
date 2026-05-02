@@ -20,7 +20,7 @@
  *   - 修改密码弹窗
  *   - 付款回流 toast（?from=checkout&result=success）
  */
-import { auth, license, getToken, clearToken } from "./api.js";
+import { auth, license, getToken, clearToken, api } from "./api.js";
 
 const els = {
   greeting: document.getElementById("dashGreeting"),
@@ -43,7 +43,10 @@ const els = {
   setPwModal: document.getElementById("setPwModal"),
   setPwForm: document.getElementById("setPwForm"),
   setPwSubmit: document.getElementById("setPwSubmit"),
-  setPwFeedback: document.getElementById("setPwFeedback")
+  setPwFeedback: document.getElementById("setPwFeedback"),
+  // 39th session · 平台 LLM 月度用量卡
+  aiUsageBody: document.getElementById("aiUsageBody"),
+  aiUsageRefreshBtn: document.getElementById("aiUsageRefreshBtn")
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -68,6 +71,10 @@ function bindGlobalActions() {
     setSetPwFeedback("");
     if (els.setPwForm) els.setPwForm.reset();
     openModal(els.setPwModal);
+  });
+  // 39th session · AI 用量手动刷新按钮
+  els.aiUsageRefreshBtn?.addEventListener("click", () => {
+    loadAiUsage().catch((err) => console.warn("[dashboard] refresh ai usage failed", err));
   });
 
   // 所有 [data-modal-close] 关闭最近的 modal-backdrop
@@ -246,6 +253,97 @@ async function hydrate() {
       els.list.innerHTML = `<div class="empty-state">加载失败：${escapeHtml(error?.message || "未知错误")}</div>`;
     }
   }
+  // 39th session · 平台 LLM 月度用量（独立 fetch，不阻塞会员摘要 hydrate）
+  loadAiUsage().catch((err) => console.warn("[dashboard] loadAiUsage failed", err));
+}
+
+/**
+ * 39th session · 平台 LLM 代理月度用量卡渲染。
+ *
+ * 状态机：
+ *   - 加载中     → "加载用量中…" muted 占位
+ *   - 401        → api.js 拦截器已自动跳 login（这里不会到达）
+ *   - 网络/其他错 → 「加载失败：xx · [重试]」
+ *   - 200 ok     → 渲染进度条 + 元信息（plan / 剩余 / 调用次数 / 重置天数）+ 教育性 hint
+ *
+ * 数据复用 worker /api/llm/usage 与 popup / options 端用的同一个端点；
+ * 用户切到平台模式后此数据会随每次调用增长，不切平台模式或没调用过则全为 0。
+ */
+async function loadAiUsage() {
+  if (!els.aiUsageBody) return;
+  els.aiUsageBody.innerHTML = `<p class="muted">加载用量中…</p>`;
+
+  let payload;
+  try {
+    payload = await api("/api/llm/usage", { auth: true });
+  } catch (err) {
+    if (err?.status === 401) return; // api.js 拦截器已跳 login
+    els.aiUsageBody.innerHTML = `
+      <p class="muted">加载失败：${escapeHtml(err?.message || "未知错误")}</p>
+      <button class="btn btn-ghost" type="button" id="aiUsageRetryInline">重试</button>
+    `;
+    document.getElementById("aiUsageRetryInline")?.addEventListener("click", loadAiUsage);
+    return;
+  }
+  if (!payload?.ok) {
+    els.aiUsageBody.innerHTML = `<p class="muted">${escapeHtml(payload?.error || "未知错误")}</p>`;
+    return;
+  }
+
+  const { plan, used, limit, remaining, resets_at, quota_exceeded, yyyymm } = payload;
+  const isTokenPlan = limit && limit.tokens != null;
+  const usedNum = isTokenPlan ? Number(used?.total_tokens || 0) : Number(used?.call_count || 0);
+  const limitNum = Number(isTokenPlan ? limit.tokens : limit?.calls || 0);
+  const remainNum = Number(isTokenPlan ? remaining?.tokens || 0 : remaining?.calls || 0);
+  const pct = limitNum > 0 ? Math.min(100, (usedNum / limitNum) * 100) : 0;
+  const fillClass = quota_exceeded ? "is-danger" : pct >= 80 ? "is-warning" : "";
+  const planLabel = { free: "免费版", monthly: "月费会员", yearly: "年费会员" }[plan] || plan || "—";
+  const unit = isTokenPlan ? "token" : "次";
+  const resetDate = resets_at ? new Date(resets_at) : null;
+  const days =
+    resetDate && !Number.isNaN(resetDate.getTime())
+      ? Math.max(0, Math.ceil((resetDate.getTime() - Date.now()) / 86_400_000))
+      : null;
+
+  els.aiUsageBody.innerHTML = `
+    <div class="ai-usage-row">
+      <div>
+        <span class="dash-plan-pill ${plan === "yearly" ? "pro" : plan === "monthly" ? "pro" : "free"}">${escapeHtml(planLabel)}</span>
+        <span class="muted" style="margin-left:8px;font-size:0.86rem;">${escapeHtml(yyyymm || "")}</span>
+      </div>
+      <div class="ai-usage-headline">
+        <strong>${formatDashUsage(usedNum)}</strong>
+        <span class="muted"> / ${formatDashUsage(limitNum)} ${unit}</span>
+      </div>
+    </div>
+    <div class="ai-usage-bar">
+      <div class="ai-usage-bar-fill ${fillClass}" style="width:${pct.toFixed(1)}%"></div>
+    </div>
+    <div class="ai-usage-meta">
+      <span>剩余 <strong>${formatDashUsage(remainNum)}</strong> ${unit}</span>
+      ${used?.call_count != null ? `<span>本月调用 ${used.call_count} 次</span>` : ""}
+      ${days != null ? `<span>${days} 天后重置（${resetDate.toISOString().slice(0, 10)} UTC）</span>` : ""}
+      <span>${pct.toFixed(1)}% 已用</span>
+    </div>
+    ${
+      quota_exceeded
+        ? `<p class="ai-usage-cta" style="margin-top:14px;color:#a13c1f;"><strong>本月额度已用完。</strong>升级会员获取更多额度，或等待下月重置。 <a href="./pricing">查看套餐 →</a></p>`
+        : ""
+    }
+    <p class="muted" style="font-size:0.82rem;margin-top:14px;">
+      额度按 UTC 自然月计算，每月 1 日 00:00:00 UTC 自动重置。
+      Free 30 次/月（仅经济档）· 月费会员 5M token/月（经济 + 标准档）· 年费会员 20M token/月（含旗舰档 GPT-4o + 解锁自定义 API Key）。
+    </p>
+  `;
+}
+
+// K/M 缩写格式化（与 options / popup 同算法）
+function formatDashUsage(n) {
+  const num = Number(n) || 0;
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + "M";
+  if (num >= 10_000) return (num / 1_000).toFixed(1) + "K";
+  if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
+  return String(num);
 }
 
 function renderAccount(data) {

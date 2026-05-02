@@ -99,6 +99,23 @@
           </p>
         </section>
       </div>
+
+      <!-- 39th session · 平台 LLM 月度用量卡（独占一行 · 全宽响应式） -->
+      <section class="dash-card dash-ai-usage" style="margin-top:28px;">
+        <div class="dash-ai-usage-head">
+          <div>
+            <h2>平台 AI · 月度用量</h2>
+            <p class="muted" style="font-size:0.88rem;margin-top:6px;">
+              本卡显示你通过润笔平台代理调用 LLM 服务（DeepSeek / GPT-4o）的本月累计消耗。
+              如果你在扩展端用「使用我自己的 API Key」模式（年费独享），文章正文直发服务商不经过润笔服务器，<strong>不计入此处用量</strong>。
+            </p>
+          </div>
+          <button id="aiUsageRefreshBtn" class="btn btn-ghost" type="button" style="white-space:nowrap;">刷新</button>
+        </div>
+        <div id="aiUsageBody">
+          <p class="muted">加载用量中…</p>
+        </div>
+      </section>
     </div>
   </main>
 
