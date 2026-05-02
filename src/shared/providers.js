@@ -9,9 +9,31 @@
  *   1. 在下方 PROVIDER_PRESETS 数组里追加一项；
  *   2. 如果该家走原生协议（如 Anthropic /v1/messages、Gemini /generateContent），
  *      暂时不能在这里加 —— 先在 ai.js 做协议适配再回来登记。
+ *
+ * 39th session 起新增 isPlatform 标志位 —— 标 true 的预设由润笔自家 Cloudflare
+ * Worker 代理（/api/llm/chat），用账户 JWT 鉴权而非 apiKey；ai.js requestRewrite
+ * 通过此标志在「平台代理」与「BYOK 直连」两条路径间分支（Phase 2.3）。
  */
 
 export const PROVIDER_PRESETS = [
+  // 39th session · 平台 LLM 代理虚拟服务商。
+  // baseUrl 指向 worker /api/llm 入口（chat / usage 端点），ai.js 检测到 isPlatform=true
+  // 时不读 settings.apiKey，转而用 chrome.storage 里的 JWT 走 Authorization: Bearer。
+  // model id 用 platform-{tier} 合成 ID，Phase 2.3 ai.js 拿后缀（economy/standard/flagship）
+  // 作为请求 body.tier 字段交给 worker，worker 再 router.selectUpstreamForTier 决定真正 model。
+  {
+    key: "platform",
+    name: "润笔平台 AI（推荐 · 月费/年费会员）",
+    baseUrl: "https://api.docuearn.com/api/llm",
+    models: [
+      { id: "platform-economy", label: "经济档（DeepSeek V4 Flash · 中文好性价比高）", tier: "economy" },
+      { id: "platform-standard", label: "标准档（DeepSeek V4 Pro · 月费起）", tier: "standard" },
+      { id: "platform-flagship", label: "旗舰档（GPT-4o · 年费独享）", tier: "flagship" }
+    ],
+    isPlatform: true,
+    apiKeyHint: "无需 API Key——由你的润笔账户 JWT 鉴权。月费 5M token/月，年费 20M token/月。",
+    apiKeyUrl: "" // 平台模式不需要外部 key 注册地址
+  },
   {
     key: "openai",
     name: "OpenAI",

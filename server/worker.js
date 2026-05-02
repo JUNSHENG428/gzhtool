@@ -48,6 +48,9 @@ const JWT_ALG = "HS256";
 const JWT_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 天
 
 // 付费功能开关清单（与插件端 src/shared/license.js 的 PAID_FEATURES 保持同步）
+// 39th session 起新增 plans-based 4 项（ai.bringYourOwnKey / ai.platformLlm.*）
+// 这 4 项的真闸门走 license.js mapEffectivePlanToLlmPlan + plans 数组，不依赖
+// 此处 features 推送；但仍登记在 KEYS 列表里好让 smoke 前后端对齐测过。
 const PAID_FEATURE_KEYS = [
   "wechat.publish",
   "wechat.multiAccount",
@@ -58,7 +61,11 @@ const PAID_FEATURE_KEYS = [
   "ai.batchRewrite",
   "ai.deAiBoost",
   "ai.unlimitedDaily",
-  "ai.topicPlanner"
+  "ai.topicPlanner",
+  "ai.bringYourOwnKey",
+  "ai.platformLlm.economy",
+  "ai.platformLlm.standard",
+  "ai.platformLlm.flagship"
 ];
 
 // 免费版每天 AI 改写次数（pro 不受限）

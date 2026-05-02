@@ -116,6 +116,38 @@ export const PAID_FEATURES = Object.freeze({
     tier: "pro",
     quota: { free: 1, pro: -1 },
     hint: "免费版每天可试用 1 次「AI 智能选题」并只展示 1 条推荐；Pro 不限次，按你设置的数量（3/5/10）出全量选题方案。"
+  },
+
+  // ---- 39th session 起 · 平台 LLM 代理 + 自配 Key 反向 gating ----
+  // 这 4 项用 plans:[...] 新 schema（多档区分 free/monthly/yearly），与老 tier 字段并存：
+  //   · checkLicense 检测到 plans 字段时优先用它，否则 fallback 到 tier
+  //   · tier 字段保留是为兼容 emptyFeatures / getUpgradePrompt 等老调用
+  // Phase 4 之前 license_keys.plan 只有 free/pro 两值，extension 端 mapEffectivePlanToLlmPlan
+  //   把 pro → yearly（与 worker.js derivePlanForLlm 同步），所以当前阶段 monthly 与 yearly
+  //   闸门效果一样；Phase 4 加月费 SKU 后扩展端会自动按 license.plan 直接区分两档。
+  "ai.bringYourOwnKey": {
+    name: "使用自定义 AI 接口",
+    tier: "pro",
+    plans: ["yearly"],
+    hint: "年费会员可绑定自己的 OpenAI / DeepSeek / Claude 等 API Key，跳过平台额度限制，文章正文直发服务商不经过润笔服务器。月费会员请先用平台 AI（享平台托管 + 月度 token 额度），升级年费即解锁。"
+  },
+  "ai.platformLlm.economy": {
+    name: "平台 AI · 经济档",
+    tier: "free",
+    plans: ["free", "monthly", "yearly"],
+    hint: "免费 / 月费 / 年费均可调，由 DeepSeek V4 Flash 提供（中文好 + 性价比高）。Free 30 次/月，付费档按 token 计量。"
+  },
+  "ai.platformLlm.standard": {
+    name: "平台 AI · 标准档",
+    tier: "pro",
+    plans: ["monthly", "yearly"],
+    hint: "月费 / 年费可调，DeepSeek V4 Pro。免费版仅经济档；升级月费即解锁。"
+  },
+  "ai.platformLlm.flagship": {
+    name: "平台 AI · 旗舰档",
+    tier: "pro",
+    plans: ["yearly"],
+    hint: "年费独享：GPT-4o（标杆质量）。月费档请用经济 / 标准档已能满足绝大多数公众号写作场景。"
   }
 });
 
@@ -610,10 +642,28 @@ export async function checkLicense(featureKey) {
     }
     return { ok: true, plan: "unknown", reason: "", hint: "", feature: null };
   }
+  const state = await getLicenseState({ refresh: true });
+
+  // 新 schema · plans 数组（39th session 起，平台 LLM / 自配 Key 反向 gating）
+  // 优先于老 tier 字段——plans 把 free/monthly/yearly 多档区分，tier 只有 free/pro 两档
+  if (Array.isArray(meta.plans) && meta.plans.length > 0) {
+    const userPlan = mapEffectivePlanToLlmPlan(state);
+    if (meta.plans.includes(userPlan)) {
+      return { ok: true, plan: userPlan, reason: "", hint: "", feature: meta };
+    }
+    return {
+      ok: false,
+      plan: userPlan,
+      reason: "plan_required",
+      hint: meta.hint,
+      feature: meta
+    };
+  }
+
+  // 老 schema · tier 字段
   if (meta.tier === "free") {
     return { ok: true, plan: "any", reason: "", hint: "", feature: meta };
   }
-  const state = await getLicenseState({ refresh: true });
   if (state.effectivePlan === "pro") {
     // Pro 还要看具体 feature flag 是否打开（worker 决定）
     if (state.features?.[featureKey]) {
@@ -634,6 +684,25 @@ export async function checkLicense(featureKey) {
     hint: meta.hint,
     feature: meta
   };
+}
+
+/**
+ * 把 license state 映射到 LLM 服务的 plan 维度（free / monthly / yearly）。
+ *
+ * 与 server/worker.js derivePlanForLlm 同步——Phase 4 之前 license_keys.plan
+ * 只有 "free" / "pro"，pro 统一映射到 "yearly"（plan 文件 "## 风险/不做的事"
+ * 段：旧 Pro 用户向后兼容方案）。Phase 4 加入虎皮椒月费 SKU 后会扩 state.plan
+ * 直接为 "monthly" / "yearly"，此函数自动透传。
+ *
+ * 唯一调用：checkLicense plans 分支。
+ */
+function mapEffectivePlanToLlmPlan(state) {
+  if (!state) return "free";
+  // 优先看 effectivePlan（含 stale / expired 后的兜底降级）
+  const p = state.effectivePlan;
+  if (p === "monthly" || p === "yearly") return p;
+  if (p === "pro") return "yearly";
+  return "free";
 }
 
 /**
@@ -832,7 +901,13 @@ function makeFreeState(hint) {
 function emptyFeatures() {
   const out = {};
   for (const key of Object.keys(PAID_FEATURES)) {
-    out[key] = PAID_FEATURES[key].tier === "free";
+    const meta = PAID_FEATURES[key];
+    // 新 schema 优先：plans 包含 "free" 时 free 用户默认开
+    if (Array.isArray(meta.plans) && meta.plans.length > 0) {
+      out[key] = meta.plans.includes("free");
+    } else {
+      out[key] = meta.tier === "free";
+    }
   }
   return out;
 }
