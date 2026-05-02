@@ -2812,4 +2812,182 @@ console.log("\n运行 humanize-pass 契约 mock 套件 …");
   }
 }
 
+// =====================================================================
+// 39th session · server/llm/router.js · 平台 LLM 代理 · 路由与配额纯函数
+// =====================================================================
+{
+  const {
+    MODEL_TIERS,
+    PLAN_TIER_ACCESS,
+    PLAN_QUOTA,
+    PLAN_RPM,
+    resolveTierForUser,
+    selectUpstreamForTier,
+    checkQuota,
+    checkRateLimit,
+    currentYyyymm,
+    nextResetMs,
+    formatUsageReport
+  } = await import("../server/llm/router.js");
+
+  // ---- resolveTierForUser ----
+  {
+    // free 越权请求 flagship → 降级到 economy
+    const r1 = resolveTierForUser("free", "flagship");
+    assert(r1.tier === "economy" && r1.downgraded === true, "free 请求 flagship 应降级到 economy");
+
+    // monthly 请求 standard → 不降级
+    const r2 = resolveTierForUser("monthly", "standard");
+    assert(r2.tier === "standard" && r2.downgraded === false, "monthly 请求 standard 不应降级");
+
+    // monthly 越权请求 flagship → 降级到 standard（plan 最高档）
+    const r3 = resolveTierForUser("monthly", "flagship");
+    assert(r3.tier === "standard" && r3.downgraded === true, "monthly 请求 flagship 应降级到 standard");
+
+    // yearly 请求 flagship → 不降级
+    const r4 = resolveTierForUser("yearly", "flagship");
+    assert(r4.tier === "flagship" && r4.downgraded === false, "yearly 请求 flagship 不应降级");
+
+    // 未指定 tier → 给该 plan 最高允许档
+    const r5 = resolveTierForUser("yearly", null);
+    assert(r5.tier === "flagship" && r5.downgraded === false, "yearly 未指定 tier 应默认 flagship");
+
+    const r6 = resolveTierForUser("free", null);
+    assert(r6.tier === "economy", "free 未指定 tier 应默认 economy");
+
+    // 未知 plan → 视为 free
+    const r7 = resolveTierForUser("unknown_plan", "flagship");
+    assert(r7.tier === "economy" && r7.downgraded === true, "未知 plan 视为 free + flagship 降级 economy");
+    console.log("✓ resolveTierForUser 7 case");
+  }
+
+  // ---- selectUpstreamForTier ----
+  {
+    const eco = selectUpstreamForTier("economy");
+    assert(eco.upstream === "deepseek" && eco.tier === "economy", "economy → deepseek");
+
+    const flag = selectUpstreamForTier("flagship");
+    assert(flag.upstream === "openai" && flag.tier === "flagship", "flagship → openai");
+
+    // 未知 tier 兜底 economy
+    const fb = selectUpstreamForTier("unknown_tier");
+    assert(fb.upstream === "deepseek", "未知 tier 兜底 economy 配置");
+    console.log("✓ selectUpstreamForTier 3 case");
+  }
+
+  // ---- checkQuota · free 次数制 ----
+  {
+    const ok = checkQuota("free", { call_count: 10 });
+    assert(ok.ok === true && ok.remaining.calls === 20, "free 用了 10 次还剩 20");
+
+    const exhausted = checkQuota("free", { call_count: 30 });
+    assert(exhausted.ok === false && exhausted.reason === "quota_exceeded", "free 用满 30 次应阻断");
+
+    const overshot = checkQuota("free", { call_count: 35 });
+    assert(overshot.ok === false, "free 超 30 次仍阻断（虽然不应该发生）");
+    console.log("✓ checkQuota free 次数制 3 case");
+  }
+
+  // ---- checkQuota · monthly token 制 ----
+  {
+    const ok = checkQuota("monthly", { prompt_tokens: 100_000, completion_tokens: 50_000 });
+    assert(ok.ok === true, "monthly 150K token 还能用");
+    assert(ok.remaining.tokens === 5_000_000 - 150_000, "monthly remaining 计算正确");
+
+    const exhausted = checkQuota("monthly", { prompt_tokens: 3_000_000, completion_tokens: 2_000_000 });
+    assert(exhausted.ok === false && exhausted.reason === "quota_exceeded", "monthly 5M token 用满应阻断");
+
+    const halfway = checkQuota("monthly", { prompt_tokens: 1_500_000, completion_tokens: 500_000 });
+    assert(halfway.ok === true && halfway.remaining.tokens === 3_000_000, "monthly 用 2M 还剩 3M");
+    console.log("✓ checkQuota monthly token 制 3 case");
+  }
+
+  // ---- checkQuota · yearly token 制（更高额度）----
+  {
+    const ok = checkQuota("yearly", { prompt_tokens: 5_000_000, completion_tokens: 5_000_000 });
+    assert(ok.ok === true, "yearly 用 10M 还能用");
+    assert(ok.limit.tokens === 20_000_000, "yearly 上限是 20M token");
+    console.log("✓ checkQuota yearly 1 case");
+  }
+
+  // ---- checkQuota · 未知 plan ----
+  {
+    const r = checkQuota("unknown", {});
+    assert(r.ok === false && r.reason === "unknown_plan", "未知 plan 返回 unknown_plan");
+    console.log("✓ checkQuota unknown plan 1 case");
+  }
+
+  // ---- checkRateLimit ----
+  {
+    const ok = checkRateLimit("monthly", 10);
+    assert(ok.ok === true, "monthly 本分钟 10 次未超 30 RPM");
+
+    const limited = checkRateLimit("free", 5);
+    assert(limited.ok === false && limited.reason === "rate_limited", "free 本分钟 5 次撞 RPM");
+    assert(typeof limited.retryAfterMs === "number" && limited.retryAfterMs > 0, "限流应给 retryAfterMs");
+    assert(limited.retryAfterMs <= 60_000, "retryAfterMs 不应超过 1 分钟");
+    console.log("✓ checkRateLimit 3 case");
+  }
+
+  // ---- currentYyyymm + nextResetMs ----
+  {
+    const yyyymm = currentYyyymm(Date.UTC(2026, 3, 15)); // 2026-04-15 UTC（month 0-indexed）
+    assert(yyyymm === "2026-04", `currentYyyymm 2026-04 实际 ${yyyymm}`);
+
+    const reset = nextResetMs(Date.UTC(2026, 3, 15));
+    assert(reset === Date.UTC(2026, 4, 1), `nextResetMs 应是 2026-05-01 实际 ${new Date(reset).toISOString()}`);
+
+    // 12 月跨年边界
+    const decYyyymm = currentYyyymm(Date.UTC(2026, 11, 31, 23, 0));
+    assert(decYyyymm === "2026-12", "12 月 yyyymm 正确");
+    const decReset = nextResetMs(Date.UTC(2026, 11, 31));
+    assert(decReset === Date.UTC(2027, 0, 1), "12 月 reset 跨年到 2027-01-01");
+    console.log("✓ yyyymm / nextResetMs 4 case（含跨年边界）");
+  }
+
+  // ---- formatUsageReport（GET /api/llm/usage 返回结构）----
+  {
+    const report = formatUsageReport({
+      plan: "monthly",
+      usage: { prompt_tokens: 234_567, completion_tokens: 123_456, call_count: 89 },
+      epochMs: Date.UTC(2026, 3, 15)
+    });
+    assert(report.plan === "monthly", "report plan");
+    assert(report.yyyymm === "2026-04", "report yyyymm");
+    assert(report.used.total_tokens === 358_023, "report total_tokens 求和");
+    assert(report.limit.tokens === 5_000_000, "report limit");
+    assert(report.remaining.tokens === 5_000_000 - 358_023, "report remaining");
+    assert(report.quota_exceeded === false, "report quota_exceeded false");
+    assert(report.resets_at === "2026-05-01T00:00:00.000Z", "report resets_at ISO 字符串");
+    console.log("✓ formatUsageReport monthly 1 case");
+
+    // free 次数制的报告
+    const freeReport = formatUsageReport({
+      plan: "free",
+      usage: { call_count: 30 },
+      epochMs: Date.UTC(2026, 3, 15)
+    });
+    assert(freeReport.quota_exceeded === true, "free 用满 30 次报告 quota_exceeded=true");
+    assert(freeReport.limit.calls === 30, "free 报告 limit.calls");
+    console.log("✓ formatUsageReport free 1 case");
+  }
+
+  // ---- 配置一致性：MODEL_TIERS 和 PLAN_TIER_ACCESS 的 tier key 对齐 ----
+  {
+    const tiersInModel = Object.keys(MODEL_TIERS).sort();
+    const tiersInAccess = [...new Set(Object.values(PLAN_TIER_ACCESS).flat())].sort();
+    assert(
+      tiersInModel.join(",") === tiersInAccess.join(","),
+      `MODEL_TIERS keys (${tiersInModel}) 与 PLAN_TIER_ACCESS values (${tiersInAccess}) 不一致`
+    );
+
+    // 每个 plan 都要有 quota
+    for (const plan of Object.keys(PLAN_TIER_ACCESS)) {
+      assert(PLAN_QUOTA[plan], `plan ${plan} 缺 PLAN_QUOTA 配置`);
+      assert(typeof PLAN_RPM[plan] === "number", `plan ${plan} 缺 PLAN_RPM 配置`);
+    }
+    console.log("✓ 配置一致性 MODEL_TIERS / PLAN_TIER_ACCESS / PLAN_QUOTA / PLAN_RPM 三向对齐");
+  }
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);
