@@ -43,7 +43,16 @@ async function ensureScrapeHostPermission() {
 
 export function init(ctx) {
   _ctx = ctx;
-  document.querySelector("#captureButton").addEventListener("click", () => captureSource());
+  // debounce 提到 click handler 而不是 captureSource 函数体内：
+  // captureSource 也被代码内部调用（错误条 [重试] 按钮 / 任务中心 retry / autoRewrite 引导），
+  // 这些调用不该被"按钮防抖"误拦——之前 _lastCaptureClickAt < 1s 时连"用户点重试"都被
+  // 阻挡，表现为"抓取功能失灵"（用户实测报障 38th session 续）。
+  document.querySelector("#captureButton").addEventListener("click", () => {
+    const now = Date.now();
+    if (now - _lastCaptureClickAt < CAPTURE_CLICK_DEBOUNCE_MS) return;
+    _lastCaptureClickAt = now;
+    captureSource();
+  });
 }
 
 const VALID_CAPTURE_MODES = new Set(["selection", "raw", "readable"]);
@@ -55,18 +64,15 @@ const CAPTURE_MODE_LABELS = {
 };
 
 /**
- * 抓取按钮防抖：1s 内重复触发直接 return（避免手抖连点产生两个并发 capture
- * 任务、覆盖式 apply 时序混乱）。等过 1s 用户主动想抓另一篇时仍能正常工作。
+ * 抓取按钮防抖：1s 内重复点 #captureButton 直接 return。
+ * **debounce 在 init() 里的 click handler 做，不在 captureSource 函数体内**——
+ * captureSource 也被代码内部调用（错误条[重试]、task center retry、autoRewrite 引导），
+ * 这些调用不该被按钮防抖误拦。
  */
 const CAPTURE_CLICK_DEBOUNCE_MS = 1000;
 let _lastCaptureClickAt = 0;
 
 export async function captureSource(captureMode) {
-  const now = Date.now();
-  if (now - _lastCaptureClickAt < CAPTURE_CLICK_DEBOUNCE_MS) {
-    return;
-  }
-  _lastCaptureClickAt = now;
   const {
     view,
     state,
