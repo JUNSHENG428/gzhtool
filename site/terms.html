@@ -101,10 +101,12 @@
         <strong>English Summary for Reviewers:</strong>
         DocuEarn sells digital subscriptions (monthly / yearly) to a Chrome
         extension that helps Chinese-language writers draft and publish to WeChat
-        Official Accounts. Free tier is functional. Paid tier unlocks multi-account,
-        DrissionPage automation, premium templates, and unlimited AI rewrites.
-        Refunds: full refund within 7 days of purchase, no questions asked.
-        After 7 days, no refunds for already-elapsed billing periods.
+        Official Accounts. Free tier is functional with a metered platform AI
+        quota (30 calls / month, economy tier). Monthly tier: 5M tokens / month
+        (economy + standard tiers). Yearly tier: 20M tokens / month (incl. flagship
+        GPT-4o) plus the right to use a self-hosted API key bypassing platform
+        quota entirely. Refunds: full refund within 7 days of purchase, no
+        questions asked. After 7 days, no refunds for already-elapsed billing periods.
       </div>
 
       <h2>1. 接受条款</h2>
@@ -118,12 +120,12 @@
         本服务由一个 Chrome 扩展和配套网站构成，主要功能包括：
       </p>
       <ul>
-        <li>从公开网络（Reddit / X / 知乎 / 小红书等）抓取选题素材</li>
-        <li>调用用户自带的 AI API（OpenAI / Anthropic 等）改写、起草文章</li>
-        <li>向用户已登录的微信公众号后台推送草稿</li>
+        <li>从公开网络（Reddit / X / 知乎 / 小红书等）抓取选题素材；</li>
+        <li>提供两种 AI 改写路径：<strong>(a) 平台 AI 模式</strong>——由 DocuEarn 通过 Cloudflare Worker 转发到第三方 LLM 服务商（DeepSeek / OpenAI 等）完成 AI 改写，按月度 token 配额计费，包含在套餐价里；<strong>(b) 自定义 API Key 模式</strong>——年费会员可绑定自己注册的服务商账号，正文直发服务商不经过 DocuEarn 服务器；</li>
+        <li>向用户已登录的微信公众号后台推送草稿。</li>
       </ul>
       <p>
-        免费版包含全部基础功能；Pro 会员解锁：绑定多个公众号、DrissionPage 自动化抓取、高级模板、AI 改写无限额度。
+        三档套餐：免费版（30 次 / 月平台 AI · 经济档）；月付（5M token / 月平台 AI · 经济+标准档 · 多公众号 · DrissionPage · 高级模板 · AI 模板生成器）；年付（20M token / 月平台 AI · 含旗舰档 GPT-4o · 解锁自定义 API Key · 其他与月付一致）。详见<a href="./pricing">定价页</a>。
       </p>
 
       <h2>3. 账号与安全</h2>
@@ -155,7 +157,8 @@
         <li>自行对所发布的内容承担全部责任，遵守微信公众号平台规则与所在地法律。</li>
         <li>不利用本服务批量发布垃圾信息、虚假信息、侵权内容、非法内容。</li>
         <li>不滥用第三方平台的抓取功能（请尊重 robots.txt 与各平台 ToS，控制频率）。</li>
-        <li>自行承担 AI 服务商（OpenAI 等）的 API 费用与使用规则。</li>
+        <li>不滥用平台 AI 配额（如恶意刷量、规避限流、跨账号薅免费额度等）。我们保留对异常用量临时冻结账号的权利。</li>
+        <li>使用自定义 API Key 模式时，自行承担对应 AI 服务商（OpenAI / DeepSeek / Anthropic / Kimi 等）的 API 费用与使用规则。</li>
       </ul>
       <p>违反上述承诺，我们可立即终止你的账号且不退款。</p>
 
