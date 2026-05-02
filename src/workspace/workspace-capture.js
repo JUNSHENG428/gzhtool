@@ -154,6 +154,11 @@ export async function captureSource(captureMode) {
 /**
  * 把抓取结果（source）apply 到当前 article。当前模式下用户大概率停在触发抓取的 article。
  * task-center 模式 apply 路径与老 modal 模式共用此函数。
+ *
+ * **保护用户旧草稿不被覆盖**（36th session 在 importCurrentSourceToArticle 加过同款逻辑，
+ *  38th 续 5 同步到本函数）：当前 article 有"用户编辑过的有意义内容"时，自动新建空白
+ *  副篇承载新抓的内容，旧草稿原样保留；空白草稿（restoreSession 恢复出的占位）保持
+ *  原行为—覆盖空白是首次用户的流畅体验。达 MAX_WECHAT_ARTICLES = 8 时回退覆盖。
  */
 function _applyCaptureSourceToCurrentArticle(source) {
   const {
@@ -165,10 +170,23 @@ function _applyCaptureSourceToCurrentArticle(source) {
     schedulePersist,
     saveCurrentDraftRecord,
     getCurrentArticle,
+    addSubArticle,
     controls
   } = _ctx;
 
   state.source = source;
+
+  // 关键：旧草稿保护——抓新页面 = 换内容，但不应覆盖用户编辑了一半的当前 article
+  const currentBeforeCapture = getCurrentArticle();
+  if (typeof addSubArticle === "function" && _hasMeaningfulArticle(currentBeforeCapture)) {
+    const lengthBefore = state.articleBundle.length;
+    addSubArticle();
+    // addSubArticle 失败（达上限）时 length 不变，回退覆盖逻辑（保持可用，不破坏体验）
+    if (state.articleBundle.length === lengthBefore) {
+      setStatus("已达多图文上限 8 篇，新抓内容直接覆盖到当前篇。", "warning");
+    }
+  }
+
   for (const article of state.articleBundle) {
     if (!article.meta.contentSourceUrl) {
       article.meta.contentSourceUrl = state.source.url || "";
