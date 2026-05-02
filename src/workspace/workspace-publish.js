@@ -903,14 +903,17 @@ export async function syncCurrentToWebEditor() {
       "正在同步到公众号网页编辑器",
       "将打开公众号网页编辑器，并自动写入正文。"
     );
-    // 38th 续 10：与 publishBundle / _buildPullReadyPayload 对齐 HTML 清洗链。
-    // 之前 syncCurrentToWebEditor 直接发 buildExportHtmlForArticle 产物 → 含 div /
-    // class / 零宽字符 / 危险节点，mp 编辑器 sanitize 后与 publishBundle（cgi-bin
-    // add_draft）经过 prepareHtmlForWechat 清洗的版本视觉不一致——用户实际报障
-    // "改写完的草稿跟同步到公众号编辑器的草稿不一致"的根因。
-    // **不**走 _tokenizeImages（同步到 web editor 不经 cgi-bin，img src 用原 URL）。
-    const themedHtml = buildExportHtmlForArticle(current);
-    const sanitizedHtml = prepareHtmlForWechat(themedHtml);
+    // 38th 续 12：紧急 revert——c7ea3f0 加的 prepareHtmlForWechat 清洗对 mp
+    // web editor DOM 注入逻辑不兼容（unwrap div→section + strip class + 白名单
+    // 属性，mp 编辑器吃不下导致 section 内容被 fold 掉，用户实测 7000 字草稿
+    // 同步过去只剩 15 字）。prepareHtmlForWechat 仅适合 cgi-bin add_draft API。
+    // mp web editor 走 contenteditable 注入路径，需要保留 div + class + 完整
+    // inline style 让编辑器自己 sanitize。
+    // 直发 buildExportHtmlForArticle 产物（含主题样式）即可——虽然与 publishBundle
+    // 经过 prepareHtmlForWechat 后的视觉**不完全一致**，但有内容比"对齐了但全
+    // 是空白"重要 100 倍。HTML 一致性问题留待 wechat-editor-helper.js importArticle
+    // sanitizer 升级后再做（需要确认它能接受什么标签集）。
+    const html = buildExportHtmlForArticle(current);
     const response = await chrome.runtime.sendMessage({
       type: "SYNC_TO_WECHAT_WEB_EDITOR",
       payload: {
@@ -920,7 +923,7 @@ export async function syncCurrentToWebEditor() {
           digest: current.meta.digest,
           contentSourceUrl: current.meta.contentSourceUrl
         },
-        html: sanitizedHtml,
+        html,
         editorUrl: WECHAT_WEB_EDITOR_URL
       }
     });
