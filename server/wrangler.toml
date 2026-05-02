@@ -100,3 +100,12 @@ GOOGLE_CLIENT_ID = "458035180234-4s4h5m2kjjrg7e2cgmuc1out8p14th17.apps.googleuse
 # HUPIJIAO_APP_SECRET    —— 虎皮椒 AppSecret（千万不能泄露！泄露后立刻去后台重置）
 # RESEND_API_KEY         —— Resend 邮件服务 API Key（接入 docs/RESEND_EMAIL_SETUP.md）
 # GOOGLE_CLIENT_ID 是公开值（前端也会用），不需要 secret，可直接放上面 [vars]
+#
+# --- 平台 LLM 代理（39th session 起）---
+# 月费/Free 用户走 /api/llm/chat 时，由 worker 用下列 Key 调上游 LLM 服务商。
+# 添加新上游时同步 server/llm/upstream.js 的 UPSTREAM_CONFIG。
+# 注入命令（在 server/ 目录下）：
+#   wrangler secret put OPENAI_API_KEY        —— OpenAI 官方 Key（flagship 档主力）
+#   wrangler secret put DEEPSEEK_API_KEY      —— DeepSeek（economy / standard 档主力 + OpenAI fallback）
+# 留空 → /api/llm/chat 调对应 upstream 时返回 503 "upstream_not_configured"
+# 多 Key 池 / 轮转放将来（Phase 4 防滥用），当前单 Key 即可

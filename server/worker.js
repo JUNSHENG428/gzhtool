@@ -25,6 +25,24 @@
  *   5. 所有错误信息中文化，避免泄露内部结构。
  */
 
+// 平台 LLM 代理（39th session 起）— 路由 / 配额 / 上游 / 计量
+// router.js 是纯函数（决策），upstream.js 是带副作用的 IO（fetch + D1 + KV）
+import {
+  PLAN_RPM,
+  resolveTierForUser,
+  selectUpstreamForTier,
+  checkQuota,
+  currentYyyymm,
+  nextResetMs,
+  formatUsageReport
+} from "./llm/router.js";
+import {
+  callUpstreamWithFallback,
+  recordUsage,
+  recordAudit,
+  checkAndBumpRateLimit
+} from "./llm/upstream.js";
+
 const PBKDF2_ITERATIONS = 100_000;
 const JWT_ALG = "HS256";
 const JWT_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 天
@@ -119,7 +137,9 @@ const ROUTES = {
   "POST /api/webhook/lemon": handleLemonWebhook,
   "POST /api/payment/hupijiao/create": handleHupijiaoCreate,
   "POST /api/payment/hupijiao/notify": handleHupijiaoNotify,
-  "GET /api/payment/hupijiao/query": handleHupijiaoQuery
+  "GET /api/payment/hupijiao/query": handleHupijiaoQuery,
+  "POST /api/llm/chat": handleLlmChat,
+  "GET /api/llm/usage": handleLlmUsage
 };
 
 // 兼容 method 与 path 之间双空格的问题：路由 key 写时统一两个字符位，避免对齐问题。
@@ -1982,6 +2002,194 @@ async function handleHupijiaoQuery(request, env, ctx, url) {
     paid_at: row.paid_at,
     granted_license_key: row.granted_license_key || ""
   });
+}
+
+// ============================================================
+// /api/llm/chat 平台 LLM 代理（39th session 起 · OpenAI-compatible）
+// ============================================================
+// 流程：requireAuth → load license → derivePlanForLlm → resolveTier → 限流 → 配额 →
+//      callUpstreamWithFallback → recordUsage（成功才扣额度）→ recordAudit（一定写）
+//
+// 错误码契约：
+//   401 未登录                     ← requireAuth
+//   400 messages 字段缺失/非法
+//   402 quota_exceeded             ← 月度额度撞顶；扩展端弹「升级会员」引导
+//   429 rate_limited               ← 当前分钟 RPM 超限
+//   503 upstream_not_configured    ← env 没注入对应 *_API_KEY（运维问题）
+//   200 + 上游 body                ← 透传 OpenAI-compatible 响应
+//   非 200 + 上游 body             ← 上游报错时也透传（4xx auth/billing 等）
+//
+// 响应头：
+//   X-Platform-Tier-Downgraded   ← 用户请求 tier 越权时降到的实际 tier
+//   X-Platform-Fallback-From     ← 真发生 upstream fallback 时记原家
+async function handleLlmChat(request, env, ctx) {
+  const auth = await requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+
+  const summary = await loadUserLicenseSummary(env, auth.userId);
+  const plan = derivePlanForLlm(summary);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return jsonResponse({ ok: false, error: "请求体不是有效 JSON" }, 400);
+  }
+  if (!body || !Array.isArray(body.messages) || body.messages.length === 0) {
+    return jsonResponse({ ok: false, error: "messages 字段必填且不能为空数组" }, 400);
+  }
+
+  // 1. tier 解析 + 越权降级
+  const { tier, downgraded } = resolveTierForUser(plan, body.tier);
+  const { upstream, model } = selectUpstreamForTier(tier);
+
+  // 2. 限流预检（每分钟 RPM）
+  const rpm = PLAN_RPM[plan] || PLAN_RPM.free;
+  const rl = await checkAndBumpRateLimit(env, auth.userId, rpm);
+  if (!rl.ok) {
+    ctx.waitUntil(
+      recordAudit(env, {
+        user_id: auth.userId,
+        ts: Date.now(),
+        model,
+        tier,
+        upstream,
+        status: "rate_limited",
+        error_code: "rpm_exceeded"
+      })
+    );
+    return jsonResponse(
+      {
+        ok: false,
+        error: "请求过于频繁，请稍后再试",
+        reason: "rate_limited",
+        retry_after_ms: rl.retryAfterMs
+      },
+      429
+    );
+  }
+
+  // 3. 配额预检（月度 token / call_count）
+  const yyyymm = currentYyyymm();
+  const usageRow = await env.DB.prepare(
+    "SELECT prompt_tokens, completion_tokens, call_count FROM llm_usage WHERE user_id = ? AND yyyymm = ?"
+  )
+    .bind(auth.userId, yyyymm)
+    .first();
+  const quota = checkQuota(plan, usageRow || {});
+  if (!quota.ok) {
+    ctx.waitUntil(
+      recordAudit(env, {
+        user_id: auth.userId,
+        ts: Date.now(),
+        model,
+        tier,
+        upstream,
+        status: "quota_exceeded",
+        error_code: quota.reason
+      })
+    );
+    return jsonResponse(
+      {
+        ok: false,
+        error: "本月平台 LLM 额度已用完",
+        reason: quota.reason || "quota_exceeded",
+        plan,
+        limit: quota.limit,
+        used: quota.used,
+        resets_at: new Date(nextResetMs()).toISOString()
+      },
+      402
+    );
+  }
+
+  // 4. 上游 fetch（带降级链）
+  const result = await callUpstreamWithFallback({ env, upstream, model, body });
+
+  // 5. 解析 token 用量
+  const usage = result.body?.usage || {};
+  const promptTokens = Number(usage.prompt_tokens || 0);
+  const completionTokens = Number(usage.completion_tokens || 0);
+
+  // 6. audit 一定写（哪怕失败 — 错误率监控用）
+  ctx.waitUntil(
+    recordAudit(env, {
+      user_id: auth.userId,
+      ts: Date.now(),
+      model: result.actualModel || model,
+      tier,
+      upstream: result.actualUpstream || upstream,
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      duration_ms: result.durationMs,
+      status: result.ok ? "ok" : "error",
+      error_code: result.errorCode,
+      fallback_from: result.fallbackFrom
+    })
+  );
+
+  // 7. 计量只在成功 + 有 token 数时扣（失败白扣不公平）
+  if (result.ok && (promptTokens > 0 || completionTokens > 0)) {
+    ctx.waitUntil(
+      recordUsage(env, {
+        userId: auth.userId,
+        yyyymm,
+        promptTokens,
+        completionTokens
+      })
+    );
+  }
+
+  // 8. 透传上游响应；扩展端 ai.js 期待 OpenAI-compatible JSON
+  const response = jsonResponse(
+    result.body || { ok: false, error: "上游无响应", error_code: result.errorCode || "no_body" },
+    result.status || 502
+  );
+  if (downgraded) response.headers.set("X-Platform-Tier-Downgraded", tier);
+  if (result.fallbackFrom) {
+    response.headers.set("X-Platform-Fallback-From", result.fallbackFrom);
+  }
+  return response;
+}
+
+// ============================================================
+// /api/llm/usage 月度用量进度查询
+// ============================================================
+// 给扩展端 popup / options 进度条用。返回 plan + 当月 used + limit + remaining + resets_at。
+async function handleLlmUsage(request, env) {
+  const auth = await requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+
+  const summary = await loadUserLicenseSummary(env, auth.userId);
+  const plan = derivePlanForLlm(summary);
+  const yyyymm = currentYyyymm();
+  const usageRow = await env.DB.prepare(
+    "SELECT prompt_tokens, completion_tokens, call_count, last_call_at FROM llm_usage WHERE user_id = ? AND yyyymm = ?"
+  )
+    .bind(auth.userId, yyyymm)
+    .first();
+
+  return jsonResponse({
+    ok: true,
+    ...formatUsageReport({ plan, usage: usageRow || {} })
+  });
+}
+
+// ---------- license_keys.plan → LLM 服务的 plan 映射 ----------
+// 当前 license_keys.plan 只有 "free" / "pro" 两值；plan 文件目标三档 free/monthly/yearly。
+// Phase 4 加入虎皮椒月费 SKU 后，license_keys.plan 会直接写 "monthly" / "yearly"（透传）。
+// 当前过渡期：
+//   - 无 active license → "free"
+//   - plan = "monthly" / "yearly" → 透传（前向兼容）
+//   - plan = "pro" → "yearly"（旧 Pro 用户向后兼容，plan 文件 "## 风险/不做的事" 段）
+//   - 其他 → "free"
+// 唯一入口：handleLlmChat / handleLlmUsage 都走此函数确定额度档位。
+function derivePlanForLlm(licenseSummary) {
+  if (!licenseSummary?.activeKey) return "free";
+  const p = licenseSummary.plan;
+  if (p === "monthly" || p === "yearly") return p;
+  if (p === "pro") return "yearly";
+  return "free";
 }
 
 /* ---------------------- 共用签发函数（hupijiao + 未来其他通道） ---------------------- */

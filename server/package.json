@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "description": "润笔 DocuEarn · 授权 / 账号 / License 后端服务（Cloudflare Workers）",
+  "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",

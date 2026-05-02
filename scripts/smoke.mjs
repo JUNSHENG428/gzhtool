@@ -2990,4 +2990,27 @@ console.log("\n运行 humanize-pass 契约 mock 套件 …");
   }
 }
 
+// ===========================================================================
+// 39th session · server/llm/upstream.js · 上游 fetch / 计量 / 限流（语法 + 导出契约）
+// ===========================================================================
+// upstream.js 的多数函数都需要真实 env / fetch，难以纯函数测；这里只做：
+//   1. 模块能成功 import（确保 router.js 链路 + ES module 语法 OK）
+//   2. 导出契约（API surface 不漂移）
+// 真实的 fetch / D1 / KV 行为靠手工部署后 curl 验证。
+console.log("\n运行 server/llm/upstream.js 导出契约 …");
+{
+  const upstream = await import("../server/llm/upstream.js");
+  const expectedExports = [
+    "callUpstream",
+    "callUpstreamWithFallback",
+    "recordUsage",
+    "recordAudit",
+    "checkAndBumpRateLimit"
+  ];
+  for (const name of expectedExports) {
+    assert(typeof upstream[name] === "function", `upstream.js 缺导出 ${name}`);
+  }
+  console.log(`✓ upstream.js 5 项导出齐备`);
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

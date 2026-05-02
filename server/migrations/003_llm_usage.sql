@@ -1,9 +1,11 @@
 -- =====================================================================
 -- 003_llm_usage.sql · 平台 LLM 代理 · 月度用量 + 调用审计
 -- =====================================================================
--- 部署：
---   wrangler d1 execute gzh-license --remote --file=./server/migrations/003_llm_usage.sql
---   wrangler d1 execute gzh-license --local  --file=./server/migrations/003_llm_usage.sql
+-- 部署（注意：zsh 不支持行内 # 注释，每条命令独立一行）：
+--   先本地（在 server/ 目录下执行）：
+--     wrangler d1 execute gzh-license --local --file=./migrations/003_llm_usage.sql
+--   再远程（生产）：
+--     wrangler d1 execute gzh-license --remote --file=./migrations/003_llm_usage.sql
 --
 -- 设计要点（详见 .claude/plans/iridescent-sprouting-moore.md "Phase 1.1 D1 schema"）：
 --   · 39th session 起开始为月费/Free 用户提供平台 LLM 代理服务，年费用户保留
