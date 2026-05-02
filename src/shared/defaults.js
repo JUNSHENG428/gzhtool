@@ -234,7 +234,17 @@ export const DEFAULT_SETTINGS = {
   // 任务中心模式：true（默认）时 AI 改写 / 抓取走右下角任务中心异步队列模式，
   // 用户可以同时跑多个任务并切换 article / 路由不被阻塞；false 走老的全屏 modal。
   // 「心里不踏实想看到全屏 loading」的用户可以在 options 关掉。
-  useTaskCenter: true
+  useTaskCenter: true,
+
+  // 39th session · 平台 LLM 代理 / BYOK 反向 gating
+  //   "byok"     → 用 settings.apiKey + apiBaseUrl + model 直连用户自配服务商（老用户默认行为）
+  //   "platform" → 走 worker /api/llm/chat，由润笔托管，按月度 token 配额计费
+  // 默认 "byok" 是为了**完全不破坏老用户**——他们之前的 apiKey 配置照常工作。
+  // Phase 2.4 起 options UI 会引导用户主动切到 platform。
+  aiSourceMode: "byok",
+  // 平台模式选哪个档位（economy / standard / flagship）。worker 端会按用户 plan
+  // 自动越权降级（resolveTierForUser），所以选高了不会报错只会降级到能用的最高档。
+  platformTier: "economy"
 };
 
 export const DEFAULT_ARTICLE_META = {

@@ -218,6 +218,47 @@
           </details>
         </div>
 
+        <!-- 39th session · AI 来源 radio（platform 代理 vs BYOK 直连）-->
+        <fieldset class="ai-source-toggle">
+          <legend>AI 服务来源 <small class="field-meta">aiSourceMode</small></legend>
+          <div class="ai-source-options">
+            <label class="checkbox-row">
+              <input id="aiSourceModePlatform" type="radio" name="aiSourceMode" value="platform" />
+              <span>使用润笔平台 AI <small class="field-meta">推荐 · 月度托管 · JWT 鉴权</small></span>
+            </label>
+            <label class="checkbox-row">
+              <input id="aiSourceModeByok" type="radio" name="aiSourceMode" value="byok" />
+              <span>使用我自己的 API Key <small class="field-meta">年费独享 · 不计平台额度</small></span>
+            </label>
+          </div>
+          <small class="field-hint">
+            <strong>平台 AI</strong>：由润笔托管 OpenAI / DeepSeek 等服务商，按月度 token 配额计费。Free 30 次/月、月费 5M token/月、年费 20M token/月。<br/>
+            <strong>自定义 API Key</strong>：用你自己注册的 OpenAI / DeepSeek / Kimi 等服务商账号，文章正文直接发送到你绑定的服务商，<strong>不经过润笔服务器</strong>。仅年费会员可解锁。
+          </small>
+        </fieldset>
+
+        <!-- 39th session · 平台模式专属面板（aiSourceMode=platform 时显示）-->
+        <div class="ai-source-panel" data-source="platform" hidden>
+          <label>
+            <span>模型档位 <small class="field-meta">platformTier</small></span>
+            <select id="platformTier">
+              <option value="economy">经济档（DeepSeek V4 Flash · 全员可用 · 中文好性价比高）</option>
+              <option value="standard">标准档（DeepSeek V4 Pro · 月费起 · 推理能力更强）</option>
+              <option value="flagship">旗舰档（GPT-4o · 年费独享 · 标杆质量）</option>
+            </select>
+            <small class="field-hint">
+              <strong>什么时候改</strong>：想用更强的模型时升档（占 token 也更多）；不知道选哪个就保留经济档，绝大多数公众号写作场景已够用。<strong>越权选档会怎样</strong>：免费用户选标准/旗舰、月费用户选旗舰，请求时会被 worker 自动降级到你能用的最高档（响应头 `X-Platform-Tier-Downgraded` 标记），不报错。
+            </small>
+          </label>
+
+          <!-- 用量卡片：未登录显示 CTA；登录后 fetch /api/llm/usage 渲染进度条 -->
+          <div class="platform-usage-card" id="platformUsageCard">
+            <p class="platform-usage-loading muted">加载用量中...</p>
+          </div>
+        </div>
+
+        <!-- 39th session · BYOK 模式专属面板（aiSourceMode!=platform 时显示，包括 undefined 老用户）-->
+        <div class="ai-source-panel" data-source="byok">
         <label>
           <span>服务商 <small class="field-meta">Provider</small></span>
           <div class="provider-row">
@@ -246,6 +287,7 @@
             <small class="field-hint">从下拉里选当前服务商推荐的型号；不在列表里的也可以手填。<strong>什么时候改</strong>：想换更便宜/更强的模型。<strong>填错的后果</strong>：报 model not found 或乱回答。</small>
           </label>
         </div>
+        </div><!-- /ai-source-panel data-source=byok -->
 
         <label class="field-narrow">
           <span>创造力档位 <small class="field-meta">Temperature · 0~2</small></span>

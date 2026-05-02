@@ -225,6 +225,115 @@ textarea {
   align-items: center;
 }
 
+/* 39th session · 平台 LLM 代理 / BYOK 切换 UI */
+.ai-source-toggle {
+  border: 1px solid var(--border-soft, #d8d2c4);
+  border-radius: 12px;
+  padding: 12px 14px 14px;
+  margin: 8px 0 16px;
+  background: rgba(248, 244, 233, 0.5);
+}
+.ai-source-toggle legend {
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-secondary, #5b5142);
+}
+.ai-source-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.ai-source-options .checkbox-row {
+  align-items: flex-start;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.ai-source-options .checkbox-row:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+.ai-source-options .checkbox-row input {
+  margin-top: 3px;
+}
+
+.ai-source-panel {
+  margin-bottom: 4px;
+}
+.ai-source-panel[hidden] {
+  display: none;
+}
+.ai-source-panel > label,
+.ai-source-panel > .split-grid {
+  margin-bottom: 12px;
+}
+
+/* 平台用量卡片 */
+.platform-usage-card {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-soft, #d8d2c4);
+  border-radius: 10px;
+  background: rgba(255, 250, 235, 0.6);
+}
+.platform-usage-card.is-error {
+  border-color: #d97757;
+  background: rgba(255, 235, 230, 0.6);
+}
+.platform-usage-card .platform-usage-loading {
+  margin: 0;
+  font-size: 13px;
+}
+.platform-usage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.platform-usage-row strong {
+  font-size: 15px;
+  color: var(--ink-primary, #2a241a);
+}
+.platform-usage-bar {
+  height: 8px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 6px 0 8px;
+}
+.platform-usage-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6db66f, #d4a843);
+  transition: width 240ms;
+}
+.platform-usage-bar-fill.is-warning {
+  background: linear-gradient(90deg, #d4a843, #d97757);
+}
+.platform-usage-bar-fill.is-danger {
+  background: #d97757;
+}
+.platform-usage-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 12px;
+  color: var(--ink-tertiary, #8a7f6e);
+  margin: 6px 0 0;
+}
+.platform-usage-meta span {
+  white-space: nowrap;
+}
+.platform-usage-cta {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* 高级生成参数（Temperature 下方的折叠区）*/
 .advanced-params {
   margin-top: 12px;

@@ -33,6 +33,7 @@ import {
   deactivateDevice,
   evaluateLicense,
   fetchAccountSummary,
+  getApiBase,
   getAuthRecord,
   getLicenseRecord,
   getLicenseState,
@@ -102,7 +103,10 @@ const fields = {
   useReactFloatingBall: document.querySelector("#useReactFloatingBall"),
   // 任务中心模式（队列 + 后台跑 + 右下角浮窗）。change 即时 saveSettings，
   // 与 AI 配置解耦，避免 saveForm required 校验拦截（同 floatingBallEnabled 模式）。
-  useTaskCenter: document.querySelector("#useTaskCenter")
+  useTaskCenter: document.querySelector("#useTaskCenter"),
+  // 39th session · 平台 LLM 代理档位（aiSourceMode=platform 时生效）
+  // select 进 fields 走 saveForm 通用循环 OK；aiSourceMode（radio）独立处理见下方。
+  platformTier: document.querySelector("#platformTier")
 };
 
 const statusElement = document.querySelector("#status");
@@ -300,6 +304,180 @@ fields.useTaskCenter?.addEventListener("change", async (event) => {
   await saveSettings({ useTaskCenter: Boolean(event.target.checked) });
 });
 
+// 39th session · AI 来源 radio（platform vs byok）+ 用量卡片
+// 关键设计点：
+//   1. aiSourceMode 用 radio NodeList 不进 fields 字典（saveForm 通用循环只认单 element）
+//   2. change 事件即时 saveSettings 写 storage —— 与 useTaskCenter 同 pattern，避免
+//      触发 saveForm 的 apiKey/apiBaseUrl/model required 校验拦截（platform 模式不需要这些字段）
+//   3. 切到 platform 时把 BYOK 三件套的 required 属性临时摘掉，切回 byok 时恢复
+//      （否则用户在 platform 模式下点「保存」会被 checkValidity 拦死）
+//   4. 用量卡片 fetch /api/llm/usage 渲染；未登录 → 弹登录 CTA；401 → 弹重新登录
+const aiSourceModeRadios = document.querySelectorAll("input[name='aiSourceMode']");
+const aiSourcePanelPlatform = document.querySelector(".ai-source-panel[data-source='platform']");
+const aiSourcePanelByok = document.querySelector(".ai-source-panel[data-source='byok']");
+const platformUsageCard = document.querySelector("#platformUsageCard");
+
+function applyAiSourceMode(mode) {
+  const isPlatform = mode === "platform";
+  if (aiSourcePanelPlatform) aiSourcePanelPlatform.hidden = !isPlatform;
+  if (aiSourcePanelByok) aiSourcePanelByok.hidden = isPlatform;
+  // 切换 BYOK 三件套的 required —— 平台模式下用户根本没填 apiKey 也能保存
+  for (const f of [fields.apiBaseUrl, fields.apiKey, fields.model]) {
+    if (!f) continue;
+    if (isPlatform) f.removeAttribute("required");
+    else f.setAttribute("required", "");
+  }
+  if (isPlatform) refreshPlatformUsage();
+}
+
+aiSourceModeRadios.forEach((radio) => {
+  radio.addEventListener("change", async (event) => {
+    if (!event.target.checked) return;
+    const mode = event.target.value === "platform" ? "platform" : "byok";
+    await saveSettings({ aiSourceMode: mode });
+    applyAiSourceMode(mode);
+    // BYOK 软提示：年费独享，月费/免费用户切到这里 ai.js 在请求时会 throw LICENSE_BYOK_LOCKED
+    if (mode === "byok") {
+      const access = await checkLicense("ai.bringYourOwnKey");
+      if (!access.ok) {
+        setStatus(
+          access.hint ||
+            "提示：自定义 API Key 仅年费会员可用。月费/免费用户切到此模式后调用会被拦截，请改回平台 AI 或升级年费会员。"
+        );
+      }
+    }
+  });
+});
+
+// platformTier select：change 即时保存（与 radio 同模式，绕过 saveForm 校验）
+fields.platformTier?.addEventListener("change", async (event) => {
+  await saveSettings({ platformTier: event.target.value });
+});
+
+/**
+ * 渲染平台 AI 用量卡片。被切到平台模式时调用 + 用户点重试时调用。
+ *
+ * 状态机：
+ *   - 未登录 → 显示「登录 CTA」
+ *   - 登录但 401 → 显示「重新登录 CTA」
+ *   - 网络错 → 显示「重试」按钮
+ *   - 200 ok → 渲染进度条 + 元信息（剩余 / 调用次数 / N 天后重置）
+ *
+ * 不抛错——所有失败转 UI 状态展示（避免污染主链路）。
+ */
+async function refreshPlatformUsage() {
+  if (!platformUsageCard) return;
+  platformUsageCard.classList.remove("is-error");
+  platformUsageCard.innerHTML = '<p class="platform-usage-loading muted">加载用量中...</p>';
+
+  const auth = await getAuthRecord();
+  const jwt = auth?.token;
+  if (!jwt) {
+    platformUsageCard.innerHTML = `
+      <div class="platform-usage-row"><strong>未登录润笔账户</strong></div>
+      <p class="muted" style="font-size:12px;margin:0;">登录后才能看月度配额、调用次数和剩余 token。</p>
+      <div class="platform-usage-cta">
+        <button class="ghost" type="button" id="platformGoLoginBtn">前往会员中心登录</button>
+      </div>
+    `;
+    document.querySelector("#platformGoLoginBtn")?.addEventListener("click", () => {
+      window.open("https://docuearn.com/login", "_blank");
+    });
+    return;
+  }
+
+  let payload;
+  try {
+    const apiBase = String(await getApiBase()).replace(/\/+$/, "");
+    const resp = await fetch(`${apiBase}/api/llm/usage`, {
+      headers: { Authorization: `Bearer ${jwt}` }
+    });
+    if (resp.status === 401) {
+      platformUsageCard.classList.add("is-error");
+      platformUsageCard.innerHTML = `
+        <div class="platform-usage-row"><strong>登录已过期</strong></div>
+        <p class="muted" style="font-size:12px;margin:0;">请重新登录润笔账户后再使用平台 AI。</p>
+        <div class="platform-usage-cta">
+          <button class="ghost" type="button" id="platformReLoginBtn">重新登录</button>
+        </div>
+      `;
+      document.querySelector("#platformReLoginBtn")?.addEventListener("click", () => {
+        window.open("https://docuearn.com/login", "_blank");
+      });
+      return;
+    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    payload = await resp.json();
+  } catch (err) {
+    platformUsageCard.classList.add("is-error");
+    platformUsageCard.innerHTML = `
+      <div class="platform-usage-row"><strong>加载失败</strong></div>
+      <p class="muted" style="font-size:12px;margin:0;">${escapeHtml(err?.message || "网络错误")}</p>
+      <div class="platform-usage-cta">
+        <button class="ghost" type="button" id="platformRetryBtn">重试</button>
+      </div>
+    `;
+    document.querySelector("#platformRetryBtn")?.addEventListener("click", refreshPlatformUsage);
+    return;
+  }
+  if (!payload?.ok) {
+    platformUsageCard.classList.add("is-error");
+    platformUsageCard.innerHTML = `<div class="platform-usage-row"><strong>${escapeHtml(payload?.error || "未知错误")}</strong></div>`;
+    return;
+  }
+
+  // 拆 token-quota 与 call-quota 双形态（free 是次数制，monthly/yearly 是 token 制）
+  const { plan, used, limit, remaining, resets_at, quota_exceeded } = payload;
+  const isTokenPlan = limit && limit.tokens != null;
+  const usedNum = isTokenPlan ? Number(used?.total_tokens || 0) : Number(used?.call_count || 0);
+  const limitNum = Number(isTokenPlan ? limit.tokens : limit?.calls || 0);
+  const remainNum = Number(isTokenPlan ? remaining?.tokens || 0 : remaining?.calls || 0);
+  const pct = limitNum > 0 ? Math.min(100, (usedNum / limitNum) * 100) : 0;
+  const fillClass = quota_exceeded ? "is-danger" : pct >= 80 ? "is-warning" : "";
+  const planLabel = { free: "免费版", monthly: "月费会员", yearly: "年费会员" }[plan] || plan || "—";
+  const unit = isTokenPlan ? "token" : "次";
+  const resetDate = resets_at ? new Date(resets_at) : null;
+  const daysToReset =
+    resetDate && !Number.isNaN(resetDate.getTime())
+      ? Math.max(0, Math.ceil((resetDate.getTime() - Date.now()) / 86_400_000))
+      : null;
+
+  platformUsageCard.innerHTML = `
+    <div class="platform-usage-row">
+      <span><strong>${escapeHtml(planLabel)}</strong> · ${escapeHtml(payload.yyyymm || "")}</span>
+      <span><strong>${formatPlatformUsage(usedNum)}</strong> / ${formatPlatformUsage(limitNum)} ${unit}</span>
+    </div>
+    <div class="platform-usage-bar"><div class="platform-usage-bar-fill ${fillClass}" style="width:${pct.toFixed(1)}%"></div></div>
+    <p class="platform-usage-meta">
+      <span>剩余 ${formatPlatformUsage(remainNum)} ${unit}</span>
+      ${used?.call_count != null ? `<span>本月调用 ${used.call_count} 次</span>` : ""}
+      ${daysToReset != null ? `<span>${daysToReset} 天后重置（${resetDate.toISOString().slice(0, 10)}）</span>` : ""}
+      <span><a href="#" id="platformUsageRefreshBtn" style="color:inherit;text-decoration:underline;">刷新</a></span>
+    </p>
+    ${
+      quota_exceeded
+        ? `<div class="platform-usage-cta"><button class="ghost" type="button" id="platformUpgradeBtn">本月额度已用完 · 升级套餐</button></div>`
+        : ""
+    }
+  `;
+  document.querySelector("#platformUsageRefreshBtn")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    refreshPlatformUsage();
+  });
+  document.querySelector("#platformUpgradeBtn")?.addEventListener("click", () => {
+    window.open(pricingUrl(), "_blank");
+  });
+}
+
+// 数字格式化（K/M 缩写），用量卡片用
+function formatPlatformUsage(n) {
+  const num = Number(n) || 0;
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + "M";
+  if (num >= 10_000) return (num / 1_000).toFixed(1) + "K";
+  if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
+  return String(num);
+}
+
 // 闸门：DrissionPage 是 Pro 功能，免费用户尝试勾选时拦截并弹升级框
 fields.drissionEnabled?.addEventListener("change", async (event) => {
   if (!event.target.checked) return;
@@ -332,6 +510,18 @@ async function hydrateForm() {
     }
     field.value = settings[key] ?? "";
   }
+  // 39th session · 平台 LLM 代理 mode + tier 回填
+  // aiSourceMode 不在 fields 字典里（radio NodeList），单独处理
+  // platformTier 默认 "economy"（settings 里没设过的话）
+  const mode = settings.aiSourceMode === "platform" ? "platform" : "byok";
+  for (const radio of aiSourceModeRadios) {
+    radio.checked = radio.value === mode;
+  }
+  if (fields.platformTier && !fields.platformTier.value) {
+    fields.platformTier.value = settings.platformTier || "economy";
+  }
+  applyAiSourceMode(mode);
+
   // 根据已存的 apiBaseUrl 反推服务商，填好下拉与 datalist；
   // 必须放在通用 fields 循环之后 —— 此时 fields.apiBaseUrl.value 才是真实值。
   syncProviderUiFromBaseUrl();
