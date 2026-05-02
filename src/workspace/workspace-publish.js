@@ -767,6 +767,13 @@ async function _buildPullReadyPayload(articleId = "") {
     selected: i === chosenIndex
   }));
 
+  // 38th 续 14：用户报"无法感知是哪一片草稿推送过去了"——给 mp 端透传 bundle
+  // 元数据，让 importArticle 完成后能渲染清晰的 toast + 顶部 banner。
+  // bodyChars 用 bodyHtml 去标签后字符数（与 collectCurrentArticleMeta 字数统计口径一致）
+  const bodyChars = typeof article?.bodyHtml === "string"
+    ? article.bodyHtml.replace(/<[^>]+>/g, "").trim().length
+    : 0;
+
   return {
     payload: {
       meta: {
@@ -786,7 +793,15 @@ async function _buildPullReadyPayload(articleId = "") {
         targetProfileName
       },
       // 当前选中的 article id（dock 多草稿 select 默认选中项）
-      selectedArticleId: article.id || `idx-${chosenIndex}`
+      selectedArticleId: article.id || `idx-${chosenIndex}`,
+      // bundle 元数据透传给 mp 端 toast / banner 显示"第 N/M 篇 · K 字"
+      bundle: {
+        articleId: article.id || `idx-${chosenIndex}`,
+        index: chosenIndex + 1,  // 1-based 给用户看
+        total: bundle.length,
+        bodyChars,
+        syncedAt: Date.now()
+      }
     },
     drafts
   };

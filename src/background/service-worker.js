@@ -741,8 +741,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: `非法目标 path: ${path}` });
           break;
         }
+        // 38th 续 14：支持 hash + articleId query 参数透传（mp 编辑器同步 banner
+        // 的 [查看在润笔] 按钮跳到 workspace#layout 切到对应 article）
+        const url = new URL(chrome.runtime.getURL(path));
+        const hash = String(message.payload?.hash || "").replace(/^#+/, "");
+        if (hash) url.hash = hash;
+        const articleId = String(message.payload?.articleId || "").trim();
+        if (articleId) url.searchParams.set("focus_article", articleId);
         await chrome.tabs.create({
-          url: chrome.runtime.getURL(path),
+          url: url.toString(),
           active: true
         });
         sendResponse({ ok: true });

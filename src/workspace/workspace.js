@@ -338,6 +338,22 @@ async function bootstrap() {
   hydrateDefaults();
   restoreSession();
   await refreshHistoryRecords();
+
+  // 38th 续 14：focus_article query param 处理——mp 顶部 banner 跳进来时切到该 article
+  // **TDZ 防护**：focus_article 解析 const 声明在 bootstrap 后段，此处使用必须晚于声明
+  // （progress.md 反例约定第 1 条「Options 页 top-level 调用必须放在 const 声明之后」同模式陷阱）
+  const focusArticleId = new URLSearchParams(location.search).get("focus_article") || "";
+  if (focusArticleId) {
+    const idx = state.articleBundle.findIndex((a) => a?.id === focusArticleId);
+    if (idx >= 0) {
+      state.currentArticleIndex = idx;
+      applyCurrentArticleToControls();
+      if ((location.hash || "").replace(/^#/, "") !== "layout") {
+        location.hash = "layout";
+      }
+    }
+  }
+
   syncWorkspace();
   updateEditorWordCount();
   maybeResumePublishPolling();

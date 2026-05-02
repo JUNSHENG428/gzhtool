@@ -40,8 +40,15 @@
     payload: null,
     result: null,
     floatingBallEnabled: false,
-    floatingBallPosition: null
+    floatingBallPosition: null,
+    // 38th 续 14：上次同步记录（用户报"无法感知是哪一片草稿推送过来了"）。
+    // importArticle 成功后写入，给 toast / 顶部常驻 banner / 浮球 tooltip 三层视觉反馈用。
+    // 字段：title / articleId / bundleIndex / bundleTotal / bodyChars / syncedAt（毫秒）
+    lastSyncRecord: null,
+    lastSyncBannerDismissedAt: 0  // 用户手动关 banner 后 30 分钟内不再自动弹
   };
+  const SYNC_BANNER_ID = "wechat-editor-sync-banner";
+  const SYNC_BANNER_DISMISS_COOLDOWN_MS = 30 * 60 * 1000;
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type !== "IMPORT_ARTICLE_TO_WECHAT_EDITOR") {
@@ -334,13 +341,18 @@
   function stripBallsHtml() {
     const pullDisabled = isPullDisabled();
     const drafts = Array.isArray(STATE.payload?.drafts) ? STATE.payload.drafts : [];
-    const pullTooltip = !isEditorPage()
+    // 38th 续 14：tooltip 末尾追加"上次同步"信息（hover 浮球能看到）
+    const lastSync = STATE.lastSyncRecord;
+    const lastSyncSuffix = lastSync
+      ? `\n上次同步：《${lastSync.title}》· ${formatAgo(lastSync.syncedAt)}`
+      : "";
+    const pullTooltip = (!isEditorPage()
       ? "不在 mp 编辑页，无法写入"
       : pullDisabled
         ? "mp 后台账号与草稿目标账号不一致，已禁用以防写错号"
         : drafts.length > 1
           ? `从润笔工作台取草稿（${drafts.length} 篇可选）`
-          : "从润笔工作台取当前激活草稿到 mp 编辑器";
+          : "从润笔工作台取当前激活草稿到 mp 编辑器") + lastSyncSuffix;
     // 5 球字符（衬线 700）：
     //   取（拉草稿，主动作）/ 编（工作台 编辑台）/ 热（热点）/ 设（设置）/ 问（帮助）
     return `
@@ -563,9 +575,19 @@
       renderToast(resp?.error || "拉草稿失败。", "error");
       return;
     }
-    // ok 路径走 IMPORT_ARTICLE_TO_WECHAT_EDITOR → importArticle → renderHelperDock + 自动 toast
-    // 这里也补一条 toast 避免 dock 不显示时用户没反馈
-    renderToast("已写入 mp 编辑器。请按合规步骤手动 ① 上传封面 ② 点保存草稿。", "success");
+    // ok 路径走 IMPORT_ARTICLE_TO_WECHAT_EDITOR → importArticle → 写入 STATE.lastSyncRecord
+    // 38th 续 14：toast 文案带篇名 / 第 N/M 篇 / 字数（之前只说"已写入 mp 编辑器"用户不知道是哪篇）
+    const rec = STATE.lastSyncRecord;
+    if (rec) {
+      const bundleHint = rec.bundleTotal > 1 ? `第 ${rec.bundleIndex}/${rec.bundleTotal} 篇 · ` : "";
+      const charsHint = rec.bodyChars > 0 ? `${rec.bodyChars} 字 · ` : "";
+      renderToast(
+        `已同步《${rec.title}》到 mp 编辑器（${bundleHint}${charsHint}下一步：手动上传封面 + 点保存草稿）`,
+        "success"
+      );
+    } else {
+      renderToast("已写入 mp 编辑器。请按合规步骤手动 ① 上传封面 ② 点保存草稿。", "success");
+    }
     // strip 也刷新一下（drafts / profile 可能变了）
     const strip = document.getElementById(STRIP_ID);
     if (strip) refreshPullBallStatus(strip);
@@ -604,8 +626,111 @@
     toast.textContent = text;
     document.documentElement.appendChild(toast);
     if (kind !== "loading") {
-      setTimeout(() => toast.remove(), kind === "error" ? 8000 : 5000);
+      // 38th 续 14：success toast 8s（之前 5s）让用户来得及读篇名 +
+      // hover 时取消计时（用户读完再走开才消失）
+      const timeoutMs = kind === "error" ? 8000 : 8000;
+      let timer = setTimeout(() => toast.remove(), timeoutMs);
+      toast.addEventListener("mouseenter", () => clearTimeout(timer));
+      toast.addEventListener("mouseleave", () => {
+        timer = setTimeout(() => toast.remove(), 2000);
+      });
     }
+  }
+
+  // ─── 38th 续 14：mp 编辑器顶部常驻同步 banner ────────────────────────────
+  /** 拉草稿成功后在 mp 编辑器顶部注入一个 fixed-positioned 常驻 banner，让用户
+   *  事后也能看清"刚才同步过来的是哪一篇 / 字数 / 多久前同步"。
+   *  - [📂 查看在润笔] 按钮：打开 workspace#layout 切到该 article
+   *  - [×] 关闭：记 STATE.lastSyncBannerDismissedAt，30 分钟内不再自动弹
+   *  - 时间用 setInterval 每分钟更新"X 分钟前"显示
+   */
+  function renderSyncBanner(record) {
+    document.getElementById(SYNC_BANNER_ID)?.remove();
+    if (!record) return;
+
+    const banner = document.createElement("div");
+    banner.id = SYNC_BANNER_ID;
+    banner.style.cssText = [
+      "position:fixed",
+      "top:12px",
+      "left:50%",
+      "transform:translateX(-50%)",
+      "z-index:2147483646", // 低于 toast 一档（toast 用 max int），避免叠层异常
+      "max-width:640px",
+      "padding:10px 16px",
+      `background:${TOKEN.surfaceElevated}`,
+      `color:${TOKEN.ink}`,
+      `border:1px solid ${TOKEN.line}`,
+      `border-left:3px solid ${TOKEN.brand}`,
+      "border-radius:10px",
+      `box-shadow:${TOKEN.shadowMd}`,
+      `font-family:${TOKEN.fontSans}`,
+      "font-size:12px",
+      "line-height:1.6",
+      "display:flex",
+      "align-items:center",
+      "gap:12px",
+      `animation:rb-toast-in 240ms ${TOKEN.easeOut}`
+    ].join(";");
+
+    const updateAgo = () => {
+      const ago = Math.max(0, Math.round((Date.now() - record.syncedAt) / 60000));
+      const agoText = ago === 0 ? "刚刚" : `${ago} 分钟前`;
+      const bundleHint = record.bundleTotal > 1
+        ? ` · 第 ${record.bundleIndex}/${record.bundleTotal} 篇`
+        : "";
+      const charsHint = record.bodyChars > 0 ? ` · ${record.bodyChars} 字` : "";
+      banner.innerHTML = `
+        <span style="font-size:14px;">📥</span>
+        <span style="flex:1;min-width:0;">
+          <strong style="color:${TOKEN.brand};">已同步《${escapeHtmlAttr(record.title)}》</strong>
+          <span style="color:${TOKEN.inkSecondary};">来自润笔${bundleHint}${charsHint} · ${agoText}</span>
+        </span>
+        <button type="button" data-banner-action="goto" style="flex:none;padding:4px 10px;border:1px solid ${TOKEN.line};background:transparent;color:${TOKEN.brand};border-radius:6px;cursor:pointer;font-size:11px;">📂 查看在润笔</button>
+        <button type="button" data-banner-action="close" aria-label="关闭" style="flex:none;width:22px;height:22px;border:none;background:transparent;color:${TOKEN.softInk};font-size:16px;line-height:1;cursor:pointer;border-radius:4px;">×</button>
+      `;
+      // 重新绑定事件（innerHTML 替换会清掉之前的 listener）
+      banner.querySelector('[data-banner-action="goto"]')?.addEventListener("click", () => {
+        chrome.runtime.sendMessage({
+          type: "OPEN_EXTENSION_PAGE",
+          payload: {
+            path: "src/workspace/workspace.html",
+            hash: "layout",
+            articleId: record.articleId
+          }
+        }).catch(() => {});
+      });
+      banner.querySelector('[data-banner-action="close"]')?.addEventListener("click", () => {
+        STATE.lastSyncBannerDismissedAt = Date.now();
+        clearInterval(timer);
+        banner.remove();
+      });
+    };
+    updateAgo();
+    const timer = setInterval(updateAgo, 60000);
+
+    document.documentElement.appendChild(banner);
+  }
+
+  /** 把毫秒时间戳格式化成"X 分钟前"的人类可读相对时间（38th 续 14） */
+  function formatAgo(ts) {
+    const ms = Date.now() - Number(ts || 0);
+    if (!Number.isFinite(ms) || ms < 0) return "";
+    const min = Math.floor(ms / 60000);
+    if (min < 1) return "刚刚";
+    if (min < 60) return `${min} 分钟前`;
+    const hours = Math.floor(min / 60);
+    if (hours < 24) return `${hours} 小时前`;
+    return `${Math.floor(hours / 24)} 天前`;
+  }
+
+  function escapeHtmlAttr(s) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
   function applyStripPosition(strip) {
@@ -813,6 +938,23 @@
 
     result.message = buildResultMessage(result);
     STATE.result = result;
+
+    // 38th 续 14：写入 lastSyncRecord 给后续 toast / banner / 浮球 tooltip 三层视觉反馈
+    if (result.bodyWritten || result.titleWritten) {
+      STATE.lastSyncRecord = {
+        title: String(payload.meta?.title || "").trim() || "未命名",
+        articleId: String(payload?.bundle?.articleId || payload?.selectedArticleId || ""),
+        bundleIndex: Number(payload?.bundle?.index || 1),
+        bundleTotal: Number(payload?.bundle?.total || 1),
+        bodyChars: Number(payload?.bundle?.bodyChars || 0),
+        syncedAt: Number(payload?.bundle?.syncedAt || Date.now())
+      };
+      // 顶部常驻 banner（用户手动关闭过且在冷却期内时跳过，避免烦扰）
+      const dismissCooldown = Date.now() - STATE.lastSyncBannerDismissedAt;
+      if (dismissCooldown > SYNC_BANNER_DISMISS_COOLDOWN_MS) {
+        renderSyncBanner(STATE.lastSyncRecord);
+      }
+    }
     renderHelperDock(result);
     return result;
   }
