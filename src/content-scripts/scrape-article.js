@@ -17,7 +17,91 @@
   }
 
   const BOILERPLATE_RE =
-    /comment|comments?-list|disqus|sidebar|widget|related|recommend|share|social|breadcrumb|toolbar|advert|ad-|ads-|promo|subscribe|newsletter|footer|header-nav|reading-list|toc-|table-of|author-bio|meta-info|hentry-meta|post-tags|post-categories|next-prev|pagination|wp-block-latest|outbrain|taboola|prevnext/i;
+    /comment|comments?-list|disqus|sidebar|widget|related|recommend|share|social|breadcrumb|toolbar|advert|ad-|ads-|promo|subscribe|newsletter|footer|header-nav|reading-list|toc-|table-of|author-bio|meta-info|hentry-meta|post-tags|post-categories|next-prev|pagination|wp-block-latest|outbrain|taboola|prevnext|paywall|signup|cta-block|popup-overlay|modal-backdrop|cookie-banner|consent-banner|notification-bar|trending-list|popular-list|more-from|read-next|continue-reading|see-also|reaction-bar|engagement-bar|byline-block|tip-jar|membership-cta|mailing-list/i;
+
+  /**
+   * 域名特化提取规则（38th 续 7）：通用 ROOT_SELECTORS 在大型 SPA 站点上经常
+   * 选错根（命中 article 但内部全是骨架占位 / 命中 main 但混了大量推荐位）。
+   * 这里给热门站点配优先级最高的精准 selector，命中它们时直接用，跳过通用打分。
+   *
+   * 维护方式：每个 hostname 配一个或多个 selector pattern；以"内容容器选择器
+   * 优先 → 兜底通用 article" 的顺序排列。新加站点只往 SITE_RULES 里追加，
+   * 不要修改通用 ROOT_SELECTORS / BOILERPLATE_RE。
+   */
+  const SITE_RULES = [
+    {
+      // perplexity AI discover / search 答案页
+      hostMatch: /(^|\.)perplexity\.ai$/i,
+      rootSelectors: [
+        "main [data-testid='answer']",
+        "main .prose",
+        "[class*='AnswerSection']",
+        "[class*='answer-content']"
+      ],
+      // 排除右侧 sources 列表 + 相关问题 + 后续追问输入
+      extraBoilerplate: /sources-list|related-questions|follow-up|search-bar|user-input/i
+    },
+    {
+      // substack 文章页
+      hostMatch: /(^|\.)substack\.com$/i,
+      rootSelectors: [
+        ".post-content",
+        ".body.markup",
+        "article .available-content"
+      ],
+      extraBoilerplate: /subscribe-widget|share-dialog|comment-list|button-wrapper|topbar|tip-jar|paid-only/i
+    },
+    {
+      // medium 文章页
+      hostMatch: /(^|\.)medium\.com$/i,
+      rootSelectors: [
+        "article section",
+        "article",
+        "[data-testid='storyContent']",
+        "[class*='postArticle']"
+      ],
+      extraBoilerplate: /follow-button|clap-button|response-list|recommended-list|membership-pitch/i
+    },
+    {
+      // 知乎答案 / 文章
+      hostMatch: /(^|\.)zhihu\.com$/i,
+      rootSelectors: [
+        ".RichContent-inner",
+        ".Post-RichTextContainer",
+        ".AnswerCard .RichContent",
+        "article .Post-RichText"
+      ],
+      extraBoilerplate: /AnswerActions|VoteButton|CommentItem|RelatedAnswers|Reward|Sticky|App-Banner/i
+    },
+    {
+      // 微信公众号文章（与现有 ROOT_SELECTORS rich_media_content 一致，但加强 boilerplate）
+      hostMatch: /(^|\.)mp\.weixin\.qq\.com$/i,
+      rootSelectors: [
+        "#js_content",
+        ".rich_media_content",
+        ".rich_media_area_primary_inner"
+      ],
+      extraBoilerplate: /js_pc_qr_code|reward_qrcode|share_notice|follow_widget|profile_inner/i
+    },
+    {
+      // 36 氪
+      hostMatch: /(^|\.)36kr\.com$/i,
+      rootSelectors: [".article-content", "article"],
+      extraBoilerplate: /related-articles|hot-articles|tag-list|action-bar/i
+    },
+    {
+      // 简书
+      hostMatch: /(^|\.)jianshu\.com$/i,
+      rootSelectors: ["article", "._gp-ck", ".ouvJEz"],
+      extraBoilerplate: /note-bottom|recommended-notes|signup-modal/i
+    }
+  ];
+
+  function getSiteRule() {
+    const host = (location.hostname || "").toLowerCase();
+    if (!host) return null;
+    return SITE_RULES.find((rule) => rule.hostMatch.test(host)) || null;
+  }
 
   const SKIP_TAGS = new Set([
     "NAV",
@@ -180,9 +264,25 @@
 
   function extractArticleFromPage(options) {
     const raw = Boolean(options && options.raw);
+
+    // 域名特化规则优先（38th 续 7）：当前 host 命中 SITE_RULES 时，
+    // 优先尝试它的 rootSelectors（精准锁定主内容容器，避开通用打分误判）。
+    // 命中且非 raw 模式才用 —— raw 模式用户主动选了"全页面"。
+    const siteRule = raw ? null : getSiteRule();
+    const siteCandidates = siteRule
+      ? siteRule.rootSelectors.flatMap((selector) => {
+          try {
+            return Array.from(document.querySelectorAll(selector));
+          } catch {
+            return [];
+          }
+        })
+      : [];
+
     const candidates = raw
       ? [document.body]
       : [
+          ...siteCandidates,
           ...ROOT_SELECTORS.flatMap((selector) => {
             try {
               return Array.from(document.querySelectorAll(selector));
@@ -690,11 +790,21 @@
   }
 
   function hasBoilerplateAncestor(node, stopNode) {
+    // 站点特化的 extraBoilerplate（38th 续 7）：在通用 BOILERPLATE_RE 之外
+    // 加上当前 host 的额外噪声 className 模式（如 substack 的 subscribe-widget）
+    const siteRule = getSiteRule();
+    const extraRe = siteRule?.extraBoilerplate || null;
+
     let current = node.parentElement;
     while (current && current !== stopNode) {
       const cls = `${current.getAttribute("class") || ""} ${current.id || ""}`;
       const role = current.getAttribute("role") || "";
-      if (BOILERPLATE_RE.test(cls) || role === "complementary" || role === "navigation") {
+      if (
+        BOILERPLATE_RE.test(cls) ||
+        (extraRe && extraRe.test(cls)) ||
+        role === "complementary" ||
+        role === "navigation"
+      ) {
         return true;
       }
       current = current.parentElement;
