@@ -530,7 +530,7 @@ function setAiCard(state, title, modelText) {
   els.aiCardModel.textContent = modelText;
 }
 
-function triggerCapture(mode) {
+async function triggerCapture(mode) {
   const detect = currentTab ? detectPageKind(currentTab) : { kind: "unknown" };
   if (detect.kind !== "normal") {
     const tip = detect.kind === "wechat-mp"
@@ -539,6 +539,26 @@ function triggerCapture(mode) {
     setStatus(tip, "warning");
     return;
   }
+
+  // **关键 user gesture 链路**：popup 点抓取 → 关闭 popup → SW openWorkspace 新 tab →
+  // workspace.js boot autoCapture → captureSource → SW scrapeLastSourceTab。
+  // 这一长串中只有 popup 这次 click 才有 user activation，**必须在这里同步申请
+  // 当前页 origin 的 host permission**，否则后续 SW 端调 chrome.permissions.request
+  // 必撞 "must be called during a user gesture"，表现是用户点了"没反应"（无视觉报错
+  // 或者只看到"需要授权"但弹不出 grant 弹窗）。
+  // 比如 perplexity.ai / substack 等不在 manifest host_permissions 白名单的站点，
+  // 没这一步必然失败。
+  if (currentTab?.url) {
+    const granted = await ensureHostPermissionFromGesture(currentTab.url, "抓取当前页");
+    if (!granted) {
+      setStatus(
+        "需要你允许扩展访问该网页才能抓取。请重新点击「抓取当前页」并在弹窗中点「允许」。",
+        "warning"
+      );
+      return;
+    }
+  }
+
   const successMessage =
     mode === "selection"
       ? "已打开编辑台，正在抓取选中文字。"
