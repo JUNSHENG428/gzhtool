@@ -203,6 +203,19 @@
           <li><span class="meta-key">会员状态</span><span class="meta-val" id="memberPlanLine">读取中…</span></li>
           <li><span class="meta-key">登录账号</span><span class="meta-val" id="memberAccountLine">未登录</span></li>
         </ul>
+
+        <!-- 39th session · 平台 LLM 月度用量条（aiSourceMode=platform 时显示）-->
+        <div id="popupPlatformUsage" class="popup-platform-usage" hidden>
+          <div class="popup-platform-usage-row">
+            <span class="popup-platform-usage-label">平台 AI · 本月</span>
+            <span class="popup-platform-usage-value" id="popupPlatformUsageValue">— / —</span>
+          </div>
+          <div class="popup-platform-usage-bar">
+            <div class="popup-platform-usage-bar-fill" id="popupPlatformUsageBar" style="width:0%"></div>
+          </div>
+          <p class="popup-platform-usage-meta" id="popupPlatformUsageMeta"></p>
+        </div>
+
         <button id="memberSyncBtn" class="ghost-button ghost-button--full" type="button">
           同步会员状态
         </button>

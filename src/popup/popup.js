@@ -6,6 +6,7 @@ import {
   getLicenseState,
   subscribeLicenseChanges,
   getAuthRecord,
+  getApiBase,
   getLicenseSummaryText,
   verifyLicenseRemote
 } from "../shared/license.js";
@@ -40,7 +41,12 @@ const els = {
   memberQuotaRemain: document.querySelector("#memberQuotaRemain"),
   memberPlanLine: document.querySelector("#memberPlanLine"),
   memberAccountLine: document.querySelector("#memberAccountLine"),
-  memberSyncBtn: document.querySelector("#memberSyncBtn")
+  memberSyncBtn: document.querySelector("#memberSyncBtn"),
+  // 39th session · 平台 LLM 月度用量条（仅 aiSourceMode=platform 时显示）
+  platformUsageCard: document.querySelector("#popupPlatformUsage"),
+  platformUsageValue: document.querySelector("#popupPlatformUsageValue"),
+  platformUsageBar: document.querySelector("#popupPlatformUsageBar"),
+  platformUsageMeta: document.querySelector("#popupPlatformUsageMeta")
 };
 
 const SITE_LABELS = [
@@ -286,6 +292,87 @@ async function hydrateLicenseStatus() {
   const summary = getLicenseSummaryText(state, { usage, auth });
   setLicensePill(summary);
   renderMemberMeta({ state, auth, usage, summary });
+  // 39th session · 平台 LLM 用量条（aiSourceMode=platform + 已登录时才 fetch）
+  refreshPopupPlatformUsage(auth).catch((err) =>
+    console.warn("[popup] refreshPopupPlatformUsage failed", err)
+  );
+}
+
+/**
+ * 平台 LLM 月度用量条（popup 版，简化版 — 不渲染 CTA / 重试按钮，纯展示）。
+ *
+ * 失败 silently 隐藏（auth=null / 网络错 / aiSourceMode=byok）—— popup 是只读快览，
+ * 出错就藏起来不打扰用户，详细信息留给 options 页 refreshPlatformUsage()。
+ */
+async function refreshPopupPlatformUsage(authRecord) {
+  if (!els.platformUsageCard) return;
+  els.platformUsageCard.hidden = true; // 默认隐藏，命中条件再显示
+
+  let settings;
+  try {
+    settings = await getSettings();
+  } catch (_) {
+    return;
+  }
+  if (settings?.aiSourceMode !== "platform") return; // BYOK 模式不显示
+
+  const jwt = authRecord?.token;
+  if (!jwt) return; // 未登录不显示（licensePill / memberAccountLine 已提示）
+
+  let payload;
+  try {
+    const apiBase = String(await getApiBase()).replace(/\/+$/, "");
+    const resp = await fetch(`${apiBase}/api/llm/usage`, {
+      headers: { Authorization: `Bearer ${jwt}` }
+    });
+    if (!resp.ok) return;
+    payload = await resp.json();
+  } catch (_) {
+    return;
+  }
+  if (!payload?.ok) return;
+
+  const { plan, used, limit, remaining, resets_at, quota_exceeded } = payload;
+  const isTokenPlan = limit && limit.tokens != null;
+  const usedNum = isTokenPlan ? Number(used?.total_tokens || 0) : Number(used?.call_count || 0);
+  const limitNum = Number(isTokenPlan ? limit.tokens : limit?.calls || 0);
+  const remainNum = Number(isTokenPlan ? remaining?.tokens || 0 : remaining?.calls || 0);
+  const pct = limitNum > 0 ? Math.min(100, (usedNum / limitNum) * 100) : 0;
+  const fillClass = quota_exceeded ? "is-danger" : pct >= 80 ? "is-warning" : "";
+  const unit = isTokenPlan ? "token" : "次";
+
+  if (els.platformUsageValue) {
+    els.platformUsageValue.textContent = `${formatPopupUsageNum(usedNum)} / ${formatPopupUsageNum(limitNum)} ${unit}`;
+  }
+  if (els.platformUsageBar) {
+    els.platformUsageBar.className = `popup-platform-usage-bar-fill${fillClass ? " " + fillClass : ""}`;
+    els.platformUsageBar.style.width = `${pct.toFixed(1)}%`;
+  }
+  if (els.platformUsageMeta) {
+    const planLabel = { free: "免费版", monthly: "月费", yearly: "年费" }[plan] || plan || "—";
+    const calls = used?.call_count != null ? `${used.call_count} 次调用` : "";
+    const resetDate = resets_at ? new Date(resets_at) : null;
+    const days =
+      resetDate && !Number.isNaN(resetDate.getTime())
+        ? Math.max(0, Math.ceil((resetDate.getTime() - Date.now()) / 86_400_000))
+        : null;
+    const segments = [
+      planLabel,
+      `剩 ${formatPopupUsageNum(remainNum)} ${unit}`,
+      calls,
+      days != null ? `${days} 天后重置` : ""
+    ].filter(Boolean);
+    els.platformUsageMeta.textContent = segments.join(" · ");
+  }
+  els.platformUsageCard.hidden = false;
+}
+
+function formatPopupUsageNum(n) {
+  const num = Number(n) || 0;
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + "M";
+  if (num >= 10_000) return (num / 1_000).toFixed(1) + "K";
+  if (num >= 1_000) return (num / 1_000).toFixed(2) + "K";
+  return String(num);
 }
 
 function setLicensePill(summary) {

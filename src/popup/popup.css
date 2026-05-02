@@ -386,6 +386,57 @@ h1 {
   text-overflow: ellipsis;
 }
 
+/* 39th session · 平台 LLM 月度用量条（aiSourceMode=platform 时渲染） */
+.popup-platform-usage {
+  margin: 8px 0 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  font-size: 12px;
+}
+.popup-platform-usage[hidden] {
+  display: none;
+}
+.popup-platform-usage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.popup-platform-usage-label {
+  color: var(--ink-muted);
+}
+.popup-platform-usage-value {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.popup-platform-usage-bar {
+  height: 6px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.popup-platform-usage-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6db66f, #d4a843);
+  transition: width 240ms;
+}
+.popup-platform-usage-bar-fill.is-warning {
+  background: linear-gradient(90deg, #d4a843, #d97757);
+}
+.popup-platform-usage-bar-fill.is-danger {
+  background: #d97757;
+}
+.popup-platform-usage-meta {
+  margin: 6px 0 0;
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 /* P0 capture hint 配色：normal = info / 异常 = warning */
 #captureHint[data-tone="warning"] {
   color: var(--warning);
