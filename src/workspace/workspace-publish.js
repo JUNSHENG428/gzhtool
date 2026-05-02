@@ -22,6 +22,34 @@ import { collectPublishRemoteUrls } from "../shared/wechat.js";
  * 用于 publishBundle 早拦截 —— 没绑公众号时给用户清晰的"先去设置页"提示，
  * 而不是让流程跑到 SW 调 chrome.permissions.request 撞 user gesture 错。
  */
+/**
+ * 38th 续 11：检查当前文章是否有 in-flight rewrite task，是的话给 setStatus
+ * warning 引导用户等改写完成，并返回 true 让上游 return。
+ *
+ * 触发场景：用户在改写 task 还在 SW 跑（task center 模式异步）时点
+ * 「同步到公众号编辑器」/「立即发布」/「推送到草稿箱」——按钮触发的
+ * syncCurrentArticleFromControls() 把当前 editor DOM 同步回 article（editor
+ * 仍是改写**前**的内容），后续发到公众号的就是旧版本。等改写 done apply 之后
+ * editor 才更新，但同步/发布的请求已经走出去了，无法撤回。
+ *
+ * 修法：sync / publish 入口顶部 LIST_TASKS 检查同 articleId 的 rewrite task。
+ * 找到 running/pending 时阻止操作 + 引导。
+ */
+async function _hasInFlightRewriteTask(articleId) {
+  if (!articleId) return false;
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: "LIST_TASKS" });
+    const running = resp?.data?.running || [];
+    const pending = resp?.data?.pending || [];
+    return [...running, ...pending].some(
+      (t) => t?.type === "rewrite" && t?.articleId === articleId
+    );
+  } catch {
+    // LIST_TASKS 失败不阻塞主流程（task center 关闭等场景），保守返回 false
+    return false;
+  }
+}
+
 function hasAnyUsableWechatProfile(settings) {
   const profiles = Array.isArray(settings?.wechatProfiles) ? settings.wechatProfiles : [];
   const hasUsableProfile = profiles.some((p) => {
@@ -384,6 +412,23 @@ export async function publishBundle(mode) {
     if (validationError) {
       setStatus(validationError, "warning");
       return;
+    }
+
+    // 38th 续 11：改写还在跑时拦截——publishBundle batch 发整个 articleBundle，
+    // 检查任何 publishEnabled=true 的 article 是否有 in-flight rewrite task；
+    // 有则阻止发布，避免把改写**前**的旧 article 推到公众号无法撤回。
+    const enabledForPublish = state.articleBundle.filter(
+      (a) => a?.meta?.publishEnabled !== false
+    );
+    for (const article of enabledForPublish) {
+      if (await _hasInFlightRewriteTask(article?.id)) {
+        const title = article?.meta?.title?.trim() || "未命名";
+        setStatus(
+          `《${title}》正在 AI 改写中，请等改写完成（看右下角任务中心）再发布，避免发出旧版本。`,
+          "warning"
+        );
+        return;
+      }
     }
 
     state.settings = await getSettings();
@@ -846,6 +891,14 @@ export async function syncCurrentToWebEditor() {
   try {
     syncCurrentArticleFromControls();
     const current = getCurrentArticle();
+    // 38th 续 11：改写还在跑时拦截——避免同步改写前的旧版本到 mp 编辑器
+    if (await _hasInFlightRewriteTask(current?.id)) {
+      setStatus(
+        "当前文章正在 AI 改写中，请等改写完成（看右下角任务中心）再同步，避免同步出旧版本。",
+        "warning"
+      );
+      return;
+    }
     showLoading(
       "正在同步到公众号网页编辑器",
       "将打开公众号网页编辑器，并自动写入正文。"
