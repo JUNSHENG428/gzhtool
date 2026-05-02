@@ -299,10 +299,13 @@
     const textSeen = new Set();
     const blocks = [];
 
-    // 用一个 helper 统一推图片并去重
+    // 用一个 helper 统一推图片并去重（38th 续 8 加强：装饰 URL 过滤 + 同图多 size 归并）
     function pushImage({ src, alt, caption }) {
       if (!src) return null;
-      const key = normalizeUrlKey(src);
+      // 装饰 URL 跳过（/icons/ /badges/ /emoji/ 等路径模式）
+      if (looksLikeDecorativeUrl(src)) return null;
+      // 用 stripSizeParamsFromUrl 作 dedup key，让同一张图的不同 size variant 归并
+      const key = stripSizeParamsFromUrl(src);
       let imageIndex = imageIndexByUrl.get(key);
       if (!imageIndex) {
         imageIndex = images.length + 1;
@@ -312,9 +315,24 @@
           caption: normalizeText(caption || "")
         });
         imageIndexByUrl.set(key, imageIndex);
+      } else {
+        // 已有同图：保留尺寸最大版本（用 src 长度做粗粒度判断 —— 通常带 ?w=1200 比 ?w=200 长）
+        // 同时合并 alt/caption（取更长的非空版本）
+        const existing = images[imageIndex - 1];
+        if ((src || "").length > (existing.src || "").length) {
+          existing.src = src;
+        }
+        const newAlt = normalizeText(alt || "");
+        if (newAlt && newAlt.length > (existing.alt || "").length) {
+          existing.alt = newAlt;
+        }
+        const newCaption = normalizeText(caption || "");
+        if (newCaption && newCaption.length > (existing.caption || "").length) {
+          existing.caption = newCaption;
+        }
       }
       const data = images[imageIndex - 1];
-      return { type: "image", index: imageIndex, src, alt: data.alt, caption: data.caption };
+      return { type: "image", index: imageIndex, src: data.src, alt: data.alt, caption: data.caption };
     }
 
     const walker = document.createTreeWalker(
@@ -353,7 +371,7 @@
               return NodeFilter.FILTER_SKIP;
             }
             const src = resolveImageSrc(node);
-            if (!src || src.startsWith("data:") || isTinyTrackingUrl(src)) {
+            if (!src || src.startsWith("data:") || isTinyTrackingUrl(src) || looksLikeDecorativeUrl(src)) {
               return NodeFilter.FILTER_SKIP;
             }
             if (looksLikeTinyImage(node)) {
@@ -450,7 +468,7 @@
       }
       root.querySelectorAll("img").forEach((img) => {
         const src = resolveImageSrc(img);
-        if (!src || src.startsWith("data:") || isTinyTrackingUrl(src)) return;
+        if (!src || src.startsWith("data:") || isTinyTrackingUrl(src) || looksLikeDecorativeUrl(src)) return;
         if (hasSkippedAncestor(img, root) || hasBoilerplateAncestor(img, root)) return;
         if (looksLikeTinyImage(img)) return;
         const block = pushImage({
@@ -629,7 +647,7 @@
     const img = figureNode.querySelector("img");
     if (!img) return null;
     const src = resolveImageSrc(img);
-    if (!src || src.startsWith("data:") || isTinyTrackingUrl(src)) return null;
+    if (!src || src.startsWith("data:") || isTinyTrackingUrl(src) || looksLikeDecorativeUrl(src)) return null;
     if (looksLikeTinyImage(img)) return null;
     const captionEl = figureNode.querySelector("figcaption");
     const caption = captionEl ? normalizeText(captionEl.textContent || "") : "";
@@ -673,7 +691,7 @@
       const list = root.querySelectorAll("img");
       list.forEach((img) => {
         const src = resolveImageSrc(img);
-        if (!src || src.startsWith("data:") || isTinyTrackingUrl(src)) return;
+        if (!src || src.startsWith("data:") || isTinyTrackingUrl(src) || looksLikeDecorativeUrl(src)) return;
         if (hasSkippedAncestor(img, root) || hasBoilerplateAncestor(img, root)) return;
         if (looksLikeTinyImage(img)) return;
         const key = normalizeUrlKey(src);
@@ -724,16 +742,55 @@
   }
 
   function isTinyTrackingUrl(url) {
-    return /1x1|pixel|tracking|spacer|blank\.gif|beacon|loading\.gif|loading\.svg/i.test(url);
+    return /1x1|pixel|tracking|spacer|blank\.gif|beacon|loading\.gif|loading\.svg|gtm\.js|googletagmanager/i.test(url);
+  }
+
+  /**
+   * 判断 URL 路径里的"图标/徽章/装饰"特征（38th 续 8 加强）。
+   * 例如：/static/icons/share.svg / /assets/badge-pro.png / /emoji/laugh.gif
+   * 这类即使尺寸 > 80px 也不该作为正文图片入库（多半是装饰元素）。
+   */
+  function looksLikeDecorativeUrl(url) {
+    if (!url) return false;
+    const u = String(url).toLowerCase();
+    return /\/(icons?|badges?|emoji|emojis|emoticons?|stickers?|reactions?|share-buttons?|social-icons?|logo-small|sponsor-logos?)\//.test(u);
   }
 
   function looksLikeTinyImage(img) {
     const w = img.naturalWidth || Number(img.getAttribute("width")) || 0;
     const h = img.naturalHeight || Number(img.getAttribute("height")) || 0;
+    // 80px 阈值之外，再加 100x100 这一档作为"明显的图标尺寸"判定
     if (w > 0 && h > 0 && w < 80 && h < 80) return true;
+    if (w > 0 && h > 0 && w <= 100 && h <= 100 && Math.abs(w - h) < 8) return true; // 接近正方形的小图 = 图标/头像
     const cls = (img.getAttribute("class") || "").toLowerCase();
-    if (/avatar|emoji|icon|logo-small|qrcode|qr-code|share-icon/.test(cls)) return true;
+    // 加强 class 黑名单：reaction-icon / social-icon / badge / sponsor-logo / sticker
+    if (/avatar|emoji|emoticon|sticker|icon|logo-small|logo-mini|qrcode|qr-code|share-icon|reaction|badge|sponsor-logo|app-store-badge|gp-badge|app-icon/.test(cls)) return true;
+    // alt 噪声过滤：alt 内容像 CTA / 装饰描述时，多半不是正文图
+    const alt = (img.getAttribute("alt") || "").trim().toLowerCase();
+    if (/^(点击|click|share|分享|转发|关注|follow|subscribe|订阅|二维码|qr code|logo|图标|icon|emoji|表情|广告)/.test(alt)) return true;
     return false;
+  }
+
+  /**
+   * 同 URL 的不同 size variant 归并（38th 续 8）：很多站点对同一图输出多种尺寸
+   * （如 https://cdn.x.com/img.jpg?w=200&h=200 vs ?w=1200&h=800），URL 不同
+   * 但本质是同一张图。把 size/quality query 参数剥掉作为去重 key，正文里
+   * 只保留尺寸最大那张。
+   */
+  function stripSizeParamsFromUrl(url) {
+    try {
+      const u = new URL(url, location.href);
+      // 常见 size/quality query 参数：w/h/width/height/size/quality/q/dpr/fm/format/auto
+      const sizeRe = /^(w|h|width|height|size|quality|q|dpr|fm|format|auto|ssl|c_fill|c_fit|c_scale)$/i;
+      const keys = Array.from(u.searchParams.keys());
+      keys.forEach((k) => { if (sizeRe.test(k)) u.searchParams.delete(k); });
+      // 路径里 -200x200. 这种命名约定剥掉
+      u.pathname = u.pathname.replace(/-\d{2,4}x\d{2,4}(?=\.[a-z]{2,5}$)/i, "");
+      u.hash = "";
+      return u.toString();
+    } catch {
+      return url;
+    }
   }
 
   function normalizeUrlKey(url) {
