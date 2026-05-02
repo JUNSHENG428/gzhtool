@@ -398,7 +398,16 @@ function _hasMeaningfulArticle(article) {
 function autoFillEditorFromSource(article) {
   if (!article || !_ctx?.state?.source) return false;
   const source = _ctx.state.source;
-  const html = composeSourceBodyHtml(source);
+
+  // 38th 续 13：filter 掉 _disabled blocks（38th 续 9 加的 block 多选 UI 标记）。
+  // 之前 autoFillEditorFromSource 把 source 直接拿去 composeSourceBodyHtml，
+  // 不 filter _disabled → 用户在「采集信息」面板取消勾选某 block → state.source.blocks[i]._disabled=true
+  // → 但 article.bodyHtml 已被全量 fill → 改写时走 buildRewriteSourceFromCurrentArticle
+  // 解析 bodyHtml 全部内容，_disabled 完全不生效 = "幽灵漏洞"。
+  // 这里 filter 后传给 composeSourceBodyHtml，让 bodyHtml 一开始就只含勾选的 blocks。
+  const filteredBlocks = (source.blocks || []).filter((b) => !b?._disabled);
+  const filteredSource = { ...source, blocks: filteredBlocks };
+  const html = composeSourceBodyHtml(filteredSource);
   if (!html) return false;
 
   article.bodyHtml = html;

@@ -730,6 +730,17 @@ async function _buildPullReadyPayload(articleId = "") {
     throw err;
   }
 
+  // 38th 续 13：与 syncCurrentToWebEditor / publishBundle 对齐——浮球 PULL
+  // 也走"用户行为终态送出"语义，必须先检查目标 article 是否有 in-flight rewrite，
+  // 否则会把改写**前**的旧版本拉到 mp 编辑器（38th 续 11 漏了浮球这条入口）。
+  if (await _hasInFlightRewriteTask(article?.id)) {
+    const err = new Error(
+      `《${article.meta.title.trim()}》正在 AI 改写中，请等改写完成（看右下角任务中心）再从 mp 浮球拉草稿。`
+    );
+    err.code = "FLOATING_BALL_REWRITE_IN_FLIGHT";
+    throw err;
+  }
+
   const themedHtml = buildExportHtmlForArticle(article);
   const sanitizedHtml = prepareHtmlForWechat(themedHtml);
 
