@@ -11,6 +11,8 @@ import {
 } from "./humanize-rules.js";
 import { ensureOptionalHostPermission } from "./host-permissions.js";
 import { normalizeText } from "./utils.js";
+// 39th session · 平台 LLM 代理（reverse gating）
+import { getAuthRecord, getApiBase, checkLicense } from "./license.js";
 
 const MAX_SOURCE_CHARS = 24000;
 
@@ -582,7 +584,158 @@ export async function postChatCompletionWithReasoningFallback(
   return { response, payload };
 }
 
+// 39th session · 平台 LLM 代理 · 是否走 worker 转发路径
+// 触发条件：用户在 options 页主动选 "使用润笔平台 AI"（settings.aiSourceMode = "platform"）
+// 旧用户（aiSourceMode 未设置）默认 false → 走老 BYOK 路径，行为不变
+function isPlatformMode(settings) {
+  return settings?.aiSourceMode === "platform";
+}
+
+// 39th session · 平台 LLM 代理 · 通过润笔 worker 转发改写请求
+// 与 BYOK 路径同样返回 normalizeArticle(extractJson(...))，调用方无感知差异
+//
+// 错误码契约（throw err with err.code）：
+//   AUTH_REQUIRED                  · 没登录 / 没 JWT
+//   AUTH_EXPIRED                   · 401 worker 返回（JWT 过期）
+//   PLATFORM_QUOTA_EXCEEDED        · 402（本月额度用完，附 err.data.resets_at / limit / used）
+//   PLATFORM_RATE_LIMITED          · 429（附 err.retryAfterMs）
+//   PLATFORM_UNCONFIGURED          · 503（worker 缺 *_API_KEY secret 或上游不可用）
+//   NETWORK / 普通 Error           · fetch 抛错或 4xx/5xx 通用情况
+async function requestRewriteViaPlatform(settings, source, preferences, template, voiceSample) {
+  // 1. 取 JWT
+  const authRecord = await getAuthRecord();
+  const jwt = authRecord?.token;
+  if (!jwt) {
+    const err = new Error("请先登录润笔账户才能使用平台 AI（设置页 → 我的会员 → 登录）");
+    err.code = "AUTH_REQUIRED";
+    throw err;
+  }
+
+  // 2. 解析 tier · 优先 settings.platformTier，否则从 model id 后缀拆（"platform-economy" → "economy"），兜底 economy
+  let tier = String(settings.platformTier || "").trim();
+  if (!tier) {
+    const m = String(settings.model || "").match(/^platform-([a-z]+)$/i);
+    if (m) tier = m[1].toLowerCase();
+  }
+  if (!tier) tier = "economy";
+
+  // 3. 拼 OpenAI-compatible body（messages + 采样参数完全复用 BYOK 同源逻辑）
+  const messages = buildRewriteMessages(source, preferences, settings, template, voiceSample);
+  const temperatureSource =
+    template && template.temperature != null && template.temperature !== ""
+      ? template.temperature
+      : settings.temperature;
+  const temperature = Number(temperatureSource ?? 0.8);
+
+  const body = { tier, temperature, messages };
+
+  const topPSource =
+    template && template.topP != null && template.topP !== ""
+      ? template.topP
+      : settings.topP;
+  const topP = numberOrNull(topPSource);
+  if (topP != null) body.top_p = topP;
+
+  const freqSource =
+    template && template.frequencyPenalty != null && template.frequencyPenalty !== ""
+      ? template.frequencyPenalty
+      : settings.frequencyPenalty;
+  const freqPenalty = numberOrNull(freqSource);
+  if (freqPenalty != null) body.frequency_penalty = freqPenalty;
+
+  const presSource =
+    template && template.presencePenalty != null && template.presencePenalty !== ""
+      ? template.presencePenalty
+      : settings.presencePenalty;
+  const presPenalty = numberOrNull(presSource);
+  if (presPenalty != null) body.presence_penalty = presPenalty;
+
+  // 4. POST /api/llm/chat
+  const apiBase = String(await getApiBase()).replace(/\/+$/, "");
+  const url = `${apiBase}/api/llm/chat`;
+  await ensureOptionalHostPermission(apiBase, "润笔平台 AI 接口");
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${jwt}`
+      },
+      body: JSON.stringify(body)
+    });
+  } catch (netErr) {
+    const err = new Error(`平台 AI 网络错误：${netErr?.message || "未知"}`);
+    err.code = "NETWORK";
+    throw err;
+  }
+
+  // 5. 处理 worker 自有的特殊错误码（OpenAI-compatible 之外）
+  if (response.status === 401) {
+    const err = new Error("润笔账户登录已过期，请重新登录");
+    err.code = "AUTH_EXPIRED";
+    throw err;
+  }
+  if (response.status === 402) {
+    const data = await response.json().catch(() => ({}));
+    const err = new Error(data?.error || "本月平台 LLM 额度已用完，可升级会员获取更多额度");
+    err.code = "PLATFORM_QUOTA_EXCEEDED";
+    err.data = data;
+    throw err;
+  }
+  if (response.status === 429) {
+    const data = await response.json().catch(() => ({}));
+    const err = new Error(data?.error || "请求过于频繁，请稍后再试");
+    err.code = "PLATFORM_RATE_LIMITED";
+    err.retryAfterMs = data?.retry_after_ms;
+    throw err;
+  }
+  if (response.status === 503) {
+    const data = await response.json().catch(() => ({}));
+    const err = new Error(`平台 AI 暂不可用：${data?.error_code || data?.error || "服务商未配置"}`);
+    err.code = "PLATFORM_UNCONFIGURED";
+    throw err;
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const errorMessage =
+      payload?.error?.message ||
+      payload?.error ||
+      payload?.message ||
+      `平台 AI 返回错误，状态码 ${response.status}`;
+    throw new Error(errorMessage);
+  }
+
+  // 6. 解析 OpenAI-compatible 响应（与 BYOK 路径同 helper）
+  const content = extractChatContent(payload);
+  if (!content) {
+    throw new Error("平台 AI 返回内容为空。" + diagnoseEmptyChatPayload(payload));
+  }
+
+  return normalizeArticle(extractJson(content), source, preferences);
+}
+
 export async function requestRewrite(settings, source, preferences, template, voiceSample = null) {
+  // 39th session · 平台 LLM 代理分支（aiSourceMode === "platform"）
+  if (isPlatformMode(settings)) {
+    return requestRewriteViaPlatform(settings, source, preferences, template, voiceSample);
+  }
+
+  // 39th session · BYOK 闸门：年费独享
+  // 仅当用户**主动**选 byok（aiSourceMode === "byok"）才闸；旧用户字段 undefined 不阻断
+  // → 兼容老用户，他们的 apiKey 设置照常工作直到 Phase 2.4 引导切换
+  if (settings?.aiSourceMode === "byok") {
+    const access = await checkLicense("ai.bringYourOwnKey");
+    if (!access.ok) {
+      const err = new Error(access.hint || "使用自定义 AI 接口需要年费会员，请前往会员中心升级");
+      err.code = "LICENSE_BYOK_LOCKED";
+      err.feature = access.feature;
+      throw err;
+    }
+  }
+
   if (!settings.apiKey?.trim()) {
     throw new Error("请先在设置页填写 API Key。");
   }
