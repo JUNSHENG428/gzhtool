@@ -59,11 +59,14 @@
             <ul class="price-list">
               <li>全部基础写作 / 排版 / 推送</li>
               <li>支持绑定 1 个公众号</li>
-              <li>每日 5 次 AI 改写</li>
+              <li><strong>平台 AI · 30 次 / 月</strong>（经济档：DeepSeek V4 Flash）</li>
               <li>5 个内置写作模板</li>
+              <li class="muted">平台 AI · 标准档（DeepSeek V4 Pro）</li>
+              <li class="muted">平台 AI · 旗舰档（GPT-4o）</li>
               <li class="muted">DrissionPage 增强抓取</li>
               <li class="muted">高级模板（深度行业、辟谣帖…）</li>
               <li class="muted">AI 模板生成器 · 7 题问卷 + 杂志级母版</li>
+              <li class="muted">使用自定义 API Key（年费独享）</li>
             </ul>
             <a class="btn btn-ghost btn-block price-cta" href="https://chromewebstore.google.com/" target="_blank" rel="noopener">
               安装 Chrome 扩展
@@ -78,13 +81,15 @@
             <ul class="price-list">
               <li>免费版的全部能力</li>
               <li>支持绑定最多 5 个公众号</li>
-              <li><strong>无限</strong> AI 改写次数</li>
+              <li><strong>平台 AI · 5M token / 月</strong>（经济 + 标准档）</li>
               <li>10+ 个高级写作模板（持续更新）</li>
               <li><strong>AI 模板生成器</strong>：7 题问卷一键生成专属模板</li>
               <li>6 套杂志级母版：New Yorker / Wired / Monocle / Vogue 等</li>
               <li>DrissionPage 反爬抓取</li>
               <li>3 台设备同时激活</li>
               <li>邮件 / 群优先支持</li>
+              <li class="muted">平台 AI · 旗舰档（GPT-4o）</li>
+              <li class="muted">使用自定义 API Key（年费独享）</li>
             </ul>
             <a class="btn btn-primary btn-block price-cta" data-checkout="monthly" href="#">
               立即订阅
@@ -99,7 +104,8 @@
             <ul class="price-list">
               <li>等同 Pro 月付的全部能力</li>
               <li>支持绑定最多 5 个公众号</li>
-              <li>无限 AI 改写</li>
+              <li><strong>平台 AI · 20M token / 月</strong>（含旗舰档 GPT-4o）</li>
+              <li><strong>🔓 解锁自定义 API Key（年费独享）</strong>—— 用你自己的 OpenAI / DeepSeek / Claude 账号，文章正文直发服务商不经过润笔服务器，不计平台额度</li>
               <li>10+ 高级模板 + AI 模板生成器</li>
               <li>6 套杂志级母版（New Yorker / Wired / Monocle 等）</li>
               <li>DrissionPage 增强抓取</li>
@@ -140,7 +146,18 @@
           </article>
           <article class="card">
             <h3 class="card-title">数据会上传给你们吗？</h3>
-            <p class="card-desc">不会。所有素材、草稿、改写结果都存在你浏览器本地。我们的服务器只用来：1）账号登录与会员校验；2）订阅支付回调。AI 调用走的是你自己填的 API 接口配置，不经过我们。</p>
+            <p class="card-desc">分两种 AI 模式说：<br/>
+              <strong>平台 AI 模式（免费 / 月费默认）</strong>：你点 AI 改写时文章正文会经过我们的 Cloudflare 服务器临时转发到上游 LLM（DeepSeek / OpenAI），但<strong>我们不存储正文</strong>——只记录 token 用量、模型名、错误码。详见<a href="./privacy">隐私政策</a>。<br/>
+              <strong>自定义 API Key 模式（年费独享）</strong>：你的文章正文<strong>直接</strong>从扩展端发到你绑定的 API Key 服务商，不经过我们。我们对内容零接触。<br/>
+              所有素材、草稿、改写结果都仅存在你浏览器本地。我们的服务器另外还用来：账号登录、会员校验、订阅支付回调。</p>
+          </article>
+          <article class="card">
+            <h3 class="card-title">平台 AI 用完了怎么办？</h3>
+            <p class="card-desc">免费版 30 次 / 月费 5M token / 年费 20M token，按 UTC 自然月每月 1 日重置。撞顶后可以：1）等下月重置；2）升级到更高档套餐；3）（年费）切到「使用我自己的 API Key」模式，用自己的 OpenAI / DeepSeek 账号继续跑，不计平台额度。</p>
+          </article>
+          <article class="card">
+            <h3 class="card-title">为什么年费才解锁「自定义 API Key」？</h3>
+            <p class="card-desc">月费档由平台托管 LLM 调用、按 token 配额计费——这是平台主营收入。年费用户多半已有自配 LLM 资源（公司 OpenAI 账号 / 自部署模型 / 偏好特定服务商），平台不再插中间赚 token 差价，让出最大灵活度。等于「年费 = 平台 AI 大额度 + 自由切换 BYOK」。</p>
           </article>
           <article class="card">
             <h3 class="card-title">企业 / 团队套餐？</h3>

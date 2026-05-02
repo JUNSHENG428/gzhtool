@@ -102,9 +102,15 @@
         DocuEarn is a Chrome extension and web dashboard for Chinese-language writers
         publishing to WeChat Official Accounts. We collect only the minimum data
         needed to operate the service (account email, license status, anonymous
-        usage counters). We do not sell user data, do not store the content of
-        articles users write, and AI processing is done by the user's own
-        OpenAI/Anthropic API key — we are not in the request path.
+        usage counters). We do not sell user data and do not store the content of
+        articles users write. AI processing has two modes:
+        (a) <strong>Platform AI mode</strong> (default for Free / monthly users) —
+        article body is forwarded through our Cloudflare Workers to upstream LLM
+        providers (DeepSeek / OpenAI) but we do <strong>not store the body content</strong>;
+        only token counts, model name, and error codes are persisted for billing
+        and abuse detection. (b) <strong>BYOK mode</strong> (yearly-only) — the user's
+        article body is sent directly from the extension to their own configured
+        provider; we are not in the request path.
       </div>
 
       <h2>1. 我们是谁</h2>
@@ -125,32 +131,46 @@
 
       <h3>2.2 使用数据（聚合 + 匿名）</h3>
       <ul>
-        <li>调用次数计数（如 "今日 AI 改写 3 次"），用于配额管理</li>
-        <li>错误日志（仅记录错误码与堆栈，不含用户输入文本）</li>
+        <li>调用次数 / token 计数（如「本月平台 AI 改写 12 次 · 234,567 token」），用于配额管理与计费。</li>
+        <li>调用流水 metadata（时间戳、模型名、上游服务商、token 数、状态码、错误码、调用耗时） —— 用于成本核算、错误率监控、滥用检测。<strong>不含任何 prompt / completion 文本、IP、user-agent</strong>。</li>
+        <li>错误日志（仅记录错误码与堆栈，不含用户输入文本）。</li>
       </ul>
 
       <h3>2.3 我们 <em>不</em> 收集的数据</h3>
       <ul>
-        <li>你写的文章正文 / 草稿 / 改写结果 —— 全部保存在你本机浏览器的 IndexedDB / localStorage</li>
-        <li>你的 OpenAI / Anthropic / 其他 AI 服务的 API key —— 只保存在本机扩展存储，从不上传</li>
-        <li>你抓取的素材原文 —— 全部本机处理</li>
-        <li>你的微信公众号账号密码 / cookies —— 复用浏览器原生登录态，从不读取或上传</li>
+        <li>你写的文章正文 / 草稿 / 改写结果 —— 全部保存在你本机浏览器的 IndexedDB / localStorage。<strong>平台 AI 模式下文章正文经过我们的服务器临时转发，但我们不持久化（既不存数据库，也不写日志，也不用作模型训练）</strong>。</li>
+        <li>你的 OpenAI / Anthropic / DeepSeek / 其他 AI 服务的自定义 API key —— 只保存在本机扩展存储，从不上传。</li>
+        <li>你抓取的素材原文 —— 全部本机处理。</li>
+        <li>你的微信公众号账号密码 / cookies —— 复用浏览器原生登录态，从不读取或上传。</li>
       </ul>
 
       <h2>3. 数据如何处理</h2>
       <ul>
-        <li><strong>AI 调用：</strong>由扩展直接连到你配置的 AI 服务商（OpenAI / Anthropic / 兼容 API），我们的服务器 <em>不</em> 在请求链路上，看不到 prompt 内容。</li>
+        <li><strong>AI 调用 · 平台 AI 模式（Free / 月费默认 / 年费可选）：</strong>
+          扩展端将文章正文 + 改写要求打包成 OpenAI-compatible chat completion 请求，发到我们的
+          Cloudflare Worker（<code>api.docuearn.com/api/llm/chat</code>），Worker 校验你的 JWT、检查月度
+          token 配额与限流后，<strong>再转发到上游 LLM 服务商</strong>（当前为 DeepSeek、OpenAI；未来可能扩展）。
+          上游响应也由 Worker 透传回扩展。<strong>我们对正文的处理：仅在内存中转发不持久化</strong>；
+          落到 D1 数据库的只有 token 计数 + metadata（见 §2.2）。我们与上游服务商的合约：
+          <strong>禁止用我们转发的内容做模型训练</strong>（OpenAI Enterprise + DeepSeek 标准开发者条款都默认满足此约定）。
+        </li>
+        <li><strong>AI 调用 · 自定义 API Key 模式（年费独享）：</strong>
+          扩展直接连到你绑定的 AI 服务商（OpenAI / Anthropic / DeepSeek / Kimi / 通义千问 / MiniMax / 智谱 GLM / 兼容 API），
+          我们的服务器 <em>完全不</em> 在请求链路上，看不到任何 prompt 内容，也不计入平台用量统计。
+        </li>
         <li><strong>素材抓取：</strong>由扩展在你浏览器里执行，请求来自你自己的 IP，使用你已有的登录态，我们的服务器只下发"该抓什么"的指令模板。</li>
-        <li><strong>账号 / 付费数据：</strong>存储在 Cloudflare D1（部署在新加坡边缘节点），仅用于身份验证与配额管理。</li>
+        <li><strong>账号 / 付费 / 用量数据：</strong>存储在 Cloudflare D1（部署在新加坡边缘节点），仅用于身份验证、配额管理、成本核算。
+          <code>llm_audit_log</code> 表保留 90 天后由定时任务自动清理。</li>
         <li><strong>支付数据：</strong>由第三方支付平台处理，我们仅接收支付平台的回调通知（支付状态、订单号、客户邮箱），不存储任何银行卡信息。</li>
       </ul>
 
       <h2>4. 数据共享</h2>
       <p>我们 <strong>不会</strong> 出售、出租、或与第三方共享你的个人数据。例外：</p>
       <ul>
-        <li>第三方支付平台 —— 仅在你开通 Pro 会员订阅时</li>
-        <li>邮件服务（Resend）—— 仅在发送密码重置 / license 邮件时</li>
-        <li>法律强制要求（如法院传票），我们会在合规前提下尽量通知你</li>
+        <li>第三方支付平台 —— 仅在你开通 Pro 会员订阅时。</li>
+        <li>邮件服务（Resend）—— 仅在发送密码重置 / license 邮件时。</li>
+        <li><strong>上游 LLM 服务商（仅平台 AI 模式触发）</strong>：你点 AI 改写时，文章正文经我们的 Worker 临时转发到 DeepSeek（China）/ OpenAI（US）等 LLM 服务商完成生成。我们与他们的合约：禁止把转发内容用于模型训练；不与其他客户共享你的数据；保留期限不超过其各自开发者条款规定。<strong>切到自定义 API Key 模式可彻底退出此链路</strong>（年费独享）。</li>
+        <li>法律强制要求（如法院传票），我们会在合规前提下尽量通知你。</li>
       </ul>
 
       <h2>5. 你的权利</h2>
