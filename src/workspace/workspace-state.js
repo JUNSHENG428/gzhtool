@@ -40,6 +40,35 @@ export function init(ctx) {
 function _bindStateEvents() {
   const { view, controls } = _ctx;
 
+  // 38th 续 9：「采集信息」block 列表的可勾选交互
+  // - checkbox change：切换 state.source.blocks[idx]._disabled 标记 + 刷新统计 + 重渲染
+  // - "全选/全不选"按钮：批量切
+  // 改写时 workspace-rewrite.js 走 state.source 路径会 filter _disabled，
+  // 让用户能精确控制哪些段进 LLM
+  view.sourcePreview?.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.dataset.sourceBlockIndex === undefined) return;
+    const idx = Number(target.dataset.sourceBlockIndex);
+    const block = state.source?.blocks?.[idx];
+    if (!block) return;
+    block._disabled = !target.checked;
+    schedulePersist();
+    _ctx.renderSource();
+  });
+  view.sourcePreview?.addEventListener("click", (event) => {
+    const allBtn = event.target.closest("[data-source-toggle-all]");
+    if (!allBtn) return;
+    const blocks = state.source?.blocks;
+    if (!Array.isArray(blocks) || blocks.length === 0) return;
+    const enableAll = allBtn.dataset.sourceToggleAll === "enable";
+    blocks.forEach((b) => {
+      if (b) b._disabled = !enableAll;
+    });
+    schedulePersist();
+    _ctx.renderSource();
+  });
+
   // 图片列表操作
   view.imageRail.addEventListener("click", (event) => {
     const button = event.target.closest("[data-image-action]");

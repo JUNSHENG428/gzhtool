@@ -117,10 +117,26 @@ export function renderSource() {
           .join("")
       : '<div class="source-block">当前页面没有识别到可用配图。</div>';
 
-  view.sourcePreview.innerHTML = source.blocks
-    .slice(0, 32)
-    .map((block) => renderSourceBlock(block, source.images))
-    .join("");
+  // 38th 续 9：渲染 block 列表带 checkbox + 置信度标记，让用户能在改写前
+  // 剔除噪声段（评论/推荐/广告等抓取规则没去净的）。改写时 filter _disabled=true。
+  const blocks = source.blocks || [];
+  const visible = blocks.slice(0, 32);
+  const totalEnabled = blocks.filter((b) => !b?._disabled).length;
+  const headerHtml = `
+    <header class="source-preview-head">
+      <span class="source-preview-stat" id="sourcePreviewStat">已选 ${totalEnabled} / ${blocks.length} 块用于改写</span>
+      <span class="source-preview-actions">
+        <button type="button" class="ghost-button-mini" data-source-toggle-all="enable">全选</button>
+        <button type="button" class="ghost-button-mini" data-source-toggle-all="disable">全不选</button>
+      </span>
+    </header>
+  `;
+  const moreHint = blocks.length > visible.length
+    ? `<p class="source-preview-more-hint">仅显示前 ${visible.length} 块；剩余 ${blocks.length - visible.length} 块已默认选中，改写时会一起送入。</p>`
+    : "";
+  view.sourcePreview.innerHTML = headerHtml + visible
+    .map((block, idx) => renderSourceBlock(block, source.images, idx))
+    .join("") + moreHint;
 }
 
 // ── 文章堆叠 ──
@@ -389,13 +405,63 @@ export function createMetaItem(label, value) {
   return `<div class="meta-item"><span>${escapeHtml(label)}</span><p>${escapeHtml(value)}</p></div>`;
 }
 
-function renderSourceBlock(block, images) {
+/**
+ * 38th 续 9：给 block 一个轻量"主体置信度"启发式评分。
+ *  - 高（绿）：长段落 + 不含订阅/推荐/导航关键词
+ *  - 中（黄）：中等长度 / 含部分可疑词 / 列表
+ *  - 低（红）：短促 + 高密度 URL/CTA 字样 + 评论 UGC 风格 / 单 image 无 caption
+ *  这是给用户的视觉提示，不强制剔除——用户自己决定是否取消勾选。
+ */
+function blockConfidence(block) {
+  if (!block) return "low";
+  if (block.type === "image") {
+    const text = `${block.alt || ""} ${block.caption || ""}`.trim();
+    return text.length > 6 ? "mid" : "low";
+  }
+  const text = String(block.text || "").trim();
+  const len = text.length;
+  if (len === 0) return "low";
+
+  // 噪声特征（对应 buildHardConstraintMessage 主体识别 prompt 的 4 个判定信号）
+  const noiseRe = /^(点击|click|share|分享|订阅|subscribe|关注|相关|推荐|更多|read more|continue|猜你喜欢|热门评论|相关阅读|广告|sponsored|advertisement|sponsor)/i;
+  const ugcRe = /^(@\w|楼主|沙发|板凳|前排|顶|赞|回复\s|reply\s)/i;
+  const urlDensity = (text.match(/https?:\/\//g) || []).length / Math.max(1, len / 200);
+  if (noiseRe.test(text) || ugcRe.test(text)) return "low";
+  if (len < 30 && urlDensity > 0.3) return "low";
+  if (len < 20) return "low";
+  if (len < 80) return "mid";
+  return "high";
+}
+
+const CONFIDENCE_LABEL = { high: "主体", mid: "可能主体", low: "疑似噪声" };
+const CONFIDENCE_TONE = { high: "ok", mid: "warn", low: "danger" };
+
+function renderSourceBlock(block, images, idx) {
+  const enabled = !block?._disabled;
+  const confidence = blockConfidence(block);
+  const checkboxId = `source-block-toggle-${idx}`;
+  const confidenceBadge = `
+    <span class="source-block-confidence" data-tone="${CONFIDENCE_TONE[confidence]}" title="启发式评估：${CONFIDENCE_LABEL[confidence]}">
+      ${CONFIDENCE_LABEL[confidence]}
+    </span>
+  `;
+  const toggleControls = `
+    <label class="source-block-toggle" for="${checkboxId}">
+      <input type="checkbox" id="${checkboxId}" data-source-block-index="${idx}" ${enabled ? "checked" : ""} aria-label="是否参与改写" />
+      ${confidenceBadge}
+    </label>
+  `;
+
   if (block.type === "image") {
     const image = images[block.index - 1] || block;
-    return `<article class="source-block image">
+    return `<article class="source-block image${enabled ? "" : " is-disabled"}" data-source-idx="${idx}">
+      ${toggleControls}
       <img src="${escapeAttribute(image.src)}" alt="${escapeAttribute(image.alt || "")}" />
       <p>图片 ${block.index}${image.caption || image.alt ? `：${escapeHtml(image.caption || image.alt)}` : ""}</p>
     </article>`;
   }
-  return `<article class="source-block ${escapeAttribute(block.type)}">${escapeHtml(block.text || "")}</article>`;
+  return `<article class="source-block ${escapeAttribute(block.type)}${enabled ? "" : " is-disabled"}" data-source-idx="${idx}">
+    ${toggleControls}
+    <div class="source-block-text">${escapeHtml(block.text || "")}</div>
+  </article>`;
 }

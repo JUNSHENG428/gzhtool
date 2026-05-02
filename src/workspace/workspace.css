@@ -756,13 +756,83 @@ h2 {
   padding-right: 4px;
 }
 
+/* 38th 续 9：source 列表头部统计 + 全选/全不选按钮 */
+.source-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--brand-soft, rgba(23, 55, 34, 0.06));
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--ink-secondary, #3d4f45);
+}
+.source-preview-stat {
+  font-weight: 600;
+  color: var(--ink, #1a2620);
+}
+.source-preview-actions {
+  display: flex;
+  gap: 6px;
+}
+.source-preview-more-hint {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--ink-secondary, #3d4f45);
+  text-align: center;
+}
+
 .source-block {
-  padding: 12px 14px;
+  position: relative;
+  padding: 12px 14px 12px 14px;
   background: rgba(255, 255, 255, 0.7);
   border-radius: 16px;
   border: 1px solid #e3ddd0;
   line-height: 1.75;
-  transition: transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+  transition: transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out), opacity var(--duration-fast) var(--ease-out);
+}
+.source-block.is-disabled {
+  opacity: 0.45;
+  background: rgba(23, 55, 34, 0.03);
+}
+.source-block-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.source-block-toggle input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+.source-block-confidence {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.source-block-confidence[data-tone="ok"] {
+  background: rgba(74, 143, 90, 0.14);
+  color: #2d5a2d;
+}
+.source-block-confidence[data-tone="warn"] {
+  background: rgba(184, 114, 46, 0.16);
+  color: #7a5c2e;
+}
+.source-block-confidence[data-tone="danger"] {
+  background: rgba(196, 74, 58, 0.14);
+  color: #8a3a3a;
+}
+.source-block-text {
+  /* 把段落文字放进独立容器，与 toggle/confidence 视觉分层 */
 }
 
 .source-block:hover {

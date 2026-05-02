@@ -248,7 +248,14 @@ export async function rewriteArticle() {
     fromEditor = true;
     sourceForRewrite = buildRewriteSourceFromCurrentArticle(state, current);
   } else if (state.source) {
-    sourceForRewrite = state.source;
+    // 38th 续 9：source 中被用户在「采集信息」面板剔除（_disabled=true）的 block
+    // 不进改写——让用户能精确控制哪些段进 LLM
+    const enabledBlocks = (state.source.blocks || []).filter((b) => !b?._disabled);
+    if (enabledBlocks.length === 0) {
+      setStatus("当前来源所有内容块都被剔除了，请在「采集信息」面板勾选至少一段再改写。", "warning");
+      return;
+    }
+    sourceForRewrite = { ...state.source, blocks: enabledBlocks };
   } else {
     setStatus("请先在编辑区写满一段正文，或先抓取一个网页再改写。", "warning");
     return;
