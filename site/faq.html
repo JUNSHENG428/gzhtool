@@ -278,15 +278,13 @@
         <details class="faq-item">
           <summary>Free 版和 Pro 版的区别？</summary>
           <div class="faq-body">
-            <p>Free 版包含全部基础功能，每天有 5 次 AI 改写额度。Pro 版解锁：</p>
+            <p>三档对比（按 AI 调用配额排序）：</p>
             <ul>
-              <li>无限次 AI 改写</li>
-              <li>同时绑定多个微信公众号</li>
-              <li>DrissionPage 增强抓取（突破反爬）</li>
-              <li>多设备登录（最多 3 台）</li>
-              <li>优先客服支持</li>
+              <li><strong>Free 免费版</strong>：平台 AI · <strong>30 次 / 月</strong>（仅经济档 DeepSeek V4 Flash）；绑定 1 个公众号；5 个内置模板</li>
+              <li><strong>Pro 月付</strong>：平台 AI · <strong>5M token / 月</strong>（经济 + 标准档 DeepSeek V4 Pro）；绑定 5 个公众号；10+ 高级模板 + AI 模板生成器；DrissionPage 抓取；3 台设备同时激活</li>
+              <li><strong>Pro 年付</strong>：平台 AI · <strong>20M token / 月</strong>（含旗舰档 GPT-4o）；🔓 解锁「自定义 API Key」用自己的 OpenAI / DeepSeek 账号跑（正文不经过润笔服务器）；其他与月付一致</li>
             </ul>
-            <p>详细对比见 <a href="./pricing">定价页</a>。</p>
+            <p>额度按 UTC 自然月每月 1 日重置。详细对比见 <a href="./pricing">定价页</a>。</p>
           </div>
         </details>
       </section>
@@ -298,25 +296,49 @@
         <details class="faq-item">
           <summary>AI 改写要不要单独充值？</summary>
           <div class="faq-body">
-            <p>不需要。润笔本身<strong>不提供 AI</strong>，而是调用你自己的 OpenAI / Anthropic / 国产大模型 API key。你只需要：</p>
+            <p>看你用哪种模式：</p>
+            <ul>
+              <li><strong>平台 AI 模式（Free / 月费默认 / 年费可选）</strong>：润笔自家托管，**包含在套餐价格里**——Free 30 次 / 月、月费 5M token / 月、年费 20M token / 月，不需要额外注册任何服务商账号，安装扩展登录账号即可用。撞顶后等下月重置或升级套餐即可。</li>
+              <li><strong>自定义 API Key 模式（年费独享）</strong>：用你自己注册的 OpenAI / DeepSeek / Kimi / 通义千问 / 智谱 等服务商账号，调用费用从你自己的 API 账户扣，<strong>不计入平台额度</strong>。常见模型一篇文章改写约 ¥0.05-0.3 元。我们对正文零接触。</li>
+            </ul>
+            <p>新装用户默认走平台 AI 模式（开箱即用），扩展端「设置 → AI 改写接口」可切到自定义 Key 模式。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>怎么切换平台 AI 和自定义 API Key？</summary>
+          <div class="faq-body">
+            <p>扩展「设置 → AI 改写接口」顶部有个二选一 radio：</p>
+            <ul>
+              <li>◉ <strong>使用润笔平台 AI</strong>（推荐 · JWT 鉴权 · 月度托管）</li>
+              <li>○ <strong>使用我自己的 API Key</strong>（年费独享 · 不计平台额度）</li>
+            </ul>
+            <p>切到平台模式后，下方会出现「模型档位」下拉（economy / standard / flagship）+ 当月用量进度条；切到 BYOK 模式则显示原有的 8 家服务商预设 + apiBaseUrl + apiKey + model 配置。月费 / 免费用户切到 BYOK 模式时调用会被拦下提示升级年费。</p>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>平台 AI 用完了怎么办？</summary>
+          <div class="faq-body">
+            <p>选项三选一：</p>
             <ol>
-              <li>到 OpenAI / Claude / DeepSeek / 智谱 / 通义千问等任一服务商注册账号</li>
-              <li>创建一个 API key</li>
-              <li>粘贴到扩展的「设置 → AI 模型配置」里</li>
+              <li><strong>等下月重置</strong>：UTC 自然月每月 1 日 00:00:00 自动 reset，dashboard 控制台与扩展 popup「我的」tab 都能看到 N 天后重置的倒计时。</li>
+              <li><strong>升级套餐</strong>：Free → 月付（30 次 → 5M token，扩 ~166x）；月付 → 年付（5M → 20M，扩 4x 且解锁 GPT-4o + 自定义 Key 逃生口）。</li>
+              <li><strong>切到自定义 API Key 模式（仅年费）</strong>：用自己的 OpenAI / DeepSeek 账号跑，不计平台额度。</li>
             </ol>
-            <p>这样做的好处是<strong>调用费用直接从你自己的 API 账户扣</strong>，我们看不到你的 prompt 和文章内容，更隐私。常见模型一篇文章改写约 ¥0.05-0.3 元。</p>
           </div>
         </details>
 
         <details class="faq-item">
           <summary>AI 改写时报错「API key 无效」怎么办？</summary>
           <div class="faq-body">
-            <p>按这个顺序排查：</p>
+            <p>这是<strong>自定义 API Key 模式</strong>专属错误（平台模式不会出）。按这个顺序排查：</p>
             <ol>
-              <li>API key 是不是复制时多了空格或换行？重新复制粘贴一次</li>
-              <li>API key 对应的账户余额是不是 ≤ 0？登录服务商后台确认</li>
-              <li>「base URL」是不是和 key 来源对应？OpenAI 是 <code>https://api.openai.com/v1</code>，国产大模型各有自己的 endpoint</li>
-              <li>有没有配置 IP 白名单？OpenAI 在中国大陆 IP 直连会失败，需要走代理</li>
+              <li>API key 是不是复制时多了空格或换行？重新复制粘贴一次。</li>
+              <li>API key 对应的账户余额是不是 ≤ 0？登录服务商后台确认。</li>
+              <li>「base URL」是不是和 key 来源对应？OpenAI 是 <code>https://api.openai.com/v1/chat/completions</code>，国产大模型各有自己的 endpoint。</li>
+              <li>有没有配置 IP 白名单？OpenAI 在中国大陆 IP 直连会失败，需要走代理。</li>
+              <li>实在搞不定？切回「使用润笔平台 AI」模式即可绕过——平台 AI 走我们托管的服务商账号，无需任何 API Key 配置。</li>
             </ol>
             <p>仍未解决可邮件 <a href="mailto:support@docuearn.com">support@docuearn.com</a>，附上：使用的服务商 + base URL（不要发 API key 本身）+ 报错截图。</p>
           </div>

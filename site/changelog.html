@@ -192,13 +192,43 @@
   <main>
     <article class="changelog-page">
       <h1>更新日志</h1>
-      <p class="meta">最近更新：2026 年 4 月 24 日 · 我们用「小步快跑」的节奏迭代，所有用户改进意见都欢迎邮件反馈</p>
+      <p class="meta">最近更新：2026 年 5 月 3 日 · 我们用「小步快跑」的节奏迭代，所有用户改进意见都欢迎邮件反馈</p>
 
       <div class="changelog-banner">
         <strong>📦 当前最新版本：</strong> 桌面助手 <a href="https://github.com/JUNSHENG428/gzhtool/releases" target="_blank" rel="noopener">helper-v0.1.0</a> · 浏览器扩展会跟随 Chrome Web Store 自动更新
       </div>
 
       <div class="changelog-timeline">
+        <!-- 2026-05-03 39th session · 平台 LLM 代理 / 反向 gating -->
+        <div class="changelog-entry major">
+          <div class="changelog-date">
+            <span class="version-tag">PLATFORM AI</span>
+            <span>2026 年 5 月 3 日</span>
+          </div>
+          <h2>平台 AI 服务上线 · 月度 token 配额 + 年费独享自定义 Key</h2>
+          <div class="changes">
+            <h3 class="added">新增</h3>
+            <ul>
+              <li><strong>平台 AI 模式</strong>（默认推荐）：由润笔托管 LLM 调用，不再需要用户自己注册任何服务商账号。Free 30 次 / 月（DeepSeek V4 Flash 经济档），月费 5M token / 月（增加 DeepSeek V4 Pro 标准档），年费 20M token / 月（再增加 GPT-4o 旗舰档）。</li>
+              <li><strong>反向 gating · 自定义 API Key 仅年费可用</strong>：年费会员可在扩展端切到「使用我自己的 API Key」模式，正文直发服务商不经过润笔服务器，不计平台额度——给重度用户最大灵活度。</li>
+              <li><strong>三处用量进度条</strong>：dashboard 控制台首页、扩展 options 设置页、popup「我的」tab 都能看实时月度用量（token 数 / 调用次数 / 剩余 / 重置倒计时），数据来自同一个 worker 端点 <code>/api/llm/usage</code>。</li>
+              <li><strong>worker 上游 fallback 链</strong>：DeepSeek 5xx 自动降级到 OpenAI 反之亦然；4xx 不降级避免无限循环；响应头 <code>X-Platform-Tier-Downgraded</code> / <code>X-Platform-Fallback-From</code> 让前端能感知。</li>
+              <li><strong>Cloudflare KV 限流</strong>：每分钟 RPM 上限按 plan 分（Free 5 / 月费 30 / 年费 100），防恶意刷 + 防 cost 暴涨。</li>
+            </ul>
+            <h3 class="improved">改进</h3>
+            <ul>
+              <li>月度配额按 UTC 自然月每月 1 日重置（与虎皮椒订阅周期对齐），不引入"滚动 30 天"复杂度。</li>
+              <li>worker 端 token 计量走 D1 ON CONFLICT 原子 upsert，不存 prompt / completion 文本（仅 token 数 + metadata），<code>llm_audit_log</code> 表保留 90 天后定时清理。</li>
+              <li>隐私政策同步更新：明确披露平台 AI 模式的数据流、与上游 LLM 服务商的零训练合约、BYOK 模式的彻底退出路径。详见<a href="./privacy">隐私政策</a> §2.2 / §3 / §4。</li>
+            </ul>
+            <h3 class="fixed">兼容性</h3>
+            <ul>
+              <li>老 Pro 用户自动映射到「年费」档位，享 20M token / 月配额；现有自定义 API Key 配置完整保留，不影响升级路径。</li>
+              <li>扩展端默认仍为 BYOK 模式（保护已配好 apiKey 的老用户），新装用户登录后自然走平台 AI。</li>
+            </ul>
+          </div>
+        </div>
+
         <!-- 2026-04-24 sixth -->
         <div class="changelog-entry major">
           <div class="changelog-date">

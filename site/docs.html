@@ -190,7 +190,7 @@
   <main>
     <article class="docs-page">
       <h1>使用文档</h1>
-      <p class="meta">最近更新：2026 年 4 月 24 日 · 从安装到发布全流程，约 10 分钟可上手</p>
+      <p class="meta">最近更新：2026 年 5 月 3 日 · 从安装到发布全流程，约 5 分钟可上手</p>
 
       <!-- 快速开始 -->
       <section class="docs-quickstart">
@@ -198,11 +198,36 @@
         <p>第一次使用，按这个顺序走一遍即可发出第一篇文章：</p>
         <ol>
           <li><strong>安装扩展</strong>：到 <a href="https://chromewebstore.google.com/" target="_blank" rel="noopener">Chrome 网上应用店</a>搜「润笔 DocuEarn」一键安装</li>
-          <li><strong>注册账号</strong>：到 <a href="./login">login</a> 用邮箱或 Google 一键登录注册</li>
-          <li><strong>配置 AI Key</strong>：扩展 → 设置 → AI 模型，粘贴你自己的 OpenAI / Claude / 国产模型 API key</li>
+          <li><strong>注册账号</strong>：到 <a href="./login">login</a> 用邮箱或 Google 一键登录注册（免费版自带 30 次 / 月平台 AI）</li>
+          <li><strong>选 AI 来源</strong>：扩展 → 设置 → AI 改写接口 → 顶部「AI 服务来源」二选一：◉ 使用润笔平台 AI（推荐 · 即开即用）/ ○ 使用我自己的 API Key（年费独享 · 用自己的 OpenAI/DeepSeek 账号）</li>
           <li><strong>配置公众号</strong>：扩展 → 设置 → 公众号，填 AppID + AppSecret（从公众号后台 → 开发 → 基本配置 拿）</li>
           <li><strong>开始创作</strong>：从热榜挑选题 → AI 改写 → 排版 → 一键发草稿到公众号后台</li>
         </ol>
+      </section>
+
+      <!-- 39th session · 平台 AI vs BYOK 决策树 -->
+      <section class="docs-quickstart" style="margin-top:20px;">
+        <h2>该选平台 AI 还是自定义 API Key？</h2>
+        <p>润笔的 AI 改写支持两条路径，按你的情况二选一：</p>
+        <table style="width:100%;border-collapse:collapse;margin:12px 0;">
+          <thead>
+            <tr style="background:rgba(0,0,0,0.04);">
+              <th style="padding:10px;text-align:left;border:1px solid var(--line);">维度</th>
+              <th style="padding:10px;text-align:left;border:1px solid var(--line);">平台 AI 模式（默认推荐）</th>
+              <th style="padding:10px;text-align:left;border:1px solid var(--line);">自定义 API Key 模式（年费独享）</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td style="padding:8px;border:1px solid var(--line);"><strong>谁能用</strong></td><td style="padding:8px;border:1px solid var(--line);">所有用户（Free / 月费 / 年费）</td><td style="padding:8px;border:1px solid var(--line);">仅年费会员</td></tr>
+            <tr><td style="padding:8px;border:1px solid var(--line);"><strong>需要自己注册服务商账号？</strong></td><td style="padding:8px;border:1px solid var(--line);">不需要</td><td style="padding:8px;border:1px solid var(--line);">需要（OpenAI / DeepSeek / Kimi 等）</td></tr>
+            <tr><td style="padding:8px;border:1px solid var(--line);"><strong>计费方式</strong></td><td style="padding:8px;border:1px solid var(--line);">按月度 token 配额（包含在套餐里）</td><td style="padding:8px;border:1px solid var(--line);">按服务商实际 API 费用（一篇约 ¥0.05-0.3）</td></tr>
+            <tr><td style="padding:8px;border:1px solid var(--line);"><strong>正文路径</strong></td><td style="padding:8px;border:1px solid var(--line);">扩展 → 润笔 Worker → 上游 LLM（不持久化）</td><td style="padding:8px;border:1px solid var(--line);">扩展 → 你绑定的服务商（不经过润笔）</td></tr>
+            <tr><td style="padding:8px;border:1px solid var(--line);"><strong>可调模型</strong></td><td style="padding:8px;border:1px solid var(--line);">economy / standard / flagship 三档（按套餐解锁）</td><td style="padding:8px;border:1px solid var(--line);">服务商提供的所有模型</td></tr>
+            <tr><td style="padding:8px;border:1px solid var(--line);"><strong>额度撞顶处理</strong></td><td style="padding:8px;border:1px solid var(--line);">等下月重置 / 升级套餐</td><td style="padding:8px;border:1px solid var(--line);">服务商账户充值即可</td></tr>
+          </tbody>
+        </table>
+        <p><strong>普通用户：留默认平台 AI 即可</strong>，登录账号就能用，撞顶前不用关心任何服务商配置。</p>
+        <p><strong>有自配 LLM 资源的用户（公司 OpenAI 账号 / 自部署模型 / 偏好特定服务商）：升级年费会员后切到自定义 API Key 模式</strong>，用自己的资源，零中间成本，正文不经过润笔服务器（合规优势）。</p>
       </section>
 
       <!-- 模块概览 -->
@@ -221,9 +246,10 @@
         <div class="docs-card">
           <span class="docs-card-icon">🤖</span>
           <h3>AI 模型配置</h3>
-          <p>润笔不提供 AI，调用你自己的 API key。支持 OpenAI / Anthropic / DeepSeek / 智谱 / 通义千问 / 任意 OpenAI 兼容服务。</p>
+          <p>两种模式可选：<strong>平台 AI</strong>（润笔托管，按月度 token 配额计费，免配置 API Key）/ <strong>自定义 Key</strong>（年费独享，用自己的 OpenAI / DeepSeek / Kimi / 通义千问 / 智谱 等账号）。</p>
           <ul>
             <li><a href="./faq#ai">AI 相关 FAQ →</a></li>
+            <li><a href="./pricing">查看三档配额详情 →</a></li>
           </ul>
         </div>
 
