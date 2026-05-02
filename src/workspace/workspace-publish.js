@@ -850,6 +850,14 @@ export async function syncCurrentToWebEditor() {
       "正在同步到公众号网页编辑器",
       "将打开公众号网页编辑器，并自动写入正文。"
     );
+    // 38th 续 10：与 publishBundle / _buildPullReadyPayload 对齐 HTML 清洗链。
+    // 之前 syncCurrentToWebEditor 直接发 buildExportHtmlForArticle 产物 → 含 div /
+    // class / 零宽字符 / 危险节点，mp 编辑器 sanitize 后与 publishBundle（cgi-bin
+    // add_draft）经过 prepareHtmlForWechat 清洗的版本视觉不一致——用户实际报障
+    // "改写完的草稿跟同步到公众号编辑器的草稿不一致"的根因。
+    // **不**走 _tokenizeImages（同步到 web editor 不经 cgi-bin，img src 用原 URL）。
+    const themedHtml = buildExportHtmlForArticle(current);
+    const sanitizedHtml = prepareHtmlForWechat(themedHtml);
     const response = await chrome.runtime.sendMessage({
       type: "SYNC_TO_WECHAT_WEB_EDITOR",
       payload: {
@@ -859,7 +867,7 @@ export async function syncCurrentToWebEditor() {
           digest: current.meta.digest,
           contentSourceUrl: current.meta.contentSourceUrl
         },
-        html: buildExportHtmlForArticle(current),
+        html: sanitizedHtml,
         editorUrl: WECHAT_WEB_EDITOR_URL
       }
     });
