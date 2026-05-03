@@ -495,13 +495,22 @@ function renderLicenseRow(row) {
   const expires = row.expires_at && Number(row.expires_at) > 0
     ? `有效至 ${formatDate(row.expires_at)}`
     : "按订阅周期续费";
-  const planTitle = row.plan === "pro" ? "Pro 会员" : String(row.plan || "Free");
+  const planTitle = row.plan === "pro" ? "Pro 会员"
+    : row.plan === "monthly" ? "月费会员"
+    : row.plan === "yearly" ? "年费会员"
+    : String(row.plan || "Free");
   const statusTag = row.status === "active" ? "已激活"
     : row.status === "expired" ? "已过期"
     : row.status === "revoked" ? "已禁用"
     : row.status === "refunded" ? "已退款"
     : row.status || "—";
   const devices = Array.isArray(row.devices) ? row.devices : [];
+  // 39th 续 · 设备配额角标（Strategy B：Free 1 / Monthly 3 / Yearly 10）
+  const limit = Number(row.deviceLimit) || 1;
+  const isOverLimit = devices.length > limit;
+  const isNearLimit = !isOverLimit && devices.length >= limit;
+  const deviceTone = isOverLimit ? "over" : isNearLimit ? "warn" : "ok";
+  const deviceLine = `已激活 <strong>${devices.length} / ${limit}</strong> 台设备`;
 
   // 注：row.key 是后端会员激活码（备用激活方案，普通用户用账号自动同步即可）。
   // 默认折叠到 details 里，避免页面看起来像卡密店。
@@ -509,8 +518,8 @@ function renderLicenseRow(row) {
     <div class="dash-license" data-key="${escapeAttr(row.key)}">
       <div class="dash-license-meta">
         <span class="dash-license-key">${escapeHtml(planTitle)}</span>
-        <span class="dash-license-info">
-          ${escapeHtml(statusTag)} · ${escapeHtml(expires)} · 已激活 ${devices.length} 台设备
+        <span class="dash-license-info" data-device-tone="${deviceTone}">
+          ${escapeHtml(statusTag)} · ${escapeHtml(expires)} · ${deviceLine}
         </span>
       </div>
       <div class="dash-license-actions">
@@ -527,12 +536,12 @@ function renderLicenseRow(row) {
           <button class="btn btn-ghost" style="margin-left:8px;" type="button" data-action="copy">复制</button>
         </div>
       </details>
-      ${renderDevicesBlock(row.key, devices)}
+      ${renderDevicesBlock(row.key, devices, limit)}
     </div>
   `;
 }
 
-function renderDevicesBlock(key, devices) {
+function renderDevicesBlock(key, devices, limit) {
   if (!devices.length) {
     return `
       <details class="dash-license-devices">
@@ -540,23 +549,56 @@ function renderDevicesBlock(key, devices) {
       </details>
     `;
   }
-  const items = devices.map((d) => `
-    <div class="dash-device" data-device-id="${escapeAttr(d.id || "")}" data-fingerprint="${escapeAttr(d.fingerprint || "")}">
+  // 39th 续 · 设备行加 user_agent_hint + "X 天前" 相对时间，stale 行加视觉灰化
+  const STALE_DAYS = 30;
+  const staleCutoff = Date.now() - STALE_DAYS * 86_400_000;
+  const items = devices.map((d) => {
+    const isStale = Number(d.last_seen_at) > 0 && Number(d.last_seen_at) < staleCutoff;
+    const fpShort = d.fingerprint ? String(d.fingerprint).slice(0, 8) : "—";
+    const ago = formatRelativeTime(d.last_seen_at);
+    const uaHint = d.userAgentHint ? ` · ${escapeHtml(d.userAgentHint)}` : "";
+    return `
+    <div class="dash-device${isStale ? " is-stale" : ""}" data-device-id="${escapeAttr(d.id || "")}" data-fingerprint="${escapeAttr(d.fingerprint || "")}">
       <div class="dash-device-meta">
-        <span class="dash-device-label">${escapeHtml(d.label || "未命名设备")}</span>
-        <span class="dash-device-fp">指纹 ${escapeHtml(d.fingerprint || "—")} · 上次活跃 ${formatDateTime(d.last_seen_at)}</span>
+        <span class="dash-device-label">${escapeHtml(d.label || "未命名设备")}${uaHint}</span>
+        <span class="dash-device-fp">指纹 ${escapeHtml(fpShort)} · ${escapeHtml(ago)}（${formatDateTime(d.last_seen_at)}）</span>
       </div>
       <div class="dash-device-actions">
         <button class="btn btn-ghost" type="button" data-action="device-unbind" data-license-key="${escapeAttr(key)}">解绑</button>
       </div>
-    </div>
-  `).join("");
+    </div>`;
+  }).join("");
+  // 39th 续 · 一键清理 N 天未活跃按钮（仅当存在 stale 设备时显示，避免按钮乱晃）
+  const staleCount = devices.filter((d) => Number(d.last_seen_at) > 0 && Number(d.last_seen_at) < staleCutoff).length;
+  const pruneBtn = staleCount > 0
+    ? `<button class="btn btn-ghost dash-license-prune-btn" type="button" data-action="prune-stale" data-license-key="${escapeAttr(key)}" data-prune-days="${STALE_DAYS}">清理 ${STALE_DAYS} 天未活跃（${staleCount} 台）</button>`
+    : "";
+  const overflowHint = devices.length > Number(limit)
+    ? `<p class="muted" style="font-size:12px;margin:6px 0 10px;color:#a13c1f;">⚠️ 当前激活数已超会员上限 ${limit} 台。系统每小时自动清理 90 天未活跃的设备；建议手动清理或解绑闲置设备。</p>`
+    : "";
   return `
     <details class="dash-license-devices" open>
-      <summary>设备 ${devices.length} 台（点击折叠）</summary>
+      <summary>设备 ${devices.length} 台${staleCount > 0 ? ` · ${staleCount} 台 ${STALE_DAYS} 天未活跃` : ""}（点击折叠）</summary>
+      ${overflowHint}
       ${items}
+      ${pruneBtn ? `<div style="margin-top:10px;">${pruneBtn}</div>` : ""}
     </details>
   `;
+}
+
+// 39th 续 · 相对时间格式化（"3 分钟前 / 2 天前 / 5 个月前"）
+// 与扩展端 formatAgo 同语义；放此处独立避免引 src/shared 编译依赖
+function formatRelativeTime(ts) {
+  const t = Number(ts) || 0;
+  if (!t) return "—";
+  const diff = Date.now() - t;
+  if (diff < 60_000) return "刚刚";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  const days = Math.floor(diff / 86_400_000);
+  if (days < 30) return `${days} 天前`;
+  if (days < 365) return `${Math.floor(days / 30)} 个月前`;
+  return `${Math.floor(days / 365)} 年前`;
 }
 
 async function handleLicenseAction(btn) {
@@ -579,6 +621,32 @@ async function handleLicenseAction(btn) {
       showToast(`解绑设备失败：${error?.message || "未知错误"}`, "error");
       btn.disabled = false;
       btn.textContent = "解绑";
+    }
+    return;
+  }
+
+  // 39th 续 · 一键清理 N 天未活跃设备（per license）
+  if (action === "prune-stale") {
+    const key = btn.dataset.licenseKey;
+    const days = Number(btn.dataset.pruneDays) || 30;
+    if (!key) return;
+    if (!confirm(`确定清理此 License 下 ${days} 天未活跃的设备？这些设备的扩展会在下次联网核验时回到免费版，需要时可以重新激活。`)) return;
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = "清理中…";
+    try {
+      const resp = await license.pruneStaleDevices(key, days);
+      const n = Number(resp?.deleted) || 0;
+      if (n > 0) {
+        showToast(`已清理 ${n} 台 ${days} 天未活跃设备。`, "success");
+      } else {
+        showToast("没有 stale 设备可清理。", "info");
+      }
+      await hydrate();
+    } catch (error) {
+      showToast(`清理失败：${error?.message || "未知错误"}`, "error");
+      btn.disabled = false;
+      btn.textContent = originalText;
     }
     return;
   }

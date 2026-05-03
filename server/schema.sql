@@ -84,8 +84,10 @@ CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at);
 CREATE TABLE IF NOT EXISTS device_activations (
   id                   TEXT PRIMARY KEY,
   license_key          TEXT NOT NULL,
-  device_fingerprint   TEXT NOT NULL,            -- 插件端用 chrome.runtime.id + 一段随机 = 稳定指纹
-  device_label         TEXT,                     -- 让用户能在 dashboard 看出是哪台机器
+  device_fingerprint   TEXT NOT NULL,            -- 客户端 crypto.randomUUID() 一次性生成存 chrome.storage
+  device_label         TEXT,                     -- 让用户能在 dashboard 看出是哪台机器（"Chrome on macOS"）
+  user_agent_hint      TEXT,                     -- 39th 续 · 浏览器+版本+OS 粗粒度（"Chrome 147 · macOS 10.15.7"）
+                                                 -- 不存完整 UA：避免 cross-site fingerprinting + 隐私承诺
   activated_at         INTEGER NOT NULL,
   last_seen_at         INTEGER NOT NULL,
   FOREIGN KEY (license_key) REFERENCES license_keys(key)

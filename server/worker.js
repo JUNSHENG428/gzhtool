@@ -71,6 +71,21 @@ const PAID_FEATURE_KEYS = [
 // 免费版每天 AI 改写次数（pro 不受限）
 const FREE_DAILY_AI_QUOTA = 5;
 
+// 39th 续 · 设备激活数上限（Strategy B：Free 1 / Monthly 3 / Yearly 10）
+// pro 旧 SKU 向后兼容映射到 yearly 10 台（与 derivePlanForLlm 同口径）。
+// 用户撞顶时 verify 返回 403 reason="device_limit_exceeded"，dashboard 引导一键解绑闲置。
+// 已激活的老指纹再 verify 不会被卡（仅 INSERT 新 fingerprint 时检查 count >= limit）。
+const DEVICE_LIMITS = Object.freeze({
+  free: 1,
+  monthly: 3,
+  yearly: 10
+});
+
+// 39th 续 · 设备自动清理阈值（cron 每小时跑一次，删 > 此天数无活跃的）
+// 90 天选择理由：覆盖年度旅行 / 出差 / 偶尔用第二台机器的真实场景，
+// 同时让"清装系统 / 重装扩展残留的孤儿 fingerprint"自然衰减不污染列表
+const STALE_DEVICE_PRUNE_DAYS = 90;
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -117,6 +132,7 @@ export default {
   async scheduled(event, env, ctx) {
     try {
       ctx.waitUntil(syncHupijiaoRefunds(env));
+      ctx.waitUntil(pruneStaleDeviceActivations(env));
     } catch (error) {
       console.error("[cron] scheduled error", error?.message || error);
     }
@@ -146,7 +162,8 @@ const ROUTES = {
   "POST /api/payment/hupijiao/notify": handleHupijiaoNotify,
   "GET /api/payment/hupijiao/query": handleHupijiaoQuery,
   "POST /api/llm/chat": handleLlmChat,
-  "GET /api/llm/usage": handleLlmUsage
+  "GET /api/llm/usage": handleLlmUsage,
+  "POST /api/license/device/prune": handleLicenseDevicePrune
 };
 
 // 兼容 method 与 path 之间双空格的问题：路由 key 写时统一两个字符位，避免对齐问题。
@@ -989,17 +1006,57 @@ async function handleLicenseVerify(request, env) {
     return jsonResponse({ ok: false, error: "License Key 已过期" }, 403);
   }
 
-  // ---- 设备激活记录（不限制数量，仅做留痕） ----
+  // ---- 设备激活记录 + 限额检查（39th 续 · Strategy B） ----
+  // 老 fingerprint 再 verify 只 UPDATE last_seen 不卡限额；新 fingerprint 才检查 count
+  // 撞顶时返 403 reason="device_limit_exceeded"，dashboard 引导一键解绑闲置
   if (fingerprint) {
+    const devicePlan = devicePlanFromLicenseRow(row);
+    const limit = DEVICE_LIMITS[devicePlan] ?? DEVICE_LIMITS.free;
     const fpId = await sha256Hex(`${key}:${fingerprint}`);
     const now = Date.now();
-    await env.DB.prepare(
-      `INSERT INTO device_activations (id, license_key, device_fingerprint, device_label, activated_at, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(license_key, device_fingerprint)
-       DO UPDATE SET last_seen_at = excluded.last_seen_at, device_label = excluded.device_label`
+
+    // 这台设备之前激活过吗？（用 fpId 做主键查询，比 (license_key, fingerprint) 复合索引更快）
+    const existing = await env.DB.prepare(
+      "SELECT id FROM device_activations WHERE id = ?"
     )
-      .bind(fpId, key, fingerprint, label, now, now)
+      .bind(fpId)
+      .first();
+
+    if (!existing) {
+      // 新 fingerprint —— 检查总数是否撞顶
+      const countRow = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM device_activations WHERE license_key = ?"
+      )
+        .bind(key)
+        .first();
+      const activated = Number(countRow?.n) || 0;
+      if (activated >= limit) {
+        await writeVerifyLog(env, key, ip, ua, "device_limit", `${activated}/${limit}`);
+        return jsonResponse(
+          {
+            ok: false,
+            error: `本 License 已激活 ${activated} 台设备（${devicePlan === "free" ? "免费版" : devicePlan === "monthly" ? "月费会员" : "年费会员"}上限 ${limit} 台）。请到 ${env.SITE_URL || "https://docuearn.com"}/dashboard 解绑闲置设备后重试。`,
+            reason: "device_limit_exceeded",
+            activated,
+            limit,
+            plan: devicePlan
+          },
+          403
+        );
+      }
+    }
+
+    const uaHint = summarizeUserAgent(ua);
+    await env.DB.prepare(
+      `INSERT INTO device_activations (id, license_key, device_fingerprint, device_label, user_agent_hint, activated_at, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(license_key, device_fingerprint)
+       DO UPDATE SET
+         last_seen_at    = excluded.last_seen_at,
+         device_label    = excluded.device_label,
+         user_agent_hint = excluded.user_agent_hint`
+    )
+      .bind(fpId, key, fingerprint, label, uaHint, now, now)
       .run();
   }
 
@@ -1317,7 +1374,7 @@ async function loadUserLicenseSummary(env, userId) {
   if (list.length) {
     const placeholders = list.map(() => "?").join(",");
     const devRows = await env.DB.prepare(
-      `SELECT id, license_key, device_fingerprint, device_label, activated_at, last_seen_at
+      `SELECT id, license_key, device_fingerprint, device_label, user_agent_hint, activated_at, last_seen_at
          FROM device_activations
         WHERE license_key IN (${placeholders})
         ORDER BY last_seen_at DESC`
@@ -1330,6 +1387,7 @@ async function loadUserLicenseSummary(env, userId) {
         id: dev.id,
         fingerprint: dev.device_fingerprint,
         label: dev.device_label || "",
+        userAgentHint: dev.user_agent_hint || "",
         activated_at: dev.activated_at,
         last_seen_at: dev.last_seen_at
       });
@@ -1341,6 +1399,9 @@ async function loadUserLicenseSummary(env, userId) {
   let active = null;
   for (const row of list) {
     row.devices = deviceMap.get(row.key) || [];
+    // 39th 续 · 暴露每张 license 的设备配额（Free 1 / Monthly 3 / Yearly 10）
+    // dashboard 用此值渲染 "8 / 10 台已激活"
+    row.deviceLimit = DEVICE_LIMITS[devicePlanFromLicenseRow(row)] ?? DEVICE_LIMITS.free;
     if (row.status !== "active") continue;
     if (row.expires_at && row.expires_at < Date.now()) continue;
     if (!active) {
@@ -2179,6 +2240,124 @@ async function handleLlmUsage(request, env) {
   return jsonResponse({
     ok: true,
     ...formatUsageReport({ plan, usage: usageRow || {} })
+  });
+}
+
+// ---------- 设备激活配额相关（39th 续 · Strategy B） ----------
+/**
+ * 把 license_keys.plan 映射到设备配额维度的 plan 名（free / monthly / yearly）。
+ *
+ * 与 derivePlanForLlm 同口径：
+ *   - plan = "free" → "free"
+ *   - plan = "monthly" / "yearly" → 透传（Phase 4 加入虎皮椒新 SKU 后写入此值）
+ *   - plan = "pro" → "yearly"（旧 Pro 用户向后兼容，享 10 台设备配额）
+ */
+function devicePlanFromLicenseRow(row) {
+  if (!row) return "free";
+  const p = row.plan;
+  if (p === "monthly" || p === "yearly") return p;
+  if (p === "pro") return "yearly";
+  return "free";
+}
+
+/**
+ * 把完整 User-Agent 浓缩成"浏览器+主版本号 · OS"粗粒度提示。
+ *
+ * 隐私设计：不存完整 UA（避免 cross-site fingerprinting + 满足 docuearn.com privacy.html
+ * 「不收集追踪信号」的承诺），只存够用于"区分这是同一台设备的多次重置 vs 真的不同设备"
+ * 的最小信息。同浏览器同 OS 不同 device_fingerprint 大概率是 chrome.storage 被清空过。
+ *
+ * 输出最长 80 字符，常见结果：
+ *   "Chrome 147 · macOS 10.15.7"
+ *   "Edg 146 · Windows NT 10.0"
+ *   "Firefox 132 · Linux"
+ */
+function summarizeUserAgent(ua) {
+  if (!ua) return "";
+  // 顺序：Edge / Edg 优先（避免被 Chrome 正则吞掉）；Firefox/Opera/OPR 也优先于 Chrome；
+  //       Safari 最后（很多浏览器 UA 末尾都带 "Safari/537.36" 误命中）
+  const browserMatch = ua.match(/(Edge?|Firefox|OPR|Opera|Chrome|Safari)\/(\d+)/i);
+  const osMatch = ua.match(/(Windows NT [\d.]+|Mac OS X [\d_.]+|iPhone OS [\d_]+|Android [\d.]+|Linux)/i);
+  const browser = browserMatch ? `${browserMatch[1]} ${browserMatch[2]}` : "Unknown";
+  const os = osMatch
+    ? osMatch[1].replace(/Mac OS X /, "macOS ").replace(/_/g, ".")
+    : "Unknown OS";
+  return `${browser} · ${os}`.slice(0, 80);
+}
+
+/**
+ * Cron 每小时跑一次：删 last_seen_at > 90 天的 device_activations 行。
+ *
+ * 这是 cleanup 不是 enforcement——目的是：
+ *   ① 让用户的"已激活设备列表"不被陈年清装系统的 orphan fingerprint 污染；
+ *   ② 让 Strategy B 的 device_limit 配额不被 stale 设备占满；
+ *   ③ 减小 D1 表行数（device_activations 是少数写入频次较高的表）。
+ *
+ * 不处理 device_fingerprint = ""（不存在）的行；DELETE 是直接物理删（不软删），
+ * 用户重新连上同设备时 worker.handleLicenseVerify INSERT 会自动重建（保留原 device_label
+ * 输入，只是 activated_at 是新值）。
+ */
+async function pruneStaleDeviceActivations(env) {
+  if (!env.DB) {
+    console.warn("[cron] pruneStaleDeviceActivations skip: D1 binding missing");
+    return;
+  }
+  try {
+    const cutoff = Date.now() - STALE_DEVICE_PRUNE_DAYS * 86_400_000;
+    const result = await env.DB.prepare(
+      "DELETE FROM device_activations WHERE last_seen_at < ?"
+    )
+      .bind(cutoff)
+      .run();
+    const n = Number(result?.meta?.changes) || 0;
+    if (n > 0) {
+      console.log(`[cron] pruneStaleDeviceActivations: deleted ${n} rows older than ${STALE_DEVICE_PRUNE_DAYS} days`);
+    }
+  } catch (error) {
+    console.error("[cron] pruneStaleDeviceActivations failed", error?.message || error);
+  }
+}
+
+// ============================================================
+// /api/license/device/prune  ← dashboard 一键清理 N 天未活跃
+// body: { key, days? }（days 默认 30，clamp 到 [7, 365]）
+// 返回: { ok, deleted, days, key }
+// ============================================================
+async function handleLicenseDevicePrune(request, env) {
+  const auth = await requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+
+  const body = await readJson(request);
+  const key = normalizeLicenseKey(body.key);
+  if (!key) {
+    return jsonResponse({ ok: false, error: "缺少 License Key" }, 400);
+  }
+
+  // 必须确认这把 license 属于当前用户（防越权清别人的设备）
+  const owner = await env.DB.prepare(
+    "SELECT key FROM license_keys WHERE key = ? AND user_id = ?"
+  )
+    .bind(key, auth.userId)
+    .first();
+  if (!owner) {
+    return jsonResponse({ ok: false, error: "无权操作此 License" }, 403);
+  }
+
+  const rawDays = Number(body.days);
+  const days = Number.isFinite(rawDays) ? Math.min(Math.max(rawDays, 7), 365) : 30;
+  const cutoff = Date.now() - days * 86_400_000;
+
+  const result = await env.DB.prepare(
+    "DELETE FROM device_activations WHERE license_key = ? AND last_seen_at < ?"
+  )
+    .bind(key, cutoff)
+    .run();
+
+  return jsonResponse({
+    ok: true,
+    key,
+    days,
+    deleted: Number(result?.meta?.changes) || 0
   });
 }
 

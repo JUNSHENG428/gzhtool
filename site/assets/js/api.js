@@ -170,6 +170,13 @@ export const license = {
     api("/api/license/device/unbind", {
       method: "POST",
       body: { key, fingerprint, deviceId }
+    }),
+  // 39th 续 · 一键清理 N 天未活跃设备（Strategy B 配套 UI）
+  // days 默认 30，worker clamp 到 [7, 365]；返回 { ok, deleted, days, key }
+  pruneStaleDevices: (key, days = 30) =>
+    api("/api/license/device/prune", {
+      method: "POST",
+      body: { key, days }
     })
 };
 

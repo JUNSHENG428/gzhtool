@@ -227,8 +227,27 @@
         <details class="faq-item">
           <summary>提示「设备数量已达上限」是什么意思？</summary>
           <div class="faq-body">
-            <p>免费用户最多绑定 1 台设备，Pro 用户最多 3 台。设备数是按浏览器指纹（user-agent + 屏幕分辨率 + 时区等）计算的，<strong>同一台电脑换浏览器或重装系统会算成新设备</strong>。</p>
-            <p>解绑老设备：登录 <a href="./dashboard">控制台</a> → 「我的设备」→ 点旁边的「解绑」按钮 → 即时生效。</p>
+            <p>三档配额（按 last_seen_at 计；激活后默认每次启动扩展都会刷新）：</p>
+            <ul>
+              <li><strong>Free 免费版</strong>：1 台设备同时激活</li>
+              <li><strong>Pro 月付</strong>：3 台设备同时激活</li>
+              <li><strong>Pro 年付</strong>：10 台设备同时激活（覆盖公司 + 家 + 移动场景）</li>
+            </ul>
+            <p>设备身份按客户端 <code>chrome.storage</code> 里一次性生成的随机 UUID 区分（<strong>不</strong>抓取 user-agent / 屏幕分辨率 / 时区作为指纹）。<strong>同一台电脑换浏览器、重装系统、清空扩展存储会被视为新设备</strong>，dashboard 的设备列表会带有"浏览器+主版本号 · OS"粗粒度标签（如 "Chrome 147 · macOS 10.15.7"）帮你识别这种情况。</p>
+            <p>解决撞顶 3 选 1：</p>
+            <ol>
+              <li>登录 <a href="./dashboard">控制台</a> → 滚到 license 卡 → 「我的设备」→ 点闲置那台的「解绑」即时释放配额。</li>
+              <li>有 30 天以上未活跃的设备时会出现 <strong>「清理 30 天未活跃」</strong> 一键按钮，批量释放。</li>
+              <li>系统每小时自动清理 90 天未活跃的设备（<code>scheduled cron</code> + 后端 D1 删除），无需用户介入。</li>
+            </ol>
+          </div>
+        </details>
+
+        <details class="faq-item">
+          <summary>我的设备列表里有重复的"Chrome on macOS"，是同一台机器吗？</summary>
+          <div class="faq-body">
+            <p>大概率是。设备身份基于客户端一次性生成的 UUID 存在 <code>chrome.storage.local</code>，<strong>清空扩展存储 / 重装扩展 / 启用不同 Chrome profile</strong> 都会重新生成，从服务端看就是不同的"设备"。看 dashboard 设备行的 "Chrome 147 · macOS 10.15.7" 这种粗粒度标签，如果两条标签完全一样而设备数量明显多于你实际拥有的电脑数，多半就是同一台累计的孤儿记录。</p>
+            <p>处理：等系统自动清理（90 天 cron） / 手动按「清理 30 天未活跃」 / 逐条解绑。</p>
           </div>
         </details>
       </section>
@@ -280,9 +299,9 @@
           <div class="faq-body">
             <p>三档对比（按 AI 调用配额排序）：</p>
             <ul>
-              <li><strong>Free 免费版</strong>：平台 AI · <strong>30 次 / 月</strong>（仅经济档 DeepSeek V4 Flash）；绑定 1 个公众号；5 个内置模板</li>
-              <li><strong>Pro 月付</strong>：平台 AI · <strong>5M token / 月</strong>（经济 + 标准档 DeepSeek V4 Pro）；绑定 5 个公众号；10+ 高级模板 + AI 模板生成器；DrissionPage 抓取；3 台设备同时激活</li>
-              <li><strong>Pro 年付</strong>：平台 AI · <strong>20M token / 月</strong>（含旗舰档 GPT-4o）；🔓 解锁「自定义 API Key」用自己的 OpenAI / DeepSeek 账号跑（正文不经过润笔服务器）；其他与月付一致</li>
+              <li><strong>Free 免费版</strong>：平台 AI · <strong>30 次 / 月</strong>（仅经济档 DeepSeek V4 Flash）；绑定 1 个公众号；5 个内置模板；<strong>1 台设备</strong>同时激活</li>
+              <li><strong>Pro 月付</strong>：平台 AI · <strong>5M token / 月</strong>（经济 + 标准档 DeepSeek V4 Pro）；绑定 5 个公众号；10+ 高级模板 + AI 模板生成器；DrissionPage 抓取；<strong>3 台设备</strong>同时激活</li>
+              <li><strong>Pro 年付</strong>：平台 AI · <strong>20M token / 月</strong>（含旗舰档 GPT-4o）；🔓 解锁「自定义 API Key」用自己的 OpenAI / DeepSeek 账号跑（正文不经过润笔服务器）；<strong>10 台设备</strong>同时激活；其他与月付一致</li>
             </ul>
             <p>额度按 UTC 自然月每月 1 日重置。详细对比见 <a href="./pricing">定价页</a>。</p>
           </div>

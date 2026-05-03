@@ -124,9 +124,9 @@
 
       <h3>2.1 账号数据（仅在你注册时）</h3>
       <ul>
-        <li>邮箱地址（用于登录、密码重置、订阅开通通知）</li>
-        <li>密码哈希（PBKDF2-SHA256，从不存储明文）</li>
-        <li>设备指纹（用于多设备并发限制，由 user-agent + 时区等公开信息哈希得出）</li>
+        <li>邮箱地址（用于登录、密码重置、订阅开通通知）。</li>
+        <li>密码哈希（PBKDF2-SHA256，从不存储明文）。</li>
+        <li>设备身份：客户端 <code>crypto.randomUUID()</code> 一次性生成的随机 UUID，存在你浏览器 <code>chrome.storage.local</code> 里，登录时连同请求发到我们 worker。我们 <strong>不</strong> 抓取 user-agent / 屏幕分辨率 / 时区 / WebGL renderer 等可作为 cross-site fingerprinting 的信号。每条激活记录附带浏览器名+主版本号+OS 家族粗粒度提示（"Chrome 147 · macOS 10.15.7"），仅用于在 dashboard 让你识别"这是哪台机器"；该提示是从 worker 收到的请求 User-Agent header 推断后写入 D1，<strong>不存完整 UA 字符串</strong>。设备身份用途：① 多设备并发限制（Free 1 / Monthly 3 / Yearly 10）；② 设备列表 dashboard 显示。</li>
       </ul>
 
       <h3>2.2 使用数据（聚合 + 匿名）</h3>
@@ -160,7 +160,8 @@
         </li>
         <li><strong>素材抓取：</strong>由扩展在你浏览器里执行，请求来自你自己的 IP，使用你已有的登录态，我们的服务器只下发"该抓什么"的指令模板。</li>
         <li><strong>账号 / 付费 / 用量数据：</strong>存储在 Cloudflare D1（部署在新加坡边缘节点），仅用于身份验证、配额管理、成本核算。
-          <code>llm_audit_log</code> 表保留 90 天后由定时任务自动清理。</li>
+          <code>llm_audit_log</code>（AI 调用流水）保留 90 天后由定时任务自动清理。
+          <code>device_activations</code>（已激活设备记录）按 last_seen_at 维护，超 90 天未活跃的行由 Cloudflare Worker scheduled cron 每小时自动删除（不做软删，物理 DELETE）。</li>
         <li><strong>支付数据：</strong>由第三方支付平台处理，我们仅接收支付平台的回调通知（支付状态、订单号、客户邮箱），不存储任何银行卡信息。</li>
       </ul>
 

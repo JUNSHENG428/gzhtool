@@ -1120,6 +1120,14 @@ code {
   color: var(--muted);
 }
 
+/* 39th 续 · 设备配额角标三档配色（ok / warn 撞顶 / over 超额） */
+.dash-license-info[data-device-tone="warn"] strong {
+  color: #b45309; /* amber 700 */
+}
+.dash-license-info[data-device-tone="over"] strong {
+  color: #b91c1c; /* red 700 */
+}
+
 .dash-license-actions {
   display: flex;
   gap: 6px;
@@ -1228,6 +1236,24 @@ code {
 
 .dash-device-actions .btn {
   padding: 4px 10px;
+  font-size: 0.78rem;
+}
+
+/* 39th 续 · stale 设备视觉灰化（30 天未活跃） */
+.dash-device.is-stale {
+  opacity: 0.62;
+  background: rgba(247, 245, 239, 0.3);
+}
+.dash-device.is-stale .dash-device-label::after {
+  content: " · 长期未用";
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.78rem;
+}
+
+/* 39th 续 · 一键清理按钮 */
+.dash-license-prune-btn {
+  padding: 5px 12px;
   font-size: 0.78rem;
 }
 
