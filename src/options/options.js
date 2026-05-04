@@ -47,7 +47,7 @@ import {
   getLicenseSummaryText
 } from "../shared/license.js";
 import { getUsageSnapshot } from "../shared/usage-stats.js";
-import { showUpgradeModal } from "../shared/upgrade-modal.js";
+import { showUpgradeModal, showDeviceLimitModal } from "../shared/upgrade-modal.js";
 
 /**
  * 「下载桌面助手」横幅常量。
@@ -2071,6 +2071,11 @@ async function handleRefreshLicense() {
       setLicenseFeedback(res?.error || "复验失败", "error");
     }
   } catch (error) {
+    // 39th 续 · 撞顶时弹友好 modal 替代裸文案，引导跳 dashboard 解绑
+    if (showDeviceLimitModal(error)) {
+      setLicenseFeedback("本机已被设备配额拦截，请到会员中心解绑闲置后重试。", "warning");
+      return;
+    }
     setLicenseFeedback(error?.message || "网络异常，请稍后再试", "error");
   }
 }
@@ -2179,6 +2184,11 @@ async function handleActivateLicense() {
       verifyRes.plan === "pro" ? "success" : "warning"
     );
   } catch (error) {
+    // 39th 续 · 撞顶时弹友好 modal 替代裸文案
+    if (showDeviceLimitModal(error)) {
+      setLicenseFeedback("本机已被设备配额拦截，请到会员中心解绑闲置后重试。", "warning");
+      return;
+    }
     setLicenseFeedback(error?.message || "网络异常，请稍后再试", "error");
   } finally {
     setActivateBtnBusy(false);

@@ -370,3 +370,53 @@ function escape(value) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+// ---------------------------------------------------------------------
+// 39th 续 · 设备激活撞顶友好 modal
+// ---------------------------------------------------------------------
+
+/**
+ * 把 verify 接口返回的 device_limit_exceeded 错误转成升级 modal。
+ *
+ * 设计：复用 showUpgradeModal 的双行（被拦 / 升级后获得）+ bullets 结构，
+ * 但文案换成「解绑而非升级」语义——撞顶不是付费门槛而是已付费用户的运维操作。
+ *
+ * 返回 true 表示已识别并弹出 modal（调用方可短路其他错误处理）；
+ * 返回 false 表示该错误不是 device_limit，调用方继续走原路径。
+ *
+ * 用法：
+ *   try { await verifyLicenseRemote(key); }
+ *   catch (err) {
+ *     if (showDeviceLimitModal(err)) return;  // 已弹 modal，退出
+ *     showRegularToast(err);
+ *   }
+ */
+export function showDeviceLimitModal(err) {
+  if (err?.data?.reason !== "device_limit_exceeded") return false;
+  const activated = Number(err.data.activated) || 0;
+  const limit = Number(err.data.limit) || 1;
+  const plan = String(err.data.plan || "free");
+  const planLabel =
+    plan === "yearly"
+      ? "年费会员"
+      : plan === "monthly"
+        ? "月费会员"
+        : plan === "free"
+          ? "免费版"
+          : "当前会员";
+
+  showUpgradeModal({
+    featureName: "本设备激活",
+    blocked: `本 License 已激活 ${activated} 台设备，达到「${planLabel}」上限 ${limit} 台`,
+    gain: "前往会员中心解绑闲置设备 → 即时释放配额，再来扩展按一次「刷新会员状态」即可激活本机",
+    bullets: [
+      "三档配额：免费版 1 台 · 月费 3 台 · 年费 10 台（覆盖公司+家+移动场景）",
+      "解绑后该设备的扩展会在下次联网核验时回到免费版，可再次激活",
+      "「清理 30 天未活跃」按钮可批量释放 stale 设备",
+      "系统每小时自动清 90 天未活跃的设备，长期未用的无需手动管理"
+    ],
+    primaryAction: { label: "前往会员中心解绑", url: "https://docuearn.com/dashboard" },
+    secondaryLabel: "稍后再说"
+  });
+  return true;
+}
