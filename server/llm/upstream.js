@@ -190,6 +190,78 @@ export async function callUpstreamWithFallback({ env, upstream, model, body }) {
 }
 
 // ---------------------------------------------------------------------
+// 流式上游（39th 续 · Phase 3 SSE streaming）
+// ---------------------------------------------------------------------
+
+/**
+ * 调一次 upstream，**保留 SSE 流式响应**（不解析 body，直接返回 fetch Response）。
+ *
+ * 设计要点：
+ *   - 强制 stream:true（与 callUpstream 强制 stream:false 形成镜像）
+ *   - 强制 stream_options:{include_usage:true}（OpenAI 协议扩展，让最后一个 event 携完整 usage 数据）
+ *   - 不做降级（fallback 在流中途切换 upstream 极其复杂——半途响应已写客户端无法回滚）；
+ *     上游失败就直接把 4xx/5xx 透传给客户端
+ *   - 永不抛错（除 env 完全坏）；网络层错以 ok=false + status=502 返回
+ *   - 不做计量——usage 数据在 stream 末尾才到，需要调用方在 TransformStream flush 中读取
+ *
+ * 返回：
+ *   { ok: true,  status: 200,        upstreamResponse, errorCode: null }   ← caller pipe upstreamResponse.body 到客户端
+ *   { ok: false, status: 502/4xx/5xx, upstreamResponse, errorCode: "..." } ← caller 透传错误（不流式）
+ */
+export async function streamUpstream({ env, upstream, model, body }) {
+  const config = UPSTREAM_CONFIG[upstream];
+  if (!config) {
+    return { ok: false, status: 503, upstreamResponse: null, errorCode: "unknown_upstream" };
+  }
+  const apiKey = env[config.keyVar];
+  if (!apiKey) {
+    return {
+      ok: false,
+      status: 503,
+      upstreamResponse: null,
+      errorCode: "upstream_not_configured"
+    };
+  }
+
+  const forwardBody = {
+    ...body,
+    model,
+    stream: true,
+    stream_options: { include_usage: true }
+  };
+  delete forwardBody.tier;
+
+  let resp;
+  try {
+    resp = await fetch(config.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(forwardBody)
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      status: 502,
+      upstreamResponse: null,
+      errorCode: `network_${(err?.message || "unknown").slice(0, 60)}`
+    };
+  }
+
+  if (!resp.ok) {
+    return {
+      ok: false,
+      status: resp.status,
+      upstreamResponse: resp,
+      errorCode: `upstream_${resp.status}`
+    };
+  }
+  return { ok: true, status: resp.status, upstreamResponse: resp, errorCode: null };
+}
+
+// ---------------------------------------------------------------------
 // 计量（D1 写入）
 // ---------------------------------------------------------------------
 

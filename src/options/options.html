@@ -251,6 +251,15 @@
             </small>
           </label>
 
+          <!-- 39th 续 · Phase 3 · 流式响应开关 -->
+          <label class="checkbox-row" style="margin-top:8px;">
+            <input id="platformStreaming" type="checkbox" />
+            <span>启用流式响应 <small class="field-meta">SSE · 边收边渲染</small></span>
+          </label>
+          <small class="field-hint" style="margin-left:24px;display:block;margin-top:-4px;">
+            <strong>什么时候开</strong>：想要"AI 生成时实时看到进度"而不是"等 30 秒才出整篇"——开启后任务卡会实时显示「已生成 N 字」。<strong>什么时候关</strong>：网络代理不稳定（流式连接更易断）或想要简化错误处理。<strong>开启的代价</strong>：占用一条长连接到我们 worker，与非流式同费率。
+          </small>
+
           <!-- 用量卡片：未登录显示 CTA；登录后 fetch /api/llm/usage 渲染进度条 -->
           <div class="platform-usage-card" id="platformUsageCard">
             <p class="platform-usage-loading muted">加载用量中...</p>

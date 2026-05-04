@@ -3003,6 +3003,7 @@ console.log("\n运行 server/llm/upstream.js 导出契约 …");
   const expectedExports = [
     "callUpstream",
     "callUpstreamWithFallback",
+    "streamUpstream",
     "recordUsage",
     "recordAudit",
     "checkAndBumpRateLimit"
@@ -3010,7 +3011,7 @@ console.log("\n运行 server/llm/upstream.js 导出契约 …");
   for (const name of expectedExports) {
     assert(typeof upstream[name] === "function", `upstream.js 缺导出 ${name}`);
   }
-  console.log(`✓ upstream.js 5 项导出齐备`);
+  console.log(`✓ upstream.js 6 项导出齐备（含 39th 续 · streamUpstream）`);
 }
 
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

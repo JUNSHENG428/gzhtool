@@ -106,7 +106,9 @@ const fields = {
   useTaskCenter: document.querySelector("#useTaskCenter"),
   // 39th session · 平台 LLM 代理档位（aiSourceMode=platform 时生效）
   // select 进 fields 走 saveForm 通用循环 OK；aiSourceMode（radio）独立处理见下方。
-  platformTier: document.querySelector("#platformTier")
+  platformTier: document.querySelector("#platformTier"),
+  // 39th 续 · Phase 3 · 平台 AI 流式响应开关（checkbox，saveForm 通用循环识别 type=checkbox）
+  platformStreaming: document.querySelector("#platformStreaming")
 };
 
 const statusElement = document.querySelector("#status");

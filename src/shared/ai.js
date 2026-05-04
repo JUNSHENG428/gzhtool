@@ -717,9 +717,162 @@ async function requestRewriteViaPlatform(settings, source, preferences, template
   return normalizeArticle(extractJson(content), source, preferences);
 }
 
-export async function requestRewrite(settings, source, preferences, template, voiceSample = null) {
+/**
+ * 39th 续 · Phase 3 · 平台 LLM 流式响应消费者。
+ *
+ * 与 requestRewriteViaPlatform 相同的 body / auth / tier 解析路径，但 POST 到 /api/llm/stream
+ * 端点。客户端读 ReadableStream，按 SSE 协议解析每个 "data: {json}\n\n" event，
+ * 累加 delta.content 到 finalText；末尾 [DONE] 时返回 normalizeArticle 结果（与非流式同 shape）。
+ *
+ * 进度回调 onProgress({ chars, tokens? })：每收到一个 delta event 触发，
+ * 让 workspace 任务卡显示「已生成 1234 字 / 56 token」。
+ *
+ * 错误码契约与非流式一致：401/402/429/503 + AUTH_REQUIRED/...；流中途上游 error 透传。
+ */
+async function requestRewriteViaPlatformStreaming(settings, source, preferences, template, voiceSample, options = {}) {
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : () => {};
+
+  const authRecord = await getAuthRecord();
+  const jwt = authRecord?.token;
+  if (!jwt) {
+    const err = new Error("请先登录润笔账户才能使用平台 AI（设置页 → 我的会员 → 登录）");
+    err.code = "AUTH_REQUIRED";
+    throw err;
+  }
+
+  let tier = String(settings.platformTier || "").trim();
+  if (!tier) {
+    const m = String(settings.model || "").match(/^platform-([a-z]+)$/i);
+    if (m) tier = m[1].toLowerCase();
+  }
+  if (!tier) tier = "economy";
+
+  const messages = buildRewriteMessages(source, preferences, settings, template, voiceSample);
+  const temperatureSource =
+    template && template.temperature != null && template.temperature !== ""
+      ? template.temperature
+      : settings.temperature;
+  const temperature = Number(temperatureSource ?? 0.8);
+  const body = { tier, temperature, messages };
+  const topPSource =
+    template && template.topP != null && template.topP !== ""
+      ? template.topP
+      : settings.topP;
+  const topP = numberOrNull(topPSource);
+  if (topP != null) body.top_p = topP;
+  const freqSource =
+    template && template.frequencyPenalty != null && template.frequencyPenalty !== ""
+      ? template.frequencyPenalty
+      : settings.frequencyPenalty;
+  const freqPenalty = numberOrNull(freqSource);
+  if (freqPenalty != null) body.frequency_penalty = freqPenalty;
+  const presSource =
+    template && template.presencePenalty != null && template.presencePenalty !== ""
+      ? template.presencePenalty
+      : settings.presencePenalty;
+  const presPenalty = numberOrNull(presSource);
+  if (presPenalty != null) body.presence_penalty = presPenalty;
+
+  const apiBase = String(await getApiBase()).replace(/\/+$/, "");
+  const url = `${apiBase}/api/llm/stream`;
+  await ensureOptionalHostPermission(apiBase, "润笔平台 AI 接口");
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${jwt}`
+      },
+      body: JSON.stringify(body)
+    });
+  } catch (netErr) {
+    const err = new Error(`平台 AI 网络错误：${netErr?.message || "未知"}`);
+    err.code = "NETWORK";
+    throw err;
+  }
+
+  // 错误响应（worker 的 401/402/429/503 + 上游透传错误）走 JSON body，不是 SSE
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    if (response.status === 401) {
+      const err = new Error("润笔账户登录已过期，请重新登录");
+      err.code = "AUTH_EXPIRED";
+      throw err;
+    }
+    if (response.status === 402) {
+      const err = new Error(data?.error || "本月平台 LLM 额度已用完");
+      err.code = "PLATFORM_QUOTA_EXCEEDED";
+      err.data = data;
+      throw err;
+    }
+    if (response.status === 429) {
+      const err = new Error(data?.error || "请求过于频繁，请稍后再试");
+      err.code = "PLATFORM_RATE_LIMITED";
+      err.retryAfterMs = data?.retry_after_ms;
+      throw err;
+    }
+    if (response.status === 503) {
+      const err = new Error(`平台 AI 暂不可用：${data?.error_code || data?.error || "服务商未配置"}`);
+      err.code = "PLATFORM_UNCONFIGURED";
+      throw err;
+    }
+    throw new Error(data?.error || `平台 AI 流式响应错误 ${response.status}`);
+  }
+
+  // 读 SSE 流，累加 delta.content 直到 [DONE]
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    throw new Error("平台 AI 不支持流式响应（fetch API 缺 ReadableStream）");
+  }
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalContent = "";
+  let lastTokens = 0;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() || "";
+    for (const ev of events) {
+      for (const line of ev.split("\n")) {
+        if (!line.startsWith("data:")) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === "[DONE]") continue;
+        try {
+          const json = JSON.parse(data);
+          const delta = json?.choices?.[0]?.delta?.content || "";
+          if (delta) {
+            finalContent += delta;
+            onProgress({ chars: finalContent.length, tokens: lastTokens });
+          }
+          if (json?.usage?.completion_tokens) {
+            lastTokens = Number(json.usage.completion_tokens) || 0;
+            onProgress({ chars: finalContent.length, tokens: lastTokens });
+          }
+        } catch {
+          // 忽略单条 parse 失败，继续读
+        }
+      }
+    }
+  }
+
+  if (!finalContent) {
+    throw new Error("平台 AI 流式返回内容为空");
+  }
+  return normalizeArticle(extractJson(finalContent), source, preferences);
+}
+
+export async function requestRewrite(settings, source, preferences, template, voiceSample = null, options = {}) {
   // 39th session · 平台 LLM 代理分支（aiSourceMode === "platform"）
   if (isPlatformMode(settings)) {
+    // 39th 续 · Phase 3 · 流式开关（settings.platformStreaming 默认 false）
+    if (settings?.platformStreaming) {
+      return requestRewriteViaPlatformStreaming(settings, source, preferences, template, voiceSample, options);
+    }
     return requestRewriteViaPlatform(settings, source, preferences, template, voiceSample);
   }
 

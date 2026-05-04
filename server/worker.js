@@ -38,6 +38,7 @@ import {
 } from "./llm/router.js";
 import {
   callUpstreamWithFallback,
+  streamUpstream,
   recordUsage,
   recordAudit,
   checkAndBumpRateLimit
@@ -167,6 +168,7 @@ const ROUTES = {
   "POST /api/payment/hupijiao/notify": handleHupijiaoNotify,
   "GET /api/payment/hupijiao/query": handleHupijiaoQuery,
   "POST /api/llm/chat": handleLlmChat,
+  "POST /api/llm/stream": handleLlmStream,
   "GET /api/llm/usage": handleLlmUsage,
   "POST /api/license/device/prune": handleLicenseDevicePrune
 };
@@ -2228,6 +2230,209 @@ async function handleLlmChat(request, env, ctx) {
     response.headers.set("X-Platform-Fallback-From", result.fallbackFrom);
   }
   return response;
+}
+
+// ============================================================
+// /api/llm/stream 平台 LLM 代理 · SSE 流式响应（39th 续 · Phase 3）
+// ============================================================
+// 与 /api/llm/chat 同样的 auth + 限流 + 配额前置检查；通过后转发上游 stream:true 响应。
+//
+// 与 chat 路径关键差异：
+//   - 不做 fallback（流式中途切换 upstream 复杂度极高，半途响应已写入客户端不可回滚）；
+//     上游错误直接透传 4xx/5xx
+//   - 计量发生在 stream 末尾——上游最后一个 SSE event 携 usage 字段
+//     （需 stream_options.include_usage:true，由 streamUpstream 强制注入）
+//   - 使用 TransformStream 边转发边解析，flush() 时写 D1
+//
+// 客户端期望使用 ReadableStream + TextDecoder 增量消费，参考 src/shared/ai.js
+// requestRewriteViaPlatformStreaming 实现。
+async function handleLlmStream(request, env, ctx) {
+  const auth = await requireAuth(request, env);
+  if (!auth.ok) return auth.response;
+
+  const summary = await loadUserLicenseSummary(env, auth.userId);
+  const plan = derivePlanForLlm(summary);
+
+  let body;
+  try {
+    body = await request.json();
+  } catch (_) {
+    return jsonResponse({ ok: false, error: "请求体不是有效 JSON" }, 400);
+  }
+  if (!body || !Array.isArray(body.messages) || body.messages.length === 0) {
+    return jsonResponse({ ok: false, error: "messages 字段必填且不能为空数组" }, 400);
+  }
+
+  const { tier, downgraded } = resolveTierForUser(plan, body.tier);
+  const { upstream, model } = selectUpstreamForTier(tier);
+
+  // 限流
+  const rpm = PLAN_RPM[plan] || PLAN_RPM.free;
+  const rl = await checkAndBumpRateLimit(env, auth.userId, rpm);
+  if (!rl.ok) {
+    ctx.waitUntil(
+      recordAudit(env, {
+        user_id: auth.userId,
+        ts: Date.now(),
+        model,
+        tier,
+        upstream,
+        status: "rate_limited",
+        error_code: "rpm_exceeded"
+      })
+    );
+    return jsonResponse(
+      {
+        ok: false,
+        error: "请求过于频繁，请稍后再试",
+        reason: "rate_limited",
+        retry_after_ms: rl.retryAfterMs
+      },
+      429
+    );
+  }
+
+  // 配额预检
+  const yyyymm = currentYyyymm();
+  const usageRow = await env.DB.prepare(
+    "SELECT prompt_tokens, completion_tokens, call_count FROM llm_usage WHERE user_id = ? AND yyyymm = ?"
+  )
+    .bind(auth.userId, yyyymm)
+    .first();
+  const quota = checkQuota(plan, usageRow || {});
+  if (!quota.ok) {
+    ctx.waitUntil(
+      recordAudit(env, {
+        user_id: auth.userId,
+        ts: Date.now(),
+        model,
+        tier,
+        upstream,
+        status: "quota_exceeded",
+        error_code: quota.reason
+      })
+    );
+    return jsonResponse(
+      {
+        ok: false,
+        error: "本月平台 LLM 额度已用完",
+        reason: quota.reason || "quota_exceeded",
+        plan,
+        limit: quota.limit,
+        used: quota.used,
+        resets_at: new Date(nextResetMs()).toISOString()
+      },
+      402
+    );
+  }
+
+  // 调上游（不带 fallback，stream 模式不支持 fallback）
+  const result = await streamUpstream({ env, upstream, model, body });
+  if (!result.ok) {
+    ctx.waitUntil(
+      recordAudit(env, {
+        user_id: auth.userId,
+        ts: Date.now(),
+        model,
+        tier,
+        upstream,
+        status: "error",
+        error_code: result.errorCode
+      })
+    );
+    if (result.upstreamResponse) {
+      // 透传上游错误响应（不流式）
+      const headers = new Headers({ "Content-Type": "application/json; charset=utf-8" });
+      const errBody = await result.upstreamResponse.text().catch(() => "");
+      return new Response(errBody || JSON.stringify({ ok: false, error_code: result.errorCode }), {
+        status: result.status,
+        headers
+      });
+    }
+    return jsonResponse(
+      { ok: false, error: "平台 AI 暂不可用", error_code: result.errorCode },
+      result.status || 503
+    );
+  }
+
+  // ---- TransformStream 边转发边解析最后的 usage 写 D1 ----
+  let parseBuffer = "";
+  let finalUsage = null;
+  const decoder = new TextDecoder();
+  const startMs = Date.now();
+
+  const ts = new TransformStream({
+    transform(chunk, controller) {
+      controller.enqueue(chunk); // 立即透传给客户端
+      try {
+        parseBuffer += decoder.decode(chunk, { stream: true });
+        // SSE 协议：events 用 \n\n 分隔，每个 event 形如 "data: {json}\n"
+        const events = parseBuffer.split("\n\n");
+        parseBuffer = events.pop() || "";
+        for (const ev of events) {
+          for (const line of ev.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (!data || data === "[DONE]") continue;
+            try {
+              const json = JSON.parse(data);
+              if (json && json.usage) {
+                finalUsage = json.usage; // OpenAI 格式 stream_options.include_usage 末尾事件
+              }
+            } catch {
+              // 忽略解析失败的事件，继续转发
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[llm/stream] parse error", err?.message);
+      }
+    },
+    flush() {
+      const promptTokens = Number(finalUsage?.prompt_tokens || 0);
+      const completionTokens = Number(finalUsage?.completion_tokens || 0);
+      const durationMs = Date.now() - startMs;
+
+      ctx.waitUntil(
+        recordAudit(env, {
+          user_id: auth.userId,
+          ts: Date.now(),
+          model,
+          tier,
+          upstream,
+          prompt_tokens: promptTokens,
+          completion_tokens: completionTokens,
+          duration_ms: durationMs,
+          status: "ok",
+          error_code: null
+        })
+      );
+      if (promptTokens > 0 || completionTokens > 0) {
+        ctx.waitUntil(
+          recordUsage(env, {
+            userId: auth.userId,
+            yyyymm,
+            promptTokens,
+            completionTokens
+          })
+        );
+      }
+    }
+  });
+
+  result.upstreamResponse.body.pipeTo(ts.writable).catch((err) => {
+    console.warn("[llm/stream] pipe error", err?.message);
+  });
+
+  const headers = new Headers({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no" // 防 proxy 缓冲（Nginx 等）
+  });
+  if (downgraded) headers.set("X-Platform-Tier-Downgraded", tier);
+
+  return new Response(ts.readable, { status: 200, headers });
 }
 
 // ============================================================

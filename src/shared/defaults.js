@@ -244,7 +244,13 @@ export const DEFAULT_SETTINGS = {
   aiSourceMode: "byok",
   // 平台模式选哪个档位（economy / standard / flagship）。worker 端会按用户 plan
   // 自动越权降级（resolveTierForUser），所以选高了不会报错只会降级到能用的最高档。
-  platformTier: "economy"
+  platformTier: "economy",
+  // 39th 续 · Phase 3 · 平台 AI 流式响应（仅 aiSourceMode=platform 时生效）
+  // false = 非流式（POST /api/llm/chat 等完整 JSON 一次返回，30s+ 卡 UI）
+  // true  = 流式（POST /api/llm/stream 边收边渲染，task center 实时显示「已生成 N 字」）
+  // 默认 false 是为了向后兼容：流式路径未在 workspace 卡上暴露 onProgress UI 时，
+  // 用户开了也只是底层路径不同，体验差异不大；workspace UI 把 onProgress 接通后可推为默认 true
+  platformStreaming: false
 };
 
 export const DEFAULT_ARTICLE_META = {
