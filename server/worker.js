@@ -86,6 +86,11 @@ const DEVICE_LIMITS = Object.freeze({
 // 同时让"清装系统 / 重装扩展残留的孤儿 fingerprint"自然衰减不污染列表
 const STALE_DEVICE_PRUNE_DAYS = 90;
 
+// 39th 续 · plan rank 用于"只升档不降档"逻辑（issueProLicense + loadUserLicenseSummary）
+// pro 是历史 SKU（虎皮椒早期 + Lemon Squeezy），向后兼容为最高级别；
+// monthly < yearly 的差异由 derivePlanForLlm / devicePlanFromLicenseRow 真实生效
+const PLAN_RANK = Object.freeze({ free: 0, monthly: 1, yearly: 2, pro: 3 });
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -1351,7 +1356,9 @@ function normalizeLicenseKey(value) {
 }
 
 function featuresForPlan(plan) {
-  if (plan === "pro") {
+  // 39th 续 · monthly / yearly / pro 都视为付费档；plans-based 闸门（ai.bringYourOwnKey 等）
+  // 由扩展端 license.js mapEffectivePlanToLlmPlan + meta.plans 数组单独 gating，此处粗粒度即可
+  if (plan === "pro" || plan === "yearly" || plan === "monthly") {
     return Object.fromEntries(PAID_FEATURE_KEYS.map((k) => [k, true]));
   }
   return Object.fromEntries(PAID_FEATURE_KEYS.map((k) => [k, false]));
@@ -1395,7 +1402,7 @@ async function loadUserLicenseSummary(env, userId) {
     }
   }
 
-  // 找出当前最优的 license（active 且未过期 → pro 优先）
+  // 找出当前最优的 license（active 且未过期 → 按 PLAN_RANK 选最高档）
   let active = null;
   for (const row of list) {
     row.devices = deviceMap.get(row.key) || [];
@@ -1408,7 +1415,8 @@ async function loadUserLicenseSummary(env, userId) {
       active = row;
       continue;
     }
-    if (row.plan === "pro" && active.plan !== "pro") active = row;
+    // 39th 续 · 按 PLAN_RANK 选最高档（pro 3 > yearly 2 > monthly 1 > free 0）
+    if ((PLAN_RANK[row.plan] || 0) > (PLAN_RANK[active.plan] || 0)) active = row;
   }
 
   return {
@@ -2000,12 +2008,14 @@ async function handleHupijiaoNotify(request, env) {
   }
 
   // 签发 license（issueProLicense 内部强制 365d 上限）
+  // 39th 续 · 透传 planCode 让 license_keys.plan 写真实 monthly/yearly 而非历史 'pro' 兜底
   const issued = await issueProLicense(env, {
     userId: order.user_id,
     userEmail: order.user_email || "",
     source: "hupijiao",
     sourceOrderId: tradeOrderId,
-    days: order.days
+    days: order.days,
+    planCode: order.plan_code || ""
   });
 
   // 标记 paid + 写入 license key + 存档原始回调
@@ -2384,15 +2394,23 @@ function derivePlanForLlm(licenseSummary) {
  * - 强制 365d 上限（虎皮椒协议 3.12）
  * - 如果该用户已有 active 的 hupijiao license 且未到期，直接在原 key 上叠加 days
  * - 否则新生成一张
+ *
+ * 39th 续 · planCode 参数（"monthly" / "yearly" / 缺省）：
+ *   - 缺省 → "pro"（向后兼容旧 SKU 与 Lemon Squeezy 通道）
+ *   - "monthly" / "yearly" → 写入 license_keys.plan，让 derivePlanForLlm / devicePlanFromLicenseRow
+ *     直接区分两档（5M vs 20M token / 3 vs 10 设备）
+ *   - 续期时只升档不降档：现有 yearly 续费时买月费不会降级（保留 yearly 直到自然到期）
  */
-async function issueProLicense(env, { userId, userEmail, source, sourceOrderId, days }) {
+async function issueProLicense(env, { userId, userEmail, source, sourceOrderId, days, planCode }) {
   const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
   const now = Date.now();
   const addMs = Math.min(Math.max(Number(days) || 0, 1), 365) * 24 * 60 * 60 * 1000;
+  // SKU 映射 · 仅认 monthly / yearly，其他兜底 'pro'（向后兼容）
+  const newPlan = planCode === "monthly" || planCode === "yearly" ? planCode : "pro";
 
   // 找该用户最新一张同 source 的 active license
   const existing = await env.DB.prepare(
-    `SELECT key, expires_at FROM license_keys
+    `SELECT key, plan, expires_at FROM license_keys
       WHERE user_id = ? AND source = ? AND status = 'active'
       ORDER BY updated_at DESC LIMIT 1`
   )
@@ -2404,12 +2422,17 @@ async function issueProLicense(env, { userId, userEmail, source, sourceOrderId, 
     key = existing.key;
     const base = Math.max(Number(existing.expires_at) || now, now);
     const newExpires = Math.min(base + addMs, now + ONE_YEAR_MS);
+    // 只升档不降档：避免 yearly 用户买月费时被错误降级到 monthly
+    const finalPlan =
+      (PLAN_RANK[newPlan] || 0) > (PLAN_RANK[existing.plan] || 0)
+        ? newPlan
+        : existing.plan;
     await env.DB.prepare(
       `UPDATE license_keys
-          SET expires_at = ?, ls_order_id = ?, ls_customer_email = ?, updated_at = ?
+          SET plan = ?, expires_at = ?, ls_order_id = ?, ls_customer_email = ?, updated_at = ?
         WHERE key = ?`
     )
-      .bind(newExpires, sourceOrderId, userEmail, now, key)
+      .bind(finalPlan, newExpires, sourceOrderId, userEmail, now, key)
       .run();
   } else {
     key = await generateLicenseKey(env);
@@ -2419,9 +2442,9 @@ async function issueProLicense(env, { userId, userEmail, source, sourceOrderId, 
           (key, user_id, plan, status, expires_at,
            ls_order_id, ls_subscription_id, ls_customer_email,
            source, created_at, updated_at)
-        VALUES (?, ?, 'pro', 'active', ?, ?, '', ?, ?, ?, ?)`
+        VALUES (?, ?, ?, 'active', ?, ?, '', ?, ?, ?, ?)`
     )
-      .bind(key, userId, expiresAt, sourceOrderId, userEmail, source, now, now)
+      .bind(key, userId, newPlan, expiresAt, sourceOrderId, userEmail, source, now, now)
       .run();
   }
   return { key };

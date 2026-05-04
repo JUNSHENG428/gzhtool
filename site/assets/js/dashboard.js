@@ -173,10 +173,13 @@ async function tickMembership() {
     const data = await auth.me();
     renderAccount(data);
     renderLicenseList(data?.license);
-    if ((data?.license?.plan || "free") === "pro") {
+    // 39th 续 · 任何付费档位（pro / yearly / monthly）都视为开通成功
+    const p = data?.license?.plan || "free";
+    if (p === "pro" || p === "yearly" || p === "monthly") {
       stopMembershipPolling();
       hideSyncIndicator();
-      showToast("Pro 会员已开通 ✓", "success", 4000);
+      const label = p === "yearly" ? "Pro 年付" : p === "monthly" ? "Pro 月付" : "Pro 会员";
+      showToast(`${label}已开通 ✓`, "success", 4000);
     }
   } catch (error) {
     if (error?.status === 401) {
@@ -351,25 +354,30 @@ function renderAccount(data) {
   const lic = data?.license || {};
   const plan = lic.plan || "free";
 
+  // 39th 续 · 套餐显示按真实 plan 区分（pro 历史 SKU / yearly 年付 / monthly 月付 / free）
+  const planTitleMap = { pro: "Pro 会员", yearly: "Pro 年付", monthly: "Pro 月付", free: "Free" };
+  const planPillMap = { pro: "PRO", yearly: "YEAR", monthly: "MONTH", free: "FREE" };
+  const isPaidPlan = plan === "pro" || plan === "yearly" || plan === "monthly";
+
   if (els.email) els.email.textContent = user.email || "—";
   if (els.created) els.created.textContent = formatDate(user.created_at);
-  if (els.plan) els.plan.textContent = plan === "pro" ? "Pro" : "Free";
+  if (els.plan) els.plan.textContent = planTitleMap[plan] || "Free";
   if (els.planPill) {
-    els.planPill.textContent = plan === "pro" ? "PRO" : "FREE";
-    els.planPill.className = `dash-plan-pill ${plan === "pro" ? "pro" : "free"}`;
+    els.planPill.textContent = planPillMap[plan] || "FREE";
+    els.planPill.className = `dash-plan-pill ${isPaidPlan ? "pro" : "free"}`;
   }
   if (els.expires) {
     const expiresAt = lic.expiresAt || lic.expires_at;
     els.expires.textContent = expiresAt
       ? formatDate(expiresAt)
-      : (plan === "pro" ? "按订阅周期续费" : "—");
+      : (isPaidPlan ? "按订阅周期续费" : "—");
   }
   if (els.greeting) {
     els.greeting.textContent = user.email ? `你好，${user.email.split("@")[0]}` : "欢迎回来";
   }
   if (els.sub) {
-    els.sub.textContent = plan === "pro"
-      ? "Pro 会员已激活，所有功能立即可用。"
+    els.sub.textContent = isPaidPlan
+      ? `${planTitleMap[plan] || "Pro"} 已激活，所有功能立即可用。`
       : "管理你的会员权益、绑定设备和账号设置。";
   }
 
@@ -397,7 +405,9 @@ function renderRenewalBanner(plan, lic) {
 
   let banner = document.getElementById("renewalBanner");
   const expiresAt = Number(lic?.expiresAt || lic?.expires_at) || 0;
-  if (plan !== "pro" || expiresAt <= 0) {
+  // 39th 续 · 续费提醒覆盖所有付费档（pro / yearly / monthly）
+  const isPaidForBanner = plan === "pro" || plan === "yearly" || plan === "monthly";
+  if (!isPaidForBanner || expiresAt <= 0) {
     banner?.remove();
     return;
   }
