@@ -109,6 +109,15 @@ const TOKEN_SPIKE_THRESHOLDS = Object.freeze({
   yearly: 200_000
 });
 
+// 39th 续 · Phase 4.4 · 同 license 跨设备并发突发检测（5 分钟滑窗内 distinct fingerprint 数）
+// 阈值 = DEVICE_LIMITS[plan] + 2（容忍合理 burst：用户重启浏览器 / 切换 chrome profile 重新激活）
+// 单 license 5min 内出现 distinct fingerprints > deviceLimit + 2 → verify_log 写 multi_device_burst
+// 这通常是「license 被多人共享 / 转售」的信号——单设备的行为不会触发此阈值
+function deviceConcurrentThreshold(plan) {
+  const base = DEVICE_LIMITS[plan] ?? DEVICE_LIMITS.free;
+  return base + 2;
+}
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -1117,6 +1126,11 @@ async function handleLicenseVerify(request, env) {
     )
       .bind(fpId, key, fingerprint, label, uaHint, now, now)
       .run();
+
+    // 39th 续 · Phase 4.4 · 同 license 跨设备并发突发软告警（仅 verify 成功时跑）
+    // 与 device_limit 互补：limit 防"加 100 台"硬卡，burst 防"卖给多人同时用"软告警
+    // ctx 没在 handleLicenseVerify 入参里，但 verify 是低频路径直接 await 即可（< 100ms）
+    await detectAndLogMultiDeviceBurst(env, key, fingerprint, devicePlan, ip, ua);
   }
 
   await writeVerifyLog(env, key, ip, ua, "ok", "");
@@ -2686,6 +2700,72 @@ async function detectAndLogTokenSpike(env, userId, plan, tokensThisCall) {
       .run();
   } catch (err) {
     console.warn("[abuse] detectAndLogTokenSpike failed", err?.message || err);
+  }
+}
+
+// 39th 续 · Phase 4.4 · 检测并记录 license 跨设备并发突发（verify_log 软告警，不阻塞）
+//
+// 工作原理：
+//   - KV bucket 按 (license_key, 5min epoch) 分；每次 verify 成功后 sha256 fingerprint 加入 set
+//     （JSON 数组 + 去重；hash 而非明文 fingerprint，KV 不存可逆设备身份）
+//   - 同一 5 分钟窗口内 distinct fingerprint 数超过阈值（deviceLimit + 2）→ verify_log 写 multi_device_burst
+//   - 同一窗口内只触发一次告警（KV 标记 burst_logged:1，避免每次 verify 都写日志）
+//   - failed-silent：KV / D1 任一写失败都吞掉，不阻塞主链路
+//
+// 与 Phase 2.7 device_limit 区别：
+//   - device_limit 是总数硬卡（INSERT 时 count >= limit 直接 403）
+//   - multi_device_burst 是并发软告警（5 分钟内 distinct fingerprints 异常突发）
+//   - 两者目标不同：limit 防"狂加 100 台设备"；burst 防"license 被卖给多人同时用"
+//
+// 调用方：handleLicenseVerify 成功路径（writeVerifyLog "ok" 之后）
+async function detectAndLogMultiDeviceBurst(env, licenseKey, fingerprint, plan, ip, ua) {
+  if (!env.RATE_LIMIT_KV || !env.DB || !fingerprint || !licenseKey) return;
+  try {
+    const fingerprintHash = await sha256Hex(fingerprint);
+    const fpShort = fingerprintHash.slice(0, 12); // 12 字符已够分辨同 5min 内 N 设备
+    const fiveMinEpoch = Math.floor(Date.now() / 300_000);
+    const setKey = `concurrent_dev:set:${licenseKey}:${fiveMinEpoch}`;
+    const flagKey = `concurrent_dev:flag:${licenseKey}:${fiveMinEpoch}`;
+
+    const stored = await env.RATE_LIMIT_KV.get(setKey);
+    let set;
+    try {
+      set = stored ? JSON.parse(stored) : [];
+    } catch {
+      set = [];
+    }
+    if (!Array.isArray(set)) set = [];
+    if (!set.includes(fpShort)) {
+      set.push(fpShort);
+      // 卡 set 长度避免 KV value 暴涨（极端情况下若有人 1000 个 fingerprint 全打过来）
+      if (set.length > 50) set.length = 50;
+      await env.RATE_LIMIT_KV.put(setKey, JSON.stringify(set), { expirationTtl: 600 });
+    }
+
+    const threshold = deviceConcurrentThreshold(plan);
+    if (set.length <= threshold) return;
+
+    // 撞阈值：检查窗口内是否已经写过告警
+    const alreadyFlagged = await env.RATE_LIMIT_KV.get(flagKey);
+    if (alreadyFlagged) return;
+    await env.RATE_LIMIT_KV.put(flagKey, "1", { expirationTtl: 600 });
+
+    // 写 verify_log 软告警条；result="multi_device_burst" 让运维 grep 出真凶
+    await env.DB.prepare(
+      `INSERT INTO verify_log (license_key, ip, user_agent, result, detail, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        licenseKey,
+        ip || "unknown",
+        (ua || "").slice(0, 256),
+        "multi_device_burst",
+        `plan=${plan} uniques=${set.length} threshold=${threshold} window=5min`.slice(0, 256),
+        Date.now()
+      )
+      .run();
+  } catch (err) {
+    console.warn("[abuse] detectAndLogMultiDeviceBurst failed", err?.message || err);
   }
 }
 
