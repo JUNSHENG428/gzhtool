@@ -97,6 +97,18 @@ const PLAN_RANK = Object.freeze({ free: 0, monthly: 1, yearly: 2, pro: 3 });
 // 撞顶返 429 + 友好提示「同 IP 24 小时内已注册 X 次，请明日再试 / 不同网络重试 / 联系 support」
 const MAX_REGISTRATIONS_PER_IP_PER_DAY = 5;
 
+// 39th 续 · Phase 4.3 · token 暴涨告警阈值（5 分钟滑窗内累计 token 超此值 → audit warn）
+// 基线推导：plan 月度 cap / 30 天 / 24 小时 ≈ 每小时合理用量；5 分钟阈值 = 每小时基线的 4 倍
+//   - Free 30 次/月 ≈ 1 次/天 ≈ 200 token/天 → 5 分钟 1000 token = 5 次/天的剧烈爆量
+//   - Monthly 5M token/月 ≈ 167K/天 ≈ 7K/小时 → 5 分钟 50K = 7 倍 spike
+//   - Yearly 20M token/月 ≈ 667K/天 ≈ 28K/小时 → 5 分钟 200K = 7 倍 spike
+// 仅 audit_log 写 warn 条不阻塞调用——false positive 风险高于真实滥用，先观察再决定是否硬卡
+const TOKEN_SPIKE_THRESHOLDS = Object.freeze({
+  free: 1000,
+  monthly: 50_000,
+  yearly: 200_000
+});
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -2258,6 +2270,10 @@ async function handleLlmChat(request, env, ctx) {
         completionTokens
       })
     );
+    // 39th 续 · Phase 4.3 · token 暴涨软告警（audit_log warn 条，不阻塞）
+    ctx.waitUntil(
+      detectAndLogTokenSpike(env, auth.userId, plan, promptTokens + completionTokens)
+    );
   }
 
   // 8. 透传上游响应；扩展端 ai.js 期待 OpenAI-compatible JSON
@@ -2456,6 +2472,10 @@ async function handleLlmStream(request, env, ctx) {
             completionTokens
           })
         );
+        // 39th 续 · Phase 4.3 · 流式路径同样接 token 暴涨软告警
+        ctx.waitUntil(
+          detectAndLogTokenSpike(env, auth.userId, plan, promptTokens + completionTokens)
+        );
       }
     }
   });
@@ -2614,6 +2634,59 @@ async function handleLicenseDevicePrune(request, env) {
     days,
     deleted: Number(result?.meta?.changes) || 0
   });
+}
+
+// 39th 续 · Phase 4.3 · 检测并记录 token 暴涨（audit_log 软告警，不阻塞调用）
+//
+// 工作原理：
+//   - KV bucket 按 (userId, 5min epoch) 分；每次 recordUsage 后累加本次的 token 总数
+//   - 累计值首次超过阈值时写一条 llm_audit_log 行 status="suspicious_spike"
+//     error_code 字段记入 "{plan}_{cumulative}_{threshold}" 让运维 grep 出真凶
+//   - 同一 5 分钟窗口内只触发一次告警（KV 标记 spike_logged:1），避免 audit_log 暴涨
+//   - failed-silent：KV / D1 任何写失败都吞掉，不阻塞主链路（防滥用是 nice-to-have observability）
+//
+// 调用方：handleLlmChat 成功路径 + handleLlmStream flush（统一计入流式调用）
+async function detectAndLogTokenSpike(env, userId, plan, tokensThisCall) {
+  if (!env.RATE_LIMIT_KV || !env.DB) return;
+  const total = Number(tokensThisCall) || 0;
+  if (total <= 0) return;
+  try {
+    const fiveMinEpoch = Math.floor(Date.now() / 300_000);
+    const sumKey = `token_spike:sum:${userId}:${fiveMinEpoch}`;
+    const flagKey = `token_spike:flag:${userId}:${fiveMinEpoch}`;
+    const stored = await env.RATE_LIMIT_KV.get(sumKey);
+    const cumulative = (Number(stored) || 0) + total;
+    await env.RATE_LIMIT_KV.put(sumKey, String(cumulative), { expirationTtl: 600 });
+
+    const threshold = TOKEN_SPIKE_THRESHOLDS[plan] || TOKEN_SPIKE_THRESHOLDS.free;
+    if (cumulative <= threshold) return;
+
+    // 撞阈值：检查是否已经为本窗口写过告警
+    const alreadyFlagged = await env.RATE_LIMIT_KV.get(flagKey);
+    if (alreadyFlagged) return;
+    await env.RATE_LIMIT_KV.put(flagKey, "1", { expirationTtl: 600 });
+
+    // 写 audit_log 软告警条（不阻塞用户、不通知用户、运维可 grep）
+    await env.DB.prepare(
+      `INSERT INTO llm_audit_log
+         (user_id, ts, model, tier, upstream, prompt_tokens, completion_tokens, status, error_code)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        userId,
+        Date.now(),
+        null,
+        null,
+        null,
+        0,
+        0,
+        "suspicious_spike",
+        `${plan}_5min_${cumulative}_threshold_${threshold}`
+      )
+      .run();
+  } catch (err) {
+    console.warn("[abuse] detectAndLogTokenSpike failed", err?.message || err);
+  }
 }
 
 // ---------- license_keys.plan → LLM 服务的 plan 映射 ----------
