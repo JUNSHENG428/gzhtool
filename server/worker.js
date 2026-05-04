@@ -92,6 +92,11 @@ const STALE_DEVICE_PRUNE_DAYS = 90;
 // monthly < yearly 的差异由 derivePlanForLlm / devicePlanFromLicenseRow 真实生效
 const PLAN_RANK = Object.freeze({ free: 0, monthly: 1, yearly: 2, pro: 3 });
 
+// 39th 续 · Phase 4 防滥用 · 单 IP 24 小时内最多注册次数
+// 5 次的选择理由：覆盖家庭 / 小公司 NAT 后多人合理共享场景，挡住批量薅账号脚本
+// 撞顶返 429 + 友好提示「同 IP 24 小时内已注册 X 次，请明日再试 / 不同网络重试 / 联系 support」
+const MAX_REGISTRATIONS_PER_IP_PER_DAY = 5;
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -207,6 +212,25 @@ async function handleRegister(request, env) {
       { ok: false, error: "密码长度至少 8 位" },
       400
     );
+
+  // 39th 续 · Phase 4 · 单 IP 24h 注册数限制（挡批量薅账号脚本）
+  // KV bucket 按 (ip, UTC-day) 分；同 IP 5 次后撞顶返 429
+  // CF-Connecting-IP 是 Cloudflare 注入的真实 IP（不会被客户端 X-Forwarded-For 伪造）
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (ip !== "unknown") {
+    const rl = await rateLimit(env, `register:ip:${ip}`, MAX_REGISTRATIONS_PER_IP_PER_DAY, 86400);
+    if (!rl.allowed) {
+      return jsonResponse(
+        {
+          ok: false,
+          error: `同一网络 24 小时内已注册 ${MAX_REGISTRATIONS_PER_IP_PER_DAY} 个账号，超过上限。请改日再试或换不同网络重试；如果你是合理使用（如家庭 / 团队共享网络）请邮件 support@docuearn.com 申诉。`,
+          reason: "ip_register_limit",
+          retryAfterSeconds: rl.retryAfter
+        },
+        429
+      );
+    }
+  }
 
   const existing = await env.DB.prepare(
     "SELECT id, oauth_provider FROM users WHERE email = ?"
@@ -785,6 +809,22 @@ async function handleGoogleAuth(request, env) {
 
   // ——— 3. 全新用户 → 创建 oauth-only 账号 ———
   if (!user) {
+    // 39th 续 · Phase 4 · 新建账号也走 IP 24h 注册数限制（与邮箱密码注册同口径）
+    // 已存在用户的 Google 登录不计入此配额
+    if (ip !== "unknown") {
+      const rl = await rateLimit(env, `register:ip:${ip}`, MAX_REGISTRATIONS_PER_IP_PER_DAY, 86400);
+      if (!rl.allowed) {
+        return jsonResponse(
+          {
+            ok: false,
+            error: `同一网络 24 小时内已注册 ${MAX_REGISTRATIONS_PER_IP_PER_DAY} 个账号，超过上限。请改日再试或换不同网络重试；如果你是合理使用（如家庭 / 团队共享网络）请邮件 support@docuearn.com 申诉。`,
+            reason: "ip_register_limit",
+            retryAfterSeconds: rl.retryAfter
+          },
+          429
+        );
+      }
+    }
     const id = crypto.randomUUID();
     const now = Date.now();
     // dummy password_hash/salt：用确定性的非 base64 字符串占位，
