@@ -356,6 +356,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         broadcastRewriteProgress(requestId, { phase: "pass1:start", current: 0, total: 1 });
 
         // 主 pass —— 一次正常的 AI 改写
+        // 39th 续 · Phase 3b · 流式响应进度回调（settings.platformStreaming + aiSourceMode=platform 才触发）
+        // ai.js requestRewriteViaPlatformStreaming 每收到一个 SSE delta 调一次 onProgress({chars, tokens})；
+        // 非流式路径不调 onProgress，UI 自然回退到 pass1:start 的 "AI 改写中..." 静态文案
         let article = await withRetry(
           () =>
             requestRewrite(
@@ -363,7 +366,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               message.payload.source,
               message.payload.preferences || {},
               template,
-              voiceSample
+              voiceSample,
+              {
+                onProgress: (info) => {
+                  broadcastRewriteProgress(requestId, {
+                    phase: "pass1:streaming",
+                    streamingChars: Number(info?.chars) || 0,
+                    streamingTokens: Number(info?.tokens) || 0
+                  });
+                }
+              }
             ),
           MAX_RETRIES,
           "AI 改写"
@@ -969,7 +981,13 @@ function broadcastRewriteProgress(requestId, info) {
     updateRegistryTask(task.id, {
       phase: info?.phase || task.phase,
       current: typeof info?.current === "number" ? info.current : task.current,
-      total: typeof info?.total === "number" ? info.total : task.total
+      total: typeof info?.total === "number" ? info.total : task.total,
+      // 39th 续 · Phase 3b · 流式累计字数 / token（仅 phase="pass1:streaming" 时填充）
+      // 任务卡 chip 用此值显示「AI 流式生成中… 1234 字 / 56 token」实时反馈
+      streamingChars:
+        typeof info?.streamingChars === "number" ? info.streamingChars : task.streamingChars,
+      streamingTokens:
+        typeof info?.streamingTokens === "number" ? info.streamingTokens : task.streamingTokens
     });
   }
 }

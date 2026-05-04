@@ -459,6 +459,15 @@ function phaseToLabel(task) {
       return "准备中…";
     case "pass1:start":
       return "AI 改写中…";
+    case "pass1:streaming": {
+      // 39th 续 · Phase 3b · 流式实时反馈：「AI 流式生成中… 1234 字 / 56 token」
+      const chars = Number(task.streamingChars) || 0;
+      const tokens = Number(task.streamingTokens) || 0;
+      const segments = ["AI 流式生成中…"];
+      if (chars > 0) segments.push(`${chars} 字`);
+      if (tokens > 0) segments.push(`${tokens} token`);
+      return segments.join("  ");
+    }
     case "pass1:done":
       return "分析 AI 痕迹…";
     case "pass2:plan":

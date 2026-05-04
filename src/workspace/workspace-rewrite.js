@@ -524,6 +524,17 @@ function handleRewriteProgress(payload) {
     case "pass1:start":
       setStatus?.("正在主改写...", "info");
       break;
+    case "pass1:streaming": {
+      // 39th 续 · Phase 3b · 流式实时反馈（settings.platformStreaming=true 才会出现此 phase）
+      // 顶部状态栏文案：「AI 正在流式生成…  1234 字 / 56 token」
+      const chars = Number(payload.streamingChars) || 0;
+      const tokens = Number(payload.streamingTokens) || 0;
+      const segments = ["AI 正在流式生成…"];
+      if (chars > 0) segments.push(`${chars} 字`);
+      if (tokens > 0) segments.push(`${tokens} token`);
+      setStatus?.(segments.join("  "), "info");
+      break;
+    }
     case "pass1:done":
       setStatus?.("主改写完成 ✓ 正在分析 AI 痕迹...", "info");
       break;
