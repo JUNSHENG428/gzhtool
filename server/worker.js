@@ -1029,7 +1029,7 @@ function safeJsonDecode(bytes) {
 //   - signature/signedAt 让插件做"离线短期信任"：插件本地记下 signedAt，
 //     在 24h 内 fallback 时仍可凭 signature + 本地时间判定 pro，避免每次都联网。
 // ============================================================
-async function handleLicenseVerify(request, env) {
+async function handleLicenseVerify(request, env, ctx) {
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
   const ua = request.headers.get("User-Agent") || "";
 
@@ -1100,6 +1100,19 @@ async function handleLicenseVerify(request, env) {
       const activated = Number(countRow?.n) || 0;
       if (activated >= limit) {
         await writeVerifyLog(env, key, ip, ua, "device_limit", `${activated}/${limit}`);
+        // 39th 续 · 给 license 持有者发安全告警邮件（ctx.waitUntil 后台跑不阻塞 403 响应）
+        if (row.user_id) {
+          const emailTask = sendSecurityAlertEmail(env, {
+            userId: row.user_id,
+            type: "device_limit_exceeded",
+            details: { plan: devicePlan, activated, limit, licenseKey: key }
+          });
+          if (ctx && typeof ctx.waitUntil === "function") {
+            ctx.waitUntil(emailTask);
+          } else {
+            await emailTask;
+          }
+        }
         return jsonResponse(
           {
             ok: false,
@@ -1129,8 +1142,13 @@ async function handleLicenseVerify(request, env) {
 
     // 39th 续 · Phase 4.4 · 同 license 跨设备并发突发软告警（仅 verify 成功时跑）
     // 与 device_limit 互补：limit 防"加 100 台"硬卡，burst 防"卖给多人同时用"软告警
-    // ctx 没在 handleLicenseVerify 入参里，但 verify 是低频路径直接 await 即可（< 100ms）
-    await detectAndLogMultiDeviceBurst(env, key, fingerprint, devicePlan, ip, ua);
+    // 用 ctx.waitUntil 后台跑（Resend API 调用 ~200ms 不阻塞 verify 响应）；ctx 缺时退化直接 await
+    const burstTask = detectAndLogMultiDeviceBurst(env, key, row.user_id, fingerprint, devicePlan, ip, ua);
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(burstTask);
+    } else {
+      await burstTask;
+    }
   }
 
   await writeVerifyLog(env, key, ip, ua, "ok", "");
@@ -1865,6 +1883,197 @@ ${resetUrl}
     );
     return "failed";
   }
+}
+
+// ============================================================
+// 39th 续 · 安全告警邮件（Phase 4 三件套被动通知）
+// ============================================================
+//
+// 何时触发：
+//   - token_spike (Phase 4.3)：5min 滑窗 token 用量超阈值
+//   - multi_device_burst (Phase 4.4)：5min 滑窗 distinct 设备数超阈值
+//   - device_limit_exceeded (Phase 2.7)：尝试激活 N+1 台设备被硬卡
+//
+// 节流：同用户同类型 24 小时内最多发 1 封——KV `security_email:{userId}:{type}:{date}`
+//   （即使 5 分钟内连击触发 N 次告警，邮件只发一封；24 小时后窗口刷新允许下一封）
+//
+// 邮件内容设计：
+//   1. 明确发生了什么（具体数据）
+//   2. 「如果是你本人」的免责说明放最显眼位置（避免吓到用户）
+//   3. 「如果不是你本人」的下一步行动链接（修改密码 / 解绑设备 / 联系 support）
+//   4. 强调每天最多 1 封同类型邮件（解释为什么没看到更多）
+//
+// 失败模式（永不抛错，外层包 ctx.waitUntil）：
+//   "skipped"         - RESEND_API_KEY / userId 缺失
+//   "throttled"       - 已发过同类邮件
+//   "no_email"        - users.email 查询为空
+//   "lookup_failed"   - D1 查询异常
+//   "failed"          - Resend API 错误
+//   "sent"            - 成功发出
+async function sendSecurityAlertEmail(env, { userId, type, details }) {
+  if (!env.RESEND_API_KEY || !userId) return "skipped";
+
+  // 节流：每用户每类型每日 1 封
+  if (env.RATE_LIMIT_KV) {
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
+    const throttleKey = `security_email:${userId}:${type}:${today}`;
+    const seen = await env.RATE_LIMIT_KV.get(throttleKey);
+    if (seen) return "throttled";
+    await env.RATE_LIMIT_KV.put(throttleKey, "1", { expirationTtl: 86400 * 2 });
+  }
+
+  // 取邮箱（OAuth-only 用户也有邮箱，所以 users 表查询就够）
+  let email = "";
+  try {
+    const user = await env.DB.prepare("SELECT email FROM users WHERE id = ?")
+      .bind(userId)
+      .first();
+    email = String(user?.email || "");
+  } catch (err) {
+    console.warn("[security-email] lookup user failed", err?.message || err);
+    return "lookup_failed";
+  }
+  if (!email) return "no_email";
+
+  const content = buildSecurityAlertContent(type, details || {}, env);
+  if (!content) {
+    console.warn(`[security-email] unknown type=${type}`);
+    return "skipped";
+  }
+
+  const fromEmail = env.RESET_EMAIL_FROM || "no-reply@docuearn.com";
+  console.log(`[security-email] sending type=${type} to=${email}`);
+  try {
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${env.RESEND_API_KEY}`
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: [email],
+        subject: content.subject,
+        text: content.text
+      })
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => "");
+      console.error(
+        `[security-email] Resend FAILED type=${type} status=${resp.status} body=${body.slice(0, 500)}`
+      );
+      return "failed";
+    }
+    console.log(`[security-email] Resend ok type=${type}`);
+    return "sent";
+  } catch (err) {
+    console.error(
+      `[security-email] Resend network error type=${type}:`,
+      err?.message || err
+    );
+    return "failed";
+  }
+}
+
+/**
+ * 构建三种告警类型的邮件内容（subject + text）。
+ * text 形式（非 HTML）—— 与 sendResetEmail 同风格，所有邮件客户端都能渲染。
+ */
+function buildSecurityAlertContent(type, details, env) {
+  const site = env.SITE_URL || "https://docuearn.com";
+  const ts = new Date().toISOString();
+  const planLabel = (plan) =>
+    plan === "yearly"
+      ? "年费"
+      : plan === "monthly"
+        ? "月费"
+        : plan === "pro"
+          ? "Pro"
+          : "免费";
+
+  if (type === "token_spike") {
+    const cumulative = Number(details.cumulative) || 0;
+    const threshold = Number(details.threshold) || 0;
+    const plan = String(details.plan || "free");
+    return {
+      subject: "润笔 · 检测到 AI 用量异常",
+      text: `你好，
+
+我们刚才检测到你的润笔账号在 5 分钟内消耗了大量 AI token：
+- 时间：${ts} UTC
+- 数量：${cumulative} token（超过${planLabel(plan)}套餐 ${threshold} 阈值）
+
+如果是你本人正在批量改写文章，可以忽略本邮件——这只是常规观察，账号本身一切正常。
+
+如果不是你本人操作（账号可能被盗用 / 凭据泄露）：
+1. 立即修改密码：${site}/dashboard
+2. 解绑所有设备（强制其它设备重新登录）
+3. 邮件 support@docuearn.com 申请人工核查
+
+为避免邮件洪水，每类异常每天最多发 1 封。
+
+— 润笔 DocuEarn
+让你多一份安稳`
+    };
+  }
+
+  if (type === "multi_device_burst") {
+    const uniques = Number(details.uniques) || 0;
+    const threshold = Number(details.threshold) || 0;
+    const plan = String(details.plan || "free");
+    const keyTail = String(details.licenseKey || "").slice(-4);
+    return {
+      subject: "润笔 · 检测到多设备并发激活",
+      text: `你好，
+
+我们刚才检测到你的润笔 license 在 5 分钟内有大量不同设备激活：
+- 时间：${ts} UTC
+- 数量：${uniques} 台 distinct 设备（超过${planLabel(plan)}套餐 ${threshold} 阈值）
+- License：····-${keyTail}
+
+如果是你本人在多台机器上同步登录（例如新换电脑 / 手机），可以忽略本邮件——设备会自动记录到列表里。
+
+如果不是你本人操作（license 可能被多人共用）：
+1. 立即修改密码：${site}/dashboard
+2. 在「我的设备」一键清理 30 天未活跃 / 解绑陌生设备
+3. 邮件 support@docuearn.com 申请人工核查
+
+为避免邮件洪水，每类异常每天最多发 1 封。
+
+— 润笔 DocuEarn
+让你多一份安稳`
+    };
+  }
+
+  if (type === "device_limit_exceeded") {
+    const activated = Number(details.activated) || 0;
+    const limit = Number(details.limit) || 0;
+    const plan = String(details.plan || "free");
+    const keyTail = String(details.licenseKey || "").slice(-4);
+    return {
+      subject: "润笔 · 检测到设备激活上限",
+      text: `你好，
+
+我们刚才有人尝试用你的润笔 license 激活新设备，触发了套餐上限：
+- 时间：${ts} UTC
+- 已激活：${activated} 台（${planLabel(plan)}套餐上限 ${limit} 台）
+- License：····-${keyTail}
+
+如果是你本人换机 / 重装系统，登录控制台清理一台旧设备即可释放配额：
+${site}/dashboard
+
+如果不是你本人（陌生设备尝试激活）：
+1. 立即修改密码：${site}/dashboard
+2. 邮件 support@docuearn.com 申请人工核查
+
+每天最多发 1 封同类邮件。
+
+— 润笔 DocuEarn
+让你多一份安稳`
+    };
+  }
+
+  return null;
 }
 
 // ============================================================
@@ -2680,7 +2889,7 @@ async function detectAndLogTokenSpike(env, userId, plan, tokensThisCall) {
     if (alreadyFlagged) return;
     await env.RATE_LIMIT_KV.put(flagKey, "1", { expirationTtl: 600 });
 
-    // 写 audit_log 软告警条（不阻塞用户、不通知用户、运维可 grep）
+    // 写 audit_log 软告警条（运维可 grep）
     await env.DB.prepare(
       `INSERT INTO llm_audit_log
          (user_id, ts, model, tier, upstream, prompt_tokens, completion_tokens, status, error_code)
@@ -2698,6 +2907,13 @@ async function detectAndLogTokenSpike(env, userId, plan, tokensThisCall) {
         `${plan}_5min_${cumulative}_threshold_${threshold}`
       )
       .run();
+
+    // 39th 续 · 给用户发安全告警邮件（节流：每类型每日 1 封，KV 把控）
+    await sendSecurityAlertEmail(env, {
+      userId,
+      type: "token_spike",
+      details: { plan, cumulative, threshold }
+    });
   } catch (err) {
     console.warn("[abuse] detectAndLogTokenSpike failed", err?.message || err);
   }
@@ -2718,7 +2934,8 @@ async function detectAndLogTokenSpike(env, userId, plan, tokensThisCall) {
 //   - 两者目标不同：limit 防"狂加 100 台设备"；burst 防"license 被卖给多人同时用"
 //
 // 调用方：handleLicenseVerify 成功路径（writeVerifyLog "ok" 之后）
-async function detectAndLogMultiDeviceBurst(env, licenseKey, fingerprint, plan, ip, ua) {
+// userId 入参用于撞顶时自动给用户发安全告警邮件（节流后台 KV 把控）
+async function detectAndLogMultiDeviceBurst(env, licenseKey, userId, fingerprint, plan, ip, ua) {
   if (!env.RATE_LIMIT_KV || !env.DB || !fingerprint || !licenseKey) return;
   try {
     const fingerprintHash = await sha256Hex(fingerprint);
@@ -2764,6 +2981,20 @@ async function detectAndLogMultiDeviceBurst(env, licenseKey, fingerprint, plan, 
         Date.now()
       )
       .run();
+
+    // 39th 续 · 给 license 持有者发安全告警邮件（userId 可能为空——未绑定 license）
+    if (userId) {
+      await sendSecurityAlertEmail(env, {
+        userId,
+        type: "multi_device_burst",
+        details: {
+          plan,
+          uniques: set.length,
+          threshold,
+          licenseKey
+        }
+      });
+    }
   } catch (err) {
     console.warn("[abuse] detectAndLogMultiDeviceBurst failed", err?.message || err);
   }
