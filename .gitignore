@@ -33,4 +33,8 @@ server/.dev.vars
 .wrangler/
 
 # Cline / Claude Memory Bank（AI 工具元数据，不入版本库）
-memory-bank/
+# 用 /* 而不是 / 是为了让 file-level 例外（!reflexes.md）生效——git 不递归进 ignored 目录
+memory-bank/*
+memory-bank/.*
+# 例外：reflexes.md 是项目级踩坑沉淀（21 反例约定 + 30 模式约定），属可被新协作者读的项目文档，入版本库
+!memory-bank/reflexes.md
