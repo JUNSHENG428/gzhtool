@@ -1948,8 +1948,11 @@ const HUPIJIAO_PLANS = {
 
 // 单笔订单的有效期（超过没付就算 expired）
 const ORDER_TTL_MS = 30 * 60 * 1000; // 30 分钟
-// 防重放：同一 nonce_str 在 KV 里 30 分钟内不能重复
-const NONCE_TTL_S = 30 * 60;
+// 防重放：同一 nonce_str 在 KV 里不能重复
+// 39th 续³ #13 修订：30 min → 5 min · 虎皮椒 webhook 重试间隔 ≤ 5 min（其官方协议规定），
+// nonce TTL 与重试窗口对齐即可挡住重放，原 30 min 过长（订单 expire 后 nonce 仍接受可能被
+// 重放攻击者利用，虽实际有金额一致性校验兜底但属低 ROI 防御缺口）
+const NONCE_TTL_S = 5 * 60;
 
 /* ----------------------------- handler: create ----------------------------- */
 async function handleHupijiaoCreate(request, env) {
@@ -2977,12 +2980,25 @@ function derivePlanForLlm(licenseSummary) {
  *     直接区分两档（5M vs 20M token / 3 vs 10 设备）
  *   - 续期时只升档不降档：现有 yearly 续费时买月费不会降级（保留 yearly 直到自然到期）
  */
+// 39th 续³ #11 · planCode 白名单（防意外脏值污染 license_keys.plan 列）
+// D1 prepare 已 parameterize 防 SQL 注入，但若 planCode = "yearly2026" 等奇怪字符串
+// 会被当成 valid plan 写入 license_keys.plan → derivePlanForLlm / devicePlanFromLicenseRow
+// 等下游函数对未知 plan 默认 free，导致 paid 用户被误降级。白名单 + console.warn 双防御。
+const ALLOWED_LICENSE_PLANS = new Set(["monthly", "yearly", "pro"]);
+
 async function issueProLicense(env, { userId, userEmail, source, sourceOrderId, days, planCode }) {
   const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
   const now = Date.now();
   const addMs = Math.min(Math.max(Number(days) || 0, 1), 365) * 24 * 60 * 60 * 1000;
-  // SKU 映射 · 仅认 monthly / yearly，其他兜底 'pro'（向后兼容）
-  const newPlan = planCode === "monthly" || planCode === "yearly" ? planCode : "pro";
+  // SKU 映射 · 严格白名单（39th 续³ #11）：
+  //   - 显式白名单 ["monthly", "yearly", "pro"] 内的值直接用
+  //   - 其他值（含 ""、null、未识别新 SKU）兜底 "pro" + console.warn 让运维排查
+  let newPlan = "pro";
+  if (planCode && ALLOWED_LICENSE_PLANS.has(planCode)) {
+    newPlan = planCode;
+  } else if (planCode) {
+    console.warn(`[issueProLicense] unknown planCode="${planCode}" (source=${source}, order=${sourceOrderId}); fallback to "pro"`);
+  }
 
   // 找该用户最新一张同 source 的 active license
   const existing = await env.DB.prepare(
