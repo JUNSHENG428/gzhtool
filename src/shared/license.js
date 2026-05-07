@@ -53,35 +53,48 @@ const KEY_PATTERN = /^GZHT-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}
 
 // =====================================================================
 // 付费功能清单（front-end 端的"权威表"）
-// 每项必须标 tier=free|pro 与 hint，便于 UI 在闸门拦截时给出有人味的提示。
+// 每项必须标 plans=["free"|"monthly"|"yearly"|"pro"] 与 hint，UI 在闸门拦截时给出有人味的提示。
+//
+// 39th 续³ #14 · plans 单一 schema（去 tier 字段）：
+//   - 旧 schema 用 tier:"free"|"pro" 两档；新 schema 用 plans:[...] 数组
+//   - 两 schema 并存维护成本（checkLicense / emptyFeatures / getUpgradePrompt 各跑两套分支）
+//   - 此次重构：删除 tier 字段，所有功能统一用 plans 数组
+//     · 旧 tier:"free" → plans:["free", "monthly", "yearly", "pro"]（全员可用）
+//     · 旧 tier:"pro"  → plans:["monthly", "yearly", "pro"]（付费档可用，free 拒）
+//   - PLANS_PRO 与 PLANS_FREE 是两个常量，避免 30 处重复 ["monthly", "yearly", "pro"]
 // =====================================================================
+
+// 付费档可用（与历史 tier:"pro" 等价；plan="pro" 是历史 SKU 兼容映射 yearly）
+const PLANS_PAID = Object.freeze(["monthly", "yearly", "pro"]);
+// 全员可用（与历史 tier:"free" 等价）
+const PLANS_ALL = Object.freeze(["free", ...PLANS_PAID]);
 
 export const PAID_FEATURES = Object.freeze({
   // ---- 已实装闸门（4 项核心，与本期需求对齐）----
   "wechat.multiAccount": {
     name: "多公众号管理",
-    tier: "pro",
+    plans: PLANS_PAID,
     softLimit: { free: FREE_MULTI_ACCOUNT_LIMIT, pro: -1 },
     hint: `免费版最多绑定 ${FREE_MULTI_ACCOUNT_LIMIT} 个公众号；升级 Pro 可无限切换矩阵账号。`
   },
   "scrape.drission": {
     name: "DrissionPage 增强抓取",
-    tier: "pro",
+    plans: PLANS_PAID,
     hint: "免费版仅支持内置抓取；Pro 可启用 DrissionPage helper 走真实 Chromium，绕过反爬与懒加载。"
   },
   "ai.advancedTemplates": {
     name: "高级改写模板",
-    tier: "pro",
+    plans: PLANS_PAID,
     hint: "深度行业观察 / 故事化叙述 / 教程拆解 等高级模板需要 Pro；免费版可用清单整理与新闻速读。"
   },
   "ai.templateGenerator": {
     name: "AI 模板生成器",
-    tier: "pro",
+    plans: PLANS_PAID,
     hint: "用一句话描述你的公众号风格，AI 自动写出一个专属改写模板（自带角色设定、写作纪律、默认偏好）。Pro 专享。"
   },
   "ai.unlimitedDaily": {
     name: "无限 AI 改写次数",
-    tier: "pro",
+    plans: PLANS_PAID,
     quota: { free: FREE_DAILY_REWRITE_QUOTA, pro: -1 },
     hint: `免费版每天可改写 ${FREE_DAILY_REWRITE_QUOTA} 篇，明天 0 点重置；Pro 不限次数。`
   },
@@ -89,22 +102,22 @@ export const PAID_FEATURES = Object.freeze({
   // ---- 预留（worker 已声明但本期不强制闸门，后续可平滑接入）----
   "wechat.publish": {
     name: "一键推送公众号草稿/发布",
-    tier: "free",
+    plans: PLANS_ALL,
     hint: "公众号发布对全员开放（核心功能不会关在付费墙后）。"
   },
   "hot.advancedSources": {
     name: "高级热点信息源",
-    tier: "pro",
+    plans: PLANS_PAID,
     hint: "Pro 可解锁更多优质热榜源（X / Reddit / 海外科技媒体）。"
   },
   "ai.batchRewrite": {
     name: "批量改写",
-    tier: "pro",
+    plans: PLANS_PAID,
     hint: "Pro 支持一次喂入 5+ 篇来源批量改写。"
   },
   "ai.deAiBoost": {
     name: "去 AI 味增强",
-    tier: "pro",
+    plans: PLANS_PAID,
     hint: "Pro 启用 turnitin-humanizer 风格的二次润色，更难被 AI 检测。"
   },
   // AI 选题规划：把热点候选池跑完「硬过滤 + 8 维评分 + 多样性筛选」之后，
@@ -113,40 +126,31 @@ export const PAID_FEATURES = Object.freeze({
   // Pro：不限次数，按用户问卷里选的 outputCount（3/5/10）出全量推荐。
   "ai.topicPlanner": {
     name: "AI 选题规划",
-    tier: "pro",
+    plans: PLANS_PAID,
     quota: { free: 1, pro: -1 },
     hint: "免费版每天可试用 1 次「AI 智能选题」并只展示 1 条推荐；Pro 不限次，按你设置的数量（3/5/10）出全量选题方案。"
   },
 
-  // ---- 39th session 起 · 平台 LLM 代理 + 自配 Key 反向 gating ----
-  // 这 4 项用 plans:[...] 新 schema（多档区分 free/monthly/yearly），与老 tier 字段并存：
-  //   · checkLicense 检测到 plans 字段时优先用它，否则 fallback 到 tier
-  //   · tier 字段保留是为兼容 emptyFeatures / getUpgradePrompt 等老调用
-  // Phase 4 之前 license_keys.plan 只有 free/pro 两值，extension 端 mapEffectivePlanToLlmPlan
-  //   把 pro → yearly（与 worker.js derivePlanForLlm 同步），所以当前阶段 monthly 与 yearly
-  //   闸门效果一样；Phase 4 加月费 SKU 后扩展端会自动按 license.plan 直接区分两档。
+  // ---- 39th session 起 · 平台 LLM 代理 + 自配 Key 反向 gating（plans 多档区分）----
+  // 与上面统一用 plans 数组；细粒度多档区分（如旗舰档仅 yearly）。
   "ai.bringYourOwnKey": {
     name: "使用自定义 AI 接口",
-    tier: "pro",
-    plans: ["yearly"],
+    plans: ["yearly", "pro"],
     hint: "年费会员可绑定自己的 OpenAI / DeepSeek / Claude 等 API Key，跳过平台额度限制，文章正文直发服务商不经过润笔服务器。月费会员请先用平台 AI（享平台托管 + 月度 token 额度），升级年费即解锁。"
   },
   "ai.platformLlm.economy": {
     name: "平台 AI · 经济档",
-    tier: "free",
-    plans: ["free", "monthly", "yearly"],
+    plans: PLANS_ALL,
     hint: "免费 / 月费 / 年费均可调，由 DeepSeek V4 Flash 提供（中文好 + 性价比高）。Free 30 次/月，付费档按 token 计量。"
   },
   "ai.platformLlm.standard": {
     name: "平台 AI · 标准档",
-    tier: "pro",
-    plans: ["monthly", "yearly"],
+    plans: PLANS_PAID,
     hint: "月费 / 年费可调，DeepSeek V4 Pro。免费版仅经济档；升级月费即解锁。"
   },
   "ai.platformLlm.flagship": {
     name: "平台 AI · 旗舰档",
-    tier: "pro",
-    plans: ["yearly"],
+    plans: ["yearly", "pro"],
     hint: "年费独享：GPT-4o（标杆质量）。月费档请用经济 / 标准档已能满足绝大多数公众号写作场景。"
   }
 });
@@ -644,43 +648,28 @@ export async function checkLicense(featureKey) {
   }
   const state = await getLicenseState({ refresh: true });
 
-  // 新 schema · plans 数组（39th session 起，平台 LLM / 自配 Key 反向 gating）
-  // 优先于老 tier 字段——plans 把 free/monthly/yearly 多档区分，tier 只有 free/pro 两档
-  if (Array.isArray(meta.plans) && meta.plans.length > 0) {
-    const userPlan = mapEffectivePlanToLlmPlan(state);
-    if (meta.plans.includes(userPlan)) {
-      return { ok: true, plan: userPlan, reason: "", hint: "", feature: meta };
+  // 39th 续³ #14 · plans 单一 schema（去 tier 依赖）
+  // 所有 PAID_FEATURES 都用 meta.plans 数组；不再 fallback 到老 tier 字段
+  if (!Array.isArray(meta.plans) || meta.plans.length === 0) {
+    // 异常：未声明 plans 字段 —— 默认放行（保留老 fallback 语义防意外锁死）
+    if (typeof console !== "undefined") {
+      console.warn(`[license] checkLicense feature=${featureKey} 缺 plans 字段，默认放行`);
     }
-    return {
-      ok: false,
-      plan: userPlan,
-      reason: "plan_required",
-      hint: meta.hint,
-      feature: meta
-    };
-  }
-
-  // 老 schema · tier 字段
-  if (meta.tier === "free") {
     return { ok: true, plan: "any", reason: "", hint: "", feature: meta };
   }
-  if (state.effectivePlan === "pro") {
-    // Pro 还要看具体 feature flag 是否打开（worker 决定）
-    if (state.features?.[featureKey]) {
-      return { ok: true, plan: "pro", reason: "", hint: "", feature: meta };
-    }
-    return {
-      ok: false,
-      plan: "pro",
-      reason: "feature_off",
-      hint: "该功能暂未开放，请等待版本升级",
-      feature: meta
-    };
+  const userPlan = mapEffectivePlanToLlmPlan(state);
+  if (meta.plans.includes(userPlan)) {
+    return { ok: true, plan: userPlan, reason: "", hint: "", feature: meta };
   }
   return {
     ok: false,
-    plan: "free",
-    reason: state.status === "expired" ? "expired" : state.status === "stale" ? "stale" : "no_plan",
+    plan: userPlan,
+    reason:
+      state.status === "expired"
+        ? "expired"
+        : state.status === "stale"
+          ? "stale"
+          : "plan_required",
     hint: meta.hint,
     feature: meta
   };
@@ -903,11 +892,8 @@ function emptyFeatures() {
   for (const key of Object.keys(PAID_FEATURES)) {
     const meta = PAID_FEATURES[key];
     // 新 schema 优先：plans 包含 "free" 时 free 用户默认开
-    if (Array.isArray(meta.plans) && meta.plans.length > 0) {
-      out[key] = meta.plans.includes("free");
-    } else {
-      out[key] = meta.tier === "free";
-    }
+    // 39th 续³ #14 · plans 单一 schema（去 tier fallback）
+    out[key] = Array.isArray(meta.plans) && meta.plans.includes("free");
   }
   return out;
 }
@@ -1070,7 +1056,9 @@ export function getLicenseSummaryText(state, { usage, auth } = {}) {
  */
 export function getUpgradePrompt(featureKey, { pricingUrl, runtimeHint } = {}) {
   const meta = PAID_FEATURES[featureKey];
-  if (!meta || meta.tier === "free") {
+  // 39th 续³ #14 · plans 单一 schema（去 tier 依赖）
+  // 全员可用的功能（plans 含 "free"）→ 不显示升级 prompt
+  if (!meta || (Array.isArray(meta.plans) && meta.plans.includes("free"))) {
     return null;
   }
   const url = String(pricingUrl || "https://docuearn.com/pricing");
