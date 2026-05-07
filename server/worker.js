@@ -48,8 +48,31 @@ import {
   sendSecurityAlertEmail,
   buildSecurityAlertContent
 } from "./email/security-alert.js";
+// 39th 续³ #9 第二步 · abuse 域配置常量 + detectors 抽到独立模块
+import {
+  MAX_REGISTRATIONS_PER_IP_PER_DAY,
+  TOKEN_SPIKE_THRESHOLDS,
+  DEVICE_LIMITS,
+  deviceConcurrentThreshold,
+  PLAN_RANK
+} from "./abuse/thresholds.js";
+import {
+  detectAndLogTokenSpike,
+  detectAndLogMultiDeviceBurst
+} from "./abuse/detectors.js";
+// 39th 续³ #9 第二步 · sha256Hex 抽到 server/util/crypto.js（避免 detectors 与 worker 循环依赖）
+import { sha256Hex } from "./util/crypto.js";
 // re-export 让 smoke 单测继续从 server/worker.js import（保持兼容）
 export { sendSecurityAlertEmail, buildSecurityAlertContent };
+export {
+  MAX_REGISTRATIONS_PER_IP_PER_DAY,
+  TOKEN_SPIKE_THRESHOLDS,
+  DEVICE_LIMITS,
+  deviceConcurrentThreshold,
+  PLAN_RANK,
+  detectAndLogTokenSpike,
+  detectAndLogMultiDeviceBurst
+};
 
 const PBKDF2_ITERATIONS = 100_000;
 const JWT_ALG = "HS256";
@@ -79,26 +102,12 @@ const PAID_FEATURE_KEYS = [
 // 免费版每天 AI 改写次数（pro 不受限）
 const FREE_DAILY_AI_QUOTA = 5;
 
-// 39th 续 · 设备激活数上限（Strategy B：Free 1 / Monthly 3 / Yearly 10）
-// pro 旧 SKU 向后兼容映射到 yearly 10 台（与 derivePlanForLlm 同口径）。
-// 用户撞顶时 verify 返回 403 reason="device_limit_exceeded"，dashboard 引导一键解绑闲置。
-// 已激活的老指纹再 verify 不会被卡（仅 INSERT 新 fingerprint 时检查 count >= limit）。
-const DEVICE_LIMITS = Object.freeze({
-  free: 1,
-  monthly: 3,
-  yearly: 10
-});
-
 // 39th 续 · 设备自动清理阈值（cron 每小时跑一次，删 > 此天数无活跃的）
 // 90 天选择理由：覆盖年度旅行 / 出差 / 偶尔用第二台机器的真实场景，
 // 同时让"清装系统 / 重装扩展残留的孤儿 fingerprint"自然衰减不污染列表
 const STALE_DEVICE_PRUNE_DAYS = 90;
 
-// 39th 续 · plan rank 用于"只升档不降档"逻辑（issueProLicense + loadUserLicenseSummary）
-// pro 是历史 SKU（虎皮椒早期 + Lemon Squeezy），向后兼容为最高级别；
-// monthly < yearly 的差异由 derivePlanForLlm / devicePlanFromLicenseRow 真实生效
-// （export 是为 smoke 单测可见性，CF Worker 只用 default export 不影响 runtime）
-export const PLAN_RANK = Object.freeze({ free: 0, monthly: 1, yearly: 2, pro: 3 });
+// DEVICE_LIMITS / PLAN_RANK 已抽到 server/abuse/thresholds.js（39th 续³ #9 第二步）
 
 // 39th 续³ · Phase 5 加固 · LLM 请求体大小硬限（防 100MB 单条 message DoS）
 // 三层校验：① Content-Length header 预检；② messages 数组长度上限；③ 单条 content 字符上限
@@ -113,35 +122,8 @@ export const LLM_MAX_MESSAGE_CHARS = 20_000;
 // 生产环境（wrangler.toml [vars] 设 STRICT_RATE_LIMIT="1"）→ KV 缺失时关键路径返 503
 const STRICT_RATE_LIMIT_ENV = "STRICT_RATE_LIMIT";
 
-// 39th 续 · Phase 4 防滥用 · 单 IP 24 小时内最多注册次数
-// 5 次的选择理由：覆盖家庭 / 小公司 NAT 后多人合理共享场景，挡住批量薅账号脚本
-// 撞顶返 429 + 友好提示「同 IP 24 小时内已注册 X 次，请明日再试 / 不同网络重试 / 联系 support」
-export const MAX_REGISTRATIONS_PER_IP_PER_DAY = 5;
-
-// 39th 续 · Phase 4.3 · token 暴涨告警阈值（5 分钟滑窗内累计 token 超此值 → audit warn）
-// 基线推导：plan 月度 cap / 30 天 / 24 小时 ≈ 每小时合理用量；5 分钟阈值 = 每小时基线的 4 倍
-//   - Free 30 次/月 ≈ 1 次/天，单次经济档可达 1K token；阈值 5000 ≈ 5 次/5min（正常用户连续点 1-2 篇文章
-//     完全够用，5 次内不触发；脚本批量调用才会撞）
-//   - Monthly 5M token/月 ≈ 167K/天 ≈ 7K/小时 → 5 分钟 50K = 7 倍 spike
-//   - Yearly 20M token/月 ≈ 667K/天 ≈ 28K/小时 → 5 分钟 200K = 7 倍 spike
-// 仅 audit_log 写 warn 条不阻塞调用——false positive 风险高于真实滥用，先观察再决定是否硬卡
-//
-// Free 1000 → 5000 的修订（review 反馈）：经济档单次改写 200-1000 token，正常用户改写 1 篇就可能触发
-// 1000 阈值。提到 5000 后正常用户连改 5 篇才命中，仍能挡住自动化脚本批量调用（一秒数十请求）。
-export const TOKEN_SPIKE_THRESHOLDS = Object.freeze({
-  free: 5_000,
-  monthly: 50_000,
-  yearly: 200_000
-});
-
-// 39th 续 · Phase 4.4 · 同 license 跨设备并发突发检测（5 分钟滑窗内 distinct fingerprint 数）
-// 阈值 = DEVICE_LIMITS[plan] + 2（容忍合理 burst：用户重启浏览器 / 切换 chrome profile 重新激活）
-// 单 license 5min 内出现 distinct fingerprints > deviceLimit + 2 → verify_log 写 multi_device_burst
-// 这通常是「license 被多人共享 / 转售」的信号——单设备的行为不会触发此阈值
-export function deviceConcurrentThreshold(plan) {
-  const base = DEVICE_LIMITS[plan] ?? DEVICE_LIMITS.free;
-  return base + 2;
-}
+// MAX_REGISTRATIONS_PER_IP_PER_DAY / TOKEN_SPIKE_THRESHOLDS / deviceConcurrentThreshold
+// 已抽到 server/abuse/thresholds.js（39th 续³ #9 第二步）
 
 export default {
   async fetch(request, env, ctx) {
@@ -1650,15 +1632,7 @@ async function hmacSha256Hex(secret, message) {
     .join("");
 }
 
-async function sha256Hex(message) {
-  const buf = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(message)
-  );
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+// sha256Hex 已抽到 server/util/crypto.js（39th 续³ #9 第二步）
 
 // 离线信任签名：用 LICENSE_SIGNING_SECRET 对 (key|plan|exp|signedAt) 签 HMAC，
 // 插件本地存下来后，在 24h 内不联网也能用同一个 secret 校验 — 但 secret 不外泄，
@@ -2792,163 +2766,9 @@ function assertRateLimitKvAvailable(env, contextLabel) {
   );
 }
 
-// 39th 续 · Phase 4.3 · 检测并记录 token 暴涨（audit_log 软告警，不阻塞调用）
-//
-// 工作原理：
-//   - KV bucket 按 (userId, 5min epoch) 分；每次 recordUsage 后累加本次的 token 总数
-//   - 累计值首次超过阈值时写一条 llm_audit_log 行 status="suspicious_spike"
-//     error_code 字段记入 "{plan}_{cumulative}_{threshold}" 让运维 grep 出真凶
-//   - 同一 5 分钟窗口内只触发一次告警（KV 标记 spike_logged:1），避免 audit_log 暴涨
-//   - failed-silent：KV / D1 任何写失败都吞掉，不阻塞主链路（防滥用是 nice-to-have observability）
-//
-// 39th 续³ Phase 5 加固 · 已知 race condition（注释挑明 trade-off）：
-//   - KV 没有原子 INCR，sum 累计走 `get + put` 双步，并发请求间窗口内可丢更新
-//   - 实测影响：5min 窗口内并发 N 个请求 → 累计值可能低估 ~10%（少计 1-2 个 token 数）
-//   - 为什么可接受：① token spike 阈值远超平均（7 倍 spike 才告警），少计 30% 也不影响
-//     告警触发；② 软告警语义（不阻塞调用、不通知用户、运维 grep）允许 ±10% 误差
-//   - 为什么不修：① KV INCR 不存在；② 改 D1 行级锁会让每次 recordUsage 多 1 次 D1 写
-//     拖累 LLM 调用主链路；③ 真打掉攻击者的是配额硬卡（checkQuota），spike 告警仅为观察
-//   - 若未来要严格计数（合规审计场景），用 D1 表 + COMMIT 事务替代 KV
-//
-// 调用方：handleLlmChat 成功路径 + handleLlmStream flush（统一计入流式调用）
-export async function detectAndLogTokenSpike(env, userId, plan, tokensThisCall) {
-  if (!env.RATE_LIMIT_KV || !env.DB) return;
-  const total = Number(tokensThisCall) || 0;
-  if (total <= 0) return;
-  try {
-    const fiveMinEpoch = Math.floor(Date.now() / 300_000);
-    const sumKey = `token_spike:sum:${userId}:${fiveMinEpoch}`;
-    const flagKey = `token_spike:flag:${userId}:${fiveMinEpoch}`;
-    const stored = await env.RATE_LIMIT_KV.get(sumKey);
-    const cumulative = (Number(stored) || 0) + total;
-    await env.RATE_LIMIT_KV.put(sumKey, String(cumulative), { expirationTtl: 600 });
-
-    const threshold = TOKEN_SPIKE_THRESHOLDS[plan] || TOKEN_SPIKE_THRESHOLDS.free;
-    if (cumulative <= threshold) return;
-
-    // 撞阈值：检查是否已经为本窗口写过告警
-    const alreadyFlagged = await env.RATE_LIMIT_KV.get(flagKey);
-    if (alreadyFlagged) return;
-    await env.RATE_LIMIT_KV.put(flagKey, "1", { expirationTtl: 600 });
-
-    // 写 audit_log 软告警条（运维可 grep）
-    await env.DB.prepare(
-      `INSERT INTO llm_audit_log
-         (user_id, ts, model, tier, upstream, prompt_tokens, completion_tokens, status, error_code)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(
-        userId,
-        Date.now(),
-        null,
-        null,
-        null,
-        0,
-        0,
-        "suspicious_spike",
-        `${plan}_5min_${cumulative}_threshold_${threshold}`
-      )
-      .run();
-
-    // 39th 续 · 给用户发安全告警邮件（节流：每类型每日 1 封，KV 把控）
-    await sendSecurityAlertEmail(env, {
-      userId,
-      type: "token_spike",
-      details: { plan, cumulative, threshold }
-    });
-  } catch (err) {
-    console.warn("[abuse] detectAndLogTokenSpike failed", err?.message || err);
-  }
-}
-
-// 39th 续 · Phase 4.4 · 检测并记录 license 跨设备并发突发（verify_log 软告警，不阻塞）
-//
-// 工作原理：
-//   - KV bucket 按 (license_key, 5min epoch) 分；每次 verify 成功后 sha256 fingerprint 加入 set
-//     （JSON 数组 + 去重；hash 而非明文 fingerprint，KV 不存可逆设备身份）
-//   - 同一 5 分钟窗口内 distinct fingerprint 数超过阈值（deviceLimit + 2）→ verify_log 写 multi_device_burst
-//   - 同一窗口内只触发一次告警（KV 标记 burst_logged:1，避免每次 verify 都写日志）
-//   - failed-silent：KV / D1 任一写失败都吞掉，不阻塞主链路
-//
-// 39th 续³ Phase 5 加固 · 已知 race condition（注释挑明）：
-//   - set 并发 `get + JSON.parse + push + JSON.stringify + put` 多步非原子
-//   - 5min 窗口内若 N 个 verify 同时发起，可能丢失 1-2 个 fingerprint（B 读到 null 用 [] 起步，
-//     而 A 已 put 了 [a]；最终 B put [b] 覆盖 → set 实际只剩 [b]）
-//   - 实测影响：阈值附近偶发漏告警（实际 13 fingerprint 但 set 长度看到 11）
-//   - 为什么可接受：① "license 卖给多人同时用"是持续性场景，下个 5min 窗口仍会撞，最终告警
-//     触发只是延迟一两个窗口；② 软告警不阻塞用户；③ device_limit 硬卡已挡 license 总数
-//
-// 与 Phase 2.7 device_limit 区别：
-//   - device_limit 是总数硬卡（INSERT 时 count >= limit 直接 403）
-//   - multi_device_burst 是并发软告警（5 分钟内 distinct fingerprints 异常突发）
-//   - 两者目标不同：limit 防"狂加 100 台设备"；burst 防"license 被卖给多人同时用"
-//
-// 调用方：handleLicenseVerify 成功路径（writeVerifyLog "ok" 之后）
-// userId 入参用于撞顶时自动给用户发安全告警邮件（节流后台 KV 把控）
-export async function detectAndLogMultiDeviceBurst(env, licenseKey, userId, fingerprint, plan, ip, ua) {
-  if (!env.RATE_LIMIT_KV || !env.DB || !fingerprint || !licenseKey) return;
-  try {
-    const fingerprintHash = await sha256Hex(fingerprint);
-    const fpShort = fingerprintHash.slice(0, 12); // 12 字符已够分辨同 5min 内 N 设备
-    const fiveMinEpoch = Math.floor(Date.now() / 300_000);
-    const setKey = `concurrent_dev:set:${licenseKey}:${fiveMinEpoch}`;
-    const flagKey = `concurrent_dev:flag:${licenseKey}:${fiveMinEpoch}`;
-
-    const stored = await env.RATE_LIMIT_KV.get(setKey);
-    let set;
-    try {
-      set = stored ? JSON.parse(stored) : [];
-    } catch {
-      set = [];
-    }
-    if (!Array.isArray(set)) set = [];
-    if (!set.includes(fpShort)) {
-      set.push(fpShort);
-      // 卡 set 长度避免 KV value 暴涨（极端情况下若有人 1000 个 fingerprint 全打过来）
-      if (set.length > 50) set.length = 50;
-      await env.RATE_LIMIT_KV.put(setKey, JSON.stringify(set), { expirationTtl: 600 });
-    }
-
-    const threshold = deviceConcurrentThreshold(plan);
-    if (set.length <= threshold) return;
-
-    // 撞阈值：检查窗口内是否已经写过告警
-    const alreadyFlagged = await env.RATE_LIMIT_KV.get(flagKey);
-    if (alreadyFlagged) return;
-    await env.RATE_LIMIT_KV.put(flagKey, "1", { expirationTtl: 600 });
-
-    // 写 verify_log 软告警条；result="multi_device_burst" 让运维 grep 出真凶
-    await env.DB.prepare(
-      `INSERT INTO verify_log (license_key, ip, user_agent, result, detail, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    )
-      .bind(
-        licenseKey,
-        ip || "unknown",
-        (ua || "").slice(0, 256),
-        "multi_device_burst",
-        `plan=${plan} uniques=${set.length} threshold=${threshold} window=5min`.slice(0, 256),
-        Date.now()
-      )
-      .run();
-
-    // 39th 续 · 给 license 持有者发安全告警邮件（userId 可能为空——未绑定 license）
-    if (userId) {
-      await sendSecurityAlertEmail(env, {
-        userId,
-        type: "multi_device_burst",
-        details: {
-          plan,
-          uniques: set.length,
-          threshold,
-          licenseKey
-        }
-      });
-    }
-  } catch (err) {
-    console.warn("[abuse] detectAndLogMultiDeviceBurst failed", err?.message || err);
-  }
-}
+// detectAndLogTokenSpike / detectAndLogMultiDeviceBurst 已抽到 server/abuse/detectors.js
+// （39th 续³ #9 第二步 · worker.js 瘦身。详尽 race condition 注释 / failed-silent 设计
+// 都搬到了新模块；本处仅保留 import + re-export 让 smoke 单测继续走 worker.X 路径）
 
 // ---------- license_keys.plan → LLM 服务的 plan 映射 ----------
 // 当前 license_keys.plan 只有 "free" / "pro" 两值；plan 文件目标三档 free/monthly/yearly。
