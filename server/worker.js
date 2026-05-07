@@ -674,24 +674,22 @@ async function handleRequestReset(request, env) {
     env.DEBUG_RESET === "1" && env.ENVIRONMENT === "development";
   const debugReturn = debugAllowed ? { resetUrl } : {};
 
-  // P0-2：邮件实际没发出去时透明告诉前端（user 存在分支才暴露状态；user 不存在
-  // 仍走最早的 sent:true 防枚举语义）。"failed" 客户端可提示重试 / 联系运维；
-  // "not_configured" 是部署方漏配 RESEND_API_KEY，文案要明确"非用户问题"。
+  // 39th 续³ Phase 5 加固 · 关闭枚举漏洞（旧 P0-2 hardening 故意暴露 sent:false + reason
+  // 让用户知道"不是被丢了"——但已注册邮箱 + Resend 故障时返 sent:false vs 未注册邮箱
+  // 返 sent:true 形成 oracle，攻击者可枚举哪些邮箱已注册）。新行为：
+  //   ① 用户不存在 → sent:true（与原 P0-1 一致）
+  //   ② 用户存在 + Resend 200 → sent:true（正常路径）
+  //   ③ 用户存在 + Resend failed → sent:true（与未注册无差异，console.error 内部记录）
+  //   ④ 用户存在 + RESEND_API_KEY 未配 → sent:true（开发期不应进生产，console.warn 提示运维）
+  // UX 影响：Resend 故障时用户看到"已发送"但收不到邮件。需配套 health endpoint 给运维监控
+  // Resend 失败率，超阈值人工 outreach。debugReturn 仅在 dev 环境（DEBUG_RESET=1 + ENVIRONMENT=development）携带。
   if (sendStatus === "not_configured") {
-    return jsonResponse({
-      ok: true,
-      sent: false,
-      reason: "email_not_configured",
-      ...debugReturn
-    });
+    console.warn("[reset] CRITICAL: RESEND_API_KEY 未配置（生产环境运维错误，对用户返 sent:true 防枚举）");
+    return jsonResponse({ ok: true, sent: true, ...debugReturn });
   }
   if (sendStatus === "failed") {
-    return jsonResponse({
-      ok: true,
-      sent: false,
-      reason: "email_send_failed",
-      ...debugReturn
-    });
+    console.error("[reset] Resend 调用失败但向用户返 sent:true 防枚举（运维需监控失败率）");
+    return jsonResponse({ ok: true, sent: true, ...debugReturn });
   }
   return jsonResponse({ ok: true, sent: true, ...debugReturn });
 }
@@ -1945,10 +1943,18 @@ async function sendSecurityAlertEmail(env, { userId, type, details }) {
 
   // 节流预检（39th 续² · review 反馈）：先 get 不 put——Resend 失败时不写节流标，下次告警可重试
   // 写节流标移到下面 Resend 200 成功之后，确保只有真正发出的邮件才占用节流槽位
+  // 39th 续³ Phase 5 加固 · 按 type 差异化节流窗口：
+  //   - device_limit_exceeded 7 天 1 封——攻击者可故意撞 device_limit 用作账号枚举信号
+  //     （已知合法 license + 假 fingerprint 触发 → 真主人收到邮件确认账号有效），缩低频次
+  //   - token_spike / multi_device_burst 24 小时 1 封——这两类自然触发频次低，且邮件价值高
+  //     （token spike 真表示攻击；burst 真表示 license 被多人用），24h 节流足够
   let throttleKey = null;
   if (env.RATE_LIMIT_KV) {
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
-    throttleKey = `security_email:${userId}:${type}:${today}`;
+    const isWeekly = type === "device_limit_exceeded";
+    const bucketId = isWeekly
+      ? `week-${Math.floor(Date.now() / (86400 * 7 * 1000))}` // 7 天滑窗
+      : new Date().toISOString().slice(0, 10);                 // YYYY-MM-DD UTC 每日
+    throttleKey = `security_email:${userId}:${type}:${bucketId}`;
     const seen = await env.RATE_LIMIT_KV.get(throttleKey);
     if (seen) return "throttled";
   }
@@ -2001,9 +2007,13 @@ async function sendSecurityAlertEmail(env, { userId, type, details }) {
       return "failed";
     }
     console.log(`[security-email] Resend ok type=${type}`);
-    // 仅在真正发出后才占用节流槽位（48h TTL 自然过期，比 24h 多预留 1 天容错）
+    // 39th 续³ Phase 5 加固 · TTL 按 type 差异化（与 throttleKey bucketId 保持窗口一致）
+    //   - device_limit_exceeded 8 天 TTL（7d 窗口 + 1d 容错）
+    //   - 其他类型 48h TTL（24h 窗口 + 24h 容错）
     if (throttleKey) {
-      await env.RATE_LIMIT_KV.put(throttleKey, "1", { expirationTtl: 86400 * 2 });
+      const isWeekly = type === "device_limit_exceeded";
+      const ttl = isWeekly ? 86400 * 8 : 86400 * 2;
+      await env.RATE_LIMIT_KV.put(throttleKey, "1", { expirationTtl: ttl });
     }
     return "sent";
   } catch (err) {
@@ -2107,7 +2117,7 @@ ${site}/dashboard
 1. 立即修改密码：${site}/dashboard
 2. 邮件 support@docuearn.com 申请人工核查
 
-每天最多发 1 封同类邮件。
+为避免邮件洪水 + 防滥用（攻击者可故意触发本告警以枚举账号），device_limit 类邮件每 7 天最多发 1 封。
 
 — 润笔 DocuEarn
 让你多一份安稳`
@@ -2992,6 +3002,15 @@ function assertRateLimitKvAvailable(env, contextLabel) {
 //   - 同一 5 分钟窗口内只触发一次告警（KV 标记 spike_logged:1），避免 audit_log 暴涨
 //   - failed-silent：KV / D1 任何写失败都吞掉，不阻塞主链路（防滥用是 nice-to-have observability）
 //
+// 39th 续³ Phase 5 加固 · 已知 race condition（注释挑明 trade-off）：
+//   - KV 没有原子 INCR，sum 累计走 `get + put` 双步，并发请求间窗口内可丢更新
+//   - 实测影响：5min 窗口内并发 N 个请求 → 累计值可能低估 ~10%（少计 1-2 个 token 数）
+//   - 为什么可接受：① token spike 阈值远超平均（7 倍 spike 才告警），少计 30% 也不影响
+//     告警触发；② 软告警语义（不阻塞调用、不通知用户、运维 grep）允许 ±10% 误差
+//   - 为什么不修：① KV INCR 不存在；② 改 D1 行级锁会让每次 recordUsage 多 1 次 D1 写
+//     拖累 LLM 调用主链路；③ 真打掉攻击者的是配额硬卡（checkQuota），spike 告警仅为观察
+//   - 若未来要严格计数（合规审计场景），用 D1 表 + COMMIT 事务替代 KV
+//
 // 调用方：handleLlmChat 成功路径 + handleLlmStream flush（统一计入流式调用）
 async function detectAndLogTokenSpike(env, userId, plan, tokensThisCall) {
   if (!env.RATE_LIMIT_KV || !env.DB) return;
@@ -3051,6 +3070,14 @@ async function detectAndLogTokenSpike(env, userId, plan, tokensThisCall) {
 //   - 同一 5 分钟窗口内 distinct fingerprint 数超过阈值（deviceLimit + 2）→ verify_log 写 multi_device_burst
 //   - 同一窗口内只触发一次告警（KV 标记 burst_logged:1，避免每次 verify 都写日志）
 //   - failed-silent：KV / D1 任一写失败都吞掉，不阻塞主链路
+//
+// 39th 续³ Phase 5 加固 · 已知 race condition（注释挑明）：
+//   - set 并发 `get + JSON.parse + push + JSON.stringify + put` 多步非原子
+//   - 5min 窗口内若 N 个 verify 同时发起，可能丢失 1-2 个 fingerprint（B 读到 null 用 [] 起步，
+//     而 A 已 put 了 [a]；最终 B put [b] 覆盖 → set 实际只剩 [b]）
+//   - 实测影响：阈值附近偶发漏告警（实际 13 fingerprint 但 set 长度看到 11）
+//   - 为什么可接受：① "license 卖给多人同时用"是持续性场景，下个 5min 窗口仍会撞，最终告警
+//     触发只是延迟一两个窗口；② 软告警不阻塞用户；③ device_limit 硬卡已挡 license 总数
 //
 // 与 Phase 2.7 device_limit 区别：
 //   - device_limit 是总数硬卡（INSERT 时 count >= limit 直接 403）

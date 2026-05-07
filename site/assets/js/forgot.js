@@ -26,23 +26,15 @@ formEl?.addEventListener("submit", async (e) => {
   setBusy(true);
   try {
     const res = await auth.requestReset(email);
-    // P0-2：worker 已支持 sent:false + reason 区分"邮件没真发出去"的运维问题
-    //   - email_not_configured: 后端漏配 RESEND_API_KEY → 用户收不到邮件
-    //   - email_send_failed:    Resend 接口报错或网络失败
-    // 用户存在但邮件没发的分支才会到这里；不存在用户仍走 sent:true 防枚举。
-    if (res?.sent === false) {
-      const reason = res?.reason || "";
-      const friendly =
-        reason === "email_not_configured"
-          ? "邮件服务暂未配置，重置链接没能发出。请联系网站管理员，或晚些再试。"
-          : "邮件发送暂时失败，请稍后再试一次；如反复失败请联系网站管理员。";
-      setFeedback(friendly, "error");
-    } else {
-      setFeedback(
-        "如果该邮箱有账号，我们会发一封重置链接邮件。30 分钟内有效，记得检查垃圾邮件。",
-        "success"
-      );
-    }
+    // 39th 续³ Phase 5 加固 · 关闭枚举漏洞（worker 永远返 sent:true 不区分用户是否存在
+    // / 邮件是否发成功）。原 P0-2 sent:false + reason 已被废弃 —— 攻击者可枚举哪些邮箱
+    // 已注册（已注册 + Resend 故障返 sent:false vs 未注册返 sent:true）。
+    // UX 取舍：Resend 故障时用户看到"已发送"但收不到邮件 → 让用户自己重试 / 检查垃圾邮件 /
+    // 联系 support；运维侧需监控 Resend 失败率（worker console.error 已记录）。
+    setFeedback(
+      "如果该邮箱有账号，我们会发一封重置链接邮件。30 分钟内有效，记得检查垃圾邮件；如长时间未收到请联系 support@docuearn.com。",
+      "success"
+    );
     // DEBUG 模式下 worker 会顺便把 resetUrl 直接返回前端（仅 ENVIRONMENT=development
     // 且 DEBUG_RESET=1 同时成立时；生产恒为空），方便联调。
     if (res?.resetUrl) {
