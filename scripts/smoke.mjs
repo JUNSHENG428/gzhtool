@@ -3014,4 +3014,121 @@ console.log("\n运行 server/llm/upstream.js 导出契约 …");
   console.log(`✓ upstream.js 6 项导出齐备（含 39th 续 · streamUpstream）`);
 }
 
+// ===========================================================================
+// 39th 续² · server/worker.js · Phase 4 防滥用阈值 + 安全告警邮件模板（review 反馈补单测）
+// ===========================================================================
+console.log("\n运行 server/worker.js · Phase 4 防滥用 + 安全邮件单测 …");
+{
+  const worker = await import("../server/worker.js");
+
+  // ---- 阈值常量合理性 ----
+  assert(
+    worker.TOKEN_SPIKE_THRESHOLDS.free === 5_000,
+    "TOKEN_SPIKE_THRESHOLDS.free 应该是 5000（review 后从 1000 上调避免误报）"
+  );
+  assert(
+    worker.TOKEN_SPIKE_THRESHOLDS.monthly === 50_000,
+    "monthly 阈值 50K 不变"
+  );
+  assert(
+    worker.TOKEN_SPIKE_THRESHOLDS.yearly === 200_000,
+    "yearly 阈值 200K 不变"
+  );
+  assert(
+    worker.MAX_REGISTRATIONS_PER_IP_PER_DAY === 5,
+    "单 IP 24h 注册数硬限 5"
+  );
+  assert(
+    worker.PLAN_RANK.free === 0 &&
+      worker.PLAN_RANK.monthly === 1 &&
+      worker.PLAN_RANK.yearly === 2 &&
+      worker.PLAN_RANK.pro === 3,
+    "PLAN_RANK 顺序：free 0 < monthly 1 < yearly 2 < pro 3"
+  );
+  console.log("✓ 阈值常量 4 项符合设计文档");
+
+  // ---- deviceConcurrentThreshold 三档计算 ----
+  assert(
+    worker.deviceConcurrentThreshold("free") === 3,
+    "free burst 阈值 = DEVICE_LIMITS.free(1) + 2 = 3"
+  );
+  assert(
+    worker.deviceConcurrentThreshold("monthly") === 5,
+    "monthly burst 阈值 = 3 + 2 = 5"
+  );
+  assert(
+    worker.deviceConcurrentThreshold("yearly") === 12,
+    "yearly burst 阈值 = 10 + 2 = 12"
+  );
+  assert(
+    worker.deviceConcurrentThreshold("unknown_plan") === 3,
+    "未知 plan 兜底 free 阈值 3"
+  );
+  console.log("✓ deviceConcurrentThreshold 4 case（含未知 plan 兜底）");
+
+  // ---- buildSecurityAlertContent 三种 type 模板 ----
+  const fakeEnv = { SITE_URL: "https://docuearn.com" };
+  const spike = worker.buildSecurityAlertContent(
+    "token_spike",
+    { plan: "yearly", cumulative: 250_000, threshold: 200_000 },
+    fakeEnv
+  );
+  assert(
+    spike && spike.subject === "润笔 · 检测到 AI 用量异常",
+    "token_spike subject 准确"
+  );
+  assert(
+    spike.text.includes("250000 token") && spike.text.includes("200000 阈值"),
+    "token_spike text 含具体数字"
+  );
+  assert(
+    spike.text.includes("年费"),
+    "token_spike yearly plan 显示「年费」中文"
+  );
+  assert(
+    spike.text.includes("https://docuearn.com/dashboard"),
+    "token_spike 含 dashboard URL"
+  );
+
+  const burst = worker.buildSecurityAlertContent(
+    "multi_device_burst",
+    { plan: "monthly", uniques: 8, threshold: 5, licenseKey: "GZHT-XXXX-YYYY-ABCD" },
+    fakeEnv
+  );
+  assert(
+    burst && burst.subject === "润笔 · 检测到多设备并发激活",
+    "multi_device_burst subject 准确"
+  );
+  assert(
+    burst.text.includes("8 台") && burst.text.includes("月费"),
+    "multi_device_burst text 含 plan 中文 + distinct 数"
+  );
+  assert(
+    burst.text.includes("····-ABCD"),
+    "multi_device_burst 仅露 license 后 4 位（不泄全 key）"
+  );
+
+  const limit = worker.buildSecurityAlertContent(
+    "device_limit_exceeded",
+    { plan: "free", activated: 1, limit: 1, licenseKey: "GZHT-XXXX-YYYY-1234" },
+    fakeEnv
+  );
+  assert(
+    limit && limit.subject === "润笔 · 检测到设备激活上限",
+    "device_limit_exceeded subject 准确"
+  );
+  assert(
+    limit.text.includes("免费") && limit.text.includes("1 台"),
+    "device_limit_exceeded 含 free plan 中文 + 数字"
+  );
+
+  // 未知 type 兜底
+  assert(
+    worker.buildSecurityAlertContent("nonexistent_type", {}, fakeEnv) === null,
+    "未知 type 返 null（让调用方知道跳过）"
+  );
+
+  console.log("✓ buildSecurityAlertContent 三模板 + 兜底 4 case");
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

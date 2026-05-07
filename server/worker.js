@@ -90,21 +90,26 @@ const STALE_DEVICE_PRUNE_DAYS = 90;
 // 39th 续 · plan rank 用于"只升档不降档"逻辑（issueProLicense + loadUserLicenseSummary）
 // pro 是历史 SKU（虎皮椒早期 + Lemon Squeezy），向后兼容为最高级别；
 // monthly < yearly 的差异由 derivePlanForLlm / devicePlanFromLicenseRow 真实生效
-const PLAN_RANK = Object.freeze({ free: 0, monthly: 1, yearly: 2, pro: 3 });
+// （export 是为 smoke 单测可见性，CF Worker 只用 default export 不影响 runtime）
+export const PLAN_RANK = Object.freeze({ free: 0, monthly: 1, yearly: 2, pro: 3 });
 
 // 39th 续 · Phase 4 防滥用 · 单 IP 24 小时内最多注册次数
 // 5 次的选择理由：覆盖家庭 / 小公司 NAT 后多人合理共享场景，挡住批量薅账号脚本
 // 撞顶返 429 + 友好提示「同 IP 24 小时内已注册 X 次，请明日再试 / 不同网络重试 / 联系 support」
-const MAX_REGISTRATIONS_PER_IP_PER_DAY = 5;
+export const MAX_REGISTRATIONS_PER_IP_PER_DAY = 5;
 
 // 39th 续 · Phase 4.3 · token 暴涨告警阈值（5 分钟滑窗内累计 token 超此值 → audit warn）
 // 基线推导：plan 月度 cap / 30 天 / 24 小时 ≈ 每小时合理用量；5 分钟阈值 = 每小时基线的 4 倍
-//   - Free 30 次/月 ≈ 1 次/天 ≈ 200 token/天 → 5 分钟 1000 token = 5 次/天的剧烈爆量
+//   - Free 30 次/月 ≈ 1 次/天，单次经济档可达 1K token；阈值 5000 ≈ 5 次/5min（正常用户连续点 1-2 篇文章
+//     完全够用，5 次内不触发；脚本批量调用才会撞）
 //   - Monthly 5M token/月 ≈ 167K/天 ≈ 7K/小时 → 5 分钟 50K = 7 倍 spike
 //   - Yearly 20M token/月 ≈ 667K/天 ≈ 28K/小时 → 5 分钟 200K = 7 倍 spike
 // 仅 audit_log 写 warn 条不阻塞调用——false positive 风险高于真实滥用，先观察再决定是否硬卡
-const TOKEN_SPIKE_THRESHOLDS = Object.freeze({
-  free: 1000,
+//
+// Free 1000 → 5000 的修订（review 反馈）：经济档单次改写 200-1000 token，正常用户改写 1 篇就可能触发
+// 1000 阈值。提到 5000 后正常用户连改 5 篇才命中，仍能挡住自动化脚本批量调用（一秒数十请求）。
+export const TOKEN_SPIKE_THRESHOLDS = Object.freeze({
+  free: 5_000,
   monthly: 50_000,
   yearly: 200_000
 });
@@ -113,7 +118,7 @@ const TOKEN_SPIKE_THRESHOLDS = Object.freeze({
 // 阈值 = DEVICE_LIMITS[plan] + 2（容忍合理 burst：用户重启浏览器 / 切换 chrome profile 重新激活）
 // 单 license 5min 内出现 distinct fingerprints > deviceLimit + 2 → verify_log 写 multi_device_burst
 // 这通常是「license 被多人共享 / 转售」的信号——单设备的行为不会触发此阈值
-function deviceConcurrentThreshold(plan) {
+export function deviceConcurrentThreshold(plan) {
   const base = DEVICE_LIMITS[plan] ?? DEVICE_LIMITS.free;
   return base + 2;
 }
@@ -1913,13 +1918,14 @@ ${resetUrl}
 async function sendSecurityAlertEmail(env, { userId, type, details }) {
   if (!env.RESEND_API_KEY || !userId) return "skipped";
 
-  // 节流：每用户每类型每日 1 封
+  // 节流预检（39th 续² · review 反馈）：先 get 不 put——Resend 失败时不写节流标，下次告警可重试
+  // 写节流标移到下面 Resend 200 成功之后，确保只有真正发出的邮件才占用节流槽位
+  let throttleKey = null;
   if (env.RATE_LIMIT_KV) {
     const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
-    const throttleKey = `security_email:${userId}:${type}:${today}`;
+    throttleKey = `security_email:${userId}:${type}:${today}`;
     const seen = await env.RATE_LIMIT_KV.get(throttleKey);
     if (seen) return "throttled";
-    await env.RATE_LIMIT_KV.put(throttleKey, "1", { expirationTtl: 86400 * 2 });
   }
 
   // 取邮箱（OAuth-only 用户也有邮箱，所以 users 表查询就够）
@@ -1933,7 +1939,11 @@ async function sendSecurityAlertEmail(env, { userId, type, details }) {
     console.warn("[security-email] lookup user failed", err?.message || err);
     return "lookup_failed";
   }
-  if (!email) return "no_email";
+  if (!email) {
+    // pre-bind license 等场景：用户绑定缺失时跳过邮件，记录方便监控（防滥用观察盲区）
+    console.log(`[security-email] skip: no_email userId=${userId} type=${type}`);
+    return "no_email";
+  }
 
   const content = buildSecurityAlertContent(type, details || {}, env);
   if (!content) {
@@ -1962,15 +1972,21 @@ async function sendSecurityAlertEmail(env, { userId, type, details }) {
       console.error(
         `[security-email] Resend FAILED type=${type} status=${resp.status} body=${body.slice(0, 500)}`
       );
+      // 不写节流标——失败时下次告警可重试（review 反馈：避免 24h 内 Resend 短暂故障导致用户彻底收不到）
       return "failed";
     }
     console.log(`[security-email] Resend ok type=${type}`);
+    // 仅在真正发出后才占用节流槽位（48h TTL 自然过期，比 24h 多预留 1 天容错）
+    if (throttleKey) {
+      await env.RATE_LIMIT_KV.put(throttleKey, "1", { expirationTtl: 86400 * 2 });
+    }
     return "sent";
   } catch (err) {
     console.error(
       `[security-email] Resend network error type=${type}:`,
       err?.message || err
     );
+    // 同上：不写节流标
     return "failed";
   }
 }
@@ -1979,7 +1995,7 @@ async function sendSecurityAlertEmail(env, { userId, type, details }) {
  * 构建三种告警类型的邮件内容（subject + text）。
  * text 形式（非 HTML）—— 与 sendResetEmail 同风格，所有邮件客户端都能渲染。
  */
-function buildSecurityAlertContent(type, details, env) {
+export function buildSecurityAlertContent(type, details, env) {
   const site = env.SITE_URL || "https://docuearn.com";
   const ts = new Date().toISOString();
   const planLabel = (plan) =>
