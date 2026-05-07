@@ -45,8 +45,10 @@ id      = "8a535d27955946f3a0b8f7b9c06717f5"
 # ---------------- 公开变量（可明文） ----------------
 [vars]
 # 允许跨域访问的 Origin。多个用逗号分隔；插件端 chrome-extension://xxx 也写在这里。
-# 上线前请把 chrome-extension://* 替换成你正式扩展 ID（chrome://extensions 里能看到）。
-ALLOWED_ORIGINS = "https://docuearn.com,https://www.docuearn.com,chrome-extension://*"
+# 39th 续³ Phase 5 加固：钉死具体扩展 ID 防任何第三方恶意扩展冒充本扩展调 worker（如 /api/llm/chat
+# 偷 token、/api/me 拿用户信息）。chrome://extensions 里复制本扩展 ID 即可，开发版 + 上架版各一个。
+# 旧通配 chrome-extension://* 已废弃；如需开发新版本时新增 ID，加到 ALLOWED_ORIGINS 列表里。
+ALLOWED_ORIGINS = "https://docuearn.com,https://www.docuearn.com,chrome-extension://knmlfnpnbipgamapbhofnmjcpbjgbofl"
 
 # 官网 dashboard 域名（用于注册/重置密码邮件、Lemon Squeezy 回跳）
 SITE_URL = "https://docuearn.com"
@@ -57,6 +59,12 @@ LS_VARIANT_IDS = ""   # 多个 variant 用逗号分隔；为空表示该 store �
 
 # License key 前缀（不要带连字符）；用于 worker 端生成时区分环境
 LICENSE_KEY_PREFIX = "GZHT"
+
+# 39th 续³ Phase 5 加固 · 限速 KV 严格模式（生产环境强制）
+# 当此 var = "1" 时，KV binding 缺失时关键路径（注册 / verify / LLM chat / LLM stream）直接返 503
+# 避免 KV 漏配导致限速静默失效（注册 / verify / token spike / 邮件节流全部 fail-open 是 critical bug）
+# 开发环境 .dev.vars **不要**设此 var → rateLimit fail-open 不阻塞调试
+STRICT_RATE_LIMIT = "1"
 
 # ---------------- 虎皮椒（HuPiJiao）支付通路 ----------------
 # Worker 自身的对外完整 URL，用于拼 notify_url（虎皮椒回调）

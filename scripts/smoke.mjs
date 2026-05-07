@@ -3129,6 +3129,12 @@ console.log("\n运行 server/worker.js · Phase 4 防滥用 + 安全邮件单测
   );
 
   console.log("✓ buildSecurityAlertContent 三模板 + 兜底 4 case");
+
+  // ---- 39th 续³ Phase 5 加固 · LLM body 大小硬限常量 ----
+  assert(worker.LLM_MAX_BODY_BYTES === 100_000, "LLM_MAX_BODY_BYTES = 100KB");
+  assert(worker.LLM_MAX_MESSAGES === 50, "LLM_MAX_MESSAGES = 50");
+  assert(worker.LLM_MAX_MESSAGE_CHARS === 20_000, "LLM_MAX_MESSAGE_CHARS = 20K");
+  console.log("✓ Phase 5 加固 · LLM body 大小三常量（100KB / 50 / 20K）");
 }
 
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

@@ -93,6 +93,19 @@ const STALE_DEVICE_PRUNE_DAYS = 90;
 // （export 是为 smoke 单测可见性，CF Worker 只用 default export 不影响 runtime）
 export const PLAN_RANK = Object.freeze({ free: 0, monthly: 1, yearly: 2, pro: 3 });
 
+// 39th 续³ · Phase 5 加固 · LLM 请求体大小硬限（防 100MB 单条 message DoS）
+// 三层校验：① Content-Length header 预检；② messages 数组长度上限；③ 单条 content 字符上限
+// 100KB 选择理由：足够装 200 条 500 字消息（公众号文章 ~3K 字 × 30 篇上下文绰绰有余）
+// 单条 20K 字符选择理由：覆盖单篇长文 + 模板 + 改写要求；超过通常是攻击或滥用
+export const LLM_MAX_BODY_BYTES = 100_000;
+export const LLM_MAX_MESSAGES = 50;
+export const LLM_MAX_MESSAGE_CHARS = 20_000;
+
+// 39th 续³ · Phase 5 加固 · KV 缺失 fail-closed 模式（生产 wrangler.toml 必填）
+// dev 环境（.dev.vars 不设此 var）→ rateLimit 仍 fail-open 不阻塞调试
+// 生产环境（wrangler.toml [vars] 设 STRICT_RATE_LIMIT="1"）→ KV 缺失时关键路径返 503
+const STRICT_RATE_LIMIT_ENV = "STRICT_RATE_LIMIT";
+
 // 39th 续 · Phase 4 防滥用 · 单 IP 24 小时内最多注册次数
 // 5 次的选择理由：覆盖家庭 / 小公司 NAT 后多人合理共享场景，挡住批量薅账号脚本
 // 撞顶返 429 + 友好提示「同 IP 24 小时内已注册 X 次，请明日再试 / 不同网络重试 / 联系 support」
@@ -226,6 +239,10 @@ async function handleHealth() {
 // body: { email, password }
 // ============================================================
 async function handleRegister(request, env) {
+  // 39th 续³ · Phase 5 加固 · KV strict guard（生产漏配 KV 时直接拒注册防批量薅）
+  const kvGuard = assertRateLimitKvAvailable(env, "handleRegister");
+  if (kvGuard) return kvGuard;
+
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
   const password = String(body.password || "");
@@ -748,6 +765,10 @@ async function handleReset(request, env) {
 //   5. 返回我们自己的 JWT（与邮箱密码登录完全等价）。
 // ============================================================
 async function handleGoogleAuth(request, env) {
+  // 39th 续³ · Phase 5 加固 · KV strict guard（同 register 路径，防 OAuth 批量注册）
+  const kvGuard = assertRateLimitKvAvailable(env, "handleGoogleAuth");
+  if (kvGuard) return kvGuard;
+
   if (!env.GOOGLE_CLIENT_ID) {
     return jsonResponse(
       { ok: false, error: "服务端未配置 Google 登录（缺少 GOOGLE_CLIENT_ID）" },
@@ -1035,6 +1056,10 @@ function safeJsonDecode(bytes) {
 //     在 24h 内 fallback 时仍可凭 signature + 本地时间判定 pro，避免每次都联网。
 // ============================================================
 async function handleLicenseVerify(request, env, ctx) {
+  // 39th 续³ · Phase 5 加固 · KV strict guard（防限速失效让攻击者随意 verify 撞解锁）
+  const kvGuard = assertRateLimitKvAvailable(env, "handleLicenseVerify");
+  if (kvGuard) return kvGuard;
+
   const ip = request.headers.get("CF-Connecting-IP") || "unknown";
   const ua = request.headers.get("User-Agent") || "";
 
@@ -2397,6 +2422,10 @@ async function handleLlmChat(request, env, ctx) {
   const auth = await requireAuth(request, env);
   if (!auth.ok) return auth.response;
 
+  // 39th 续³ · Phase 5 加固 · KV strict guard（生产 fail-closed 防限速失效）
+  const kvGuard = assertRateLimitKvAvailable(env, "handleLlmChat");
+  if (kvGuard) return kvGuard;
+
   const summary = await loadUserLicenseSummary(env, auth.userId);
   const plan = derivePlanForLlm(summary);
 
@@ -2409,6 +2438,9 @@ async function handleLlmChat(request, env, ctx) {
   if (!body || !Array.isArray(body.messages) || body.messages.length === 0) {
     return jsonResponse({ ok: false, error: "messages 字段必填且不能为空数组" }, 400);
   }
+  // 39th 续³ · Phase 5 加固 · 请求体大小硬限（防 100MB DoS）
+  const sizeError = validateLlmBodySize(request, body);
+  if (sizeError) return sizeError;
 
   // 1. tier 解析 + 越权降级
   const { tier, downgraded } = resolveTierForUser(plan, body.tier);
@@ -2545,6 +2577,10 @@ async function handleLlmStream(request, env, ctx) {
   const auth = await requireAuth(request, env);
   if (!auth.ok) return auth.response;
 
+  // 39th 续³ · Phase 5 加固 · KV strict guard（生产 fail-closed 防限速失效）
+  const kvGuard = assertRateLimitKvAvailable(env, "handleLlmStream");
+  if (kvGuard) return kvGuard;
+
   const summary = await loadUserLicenseSummary(env, auth.userId);
   const plan = derivePlanForLlm(summary);
 
@@ -2557,6 +2593,9 @@ async function handleLlmStream(request, env, ctx) {
   if (!body || !Array.isArray(body.messages) || body.messages.length === 0) {
     return jsonResponse({ ok: false, error: "messages 字段必填且不能为空数组" }, 400);
   }
+  // 39th 续³ · Phase 5 加固 · 请求体大小硬限（防 100MB DoS）
+  const sizeError = validateLlmBodySize(request, body);
+  if (sizeError) return sizeError;
 
   const { tier, downgraded } = resolveTierForUser(plan, body.tier);
   const { upstream, model } = selectUpstreamForTier(tier);
@@ -2873,6 +2912,75 @@ async function handleLicenseDevicePrune(request, env) {
     days,
     deleted: Number(result?.meta?.changes) || 0
   });
+}
+
+// 39th 续³ · Phase 5 加固 · LLM 请求体大小校验（防 100MB DoS）
+// 三层兜底：Content-Length header → messages 数组长度 → 单条 content 字符
+// 校验失败返 jsonResponse；通过返 null 让调用方继续。
+// 调用方：handleLlmChat / handleLlmStream 入口（auth 后、tier 解析前）。
+function validateLlmBodySize(request, body) {
+  const contentLength = Number(request.headers.get("Content-Length") || 0);
+  if (contentLength > LLM_MAX_BODY_BYTES) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: `请求体过大（${contentLength} 字节，上限 ${LLM_MAX_BODY_BYTES} 字节）`,
+        reason: "body_too_large",
+        limit_bytes: LLM_MAX_BODY_BYTES
+      },
+      413
+    );
+  }
+  if (!Array.isArray(body?.messages)) return null; // 由调用方 messages 必填校验处理
+  if (body.messages.length > LLM_MAX_MESSAGES) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: `messages 超过 ${LLM_MAX_MESSAGES} 条上限（当前 ${body.messages.length}）`,
+        reason: "too_many_messages",
+        limit: LLM_MAX_MESSAGES
+      },
+      400
+    );
+  }
+  for (let i = 0; i < body.messages.length; i++) {
+    const msg = body.messages[i];
+    const content = typeof msg?.content === "string" ? msg.content : "";
+    if (content.length > LLM_MAX_MESSAGE_CHARS) {
+      return jsonResponse(
+        {
+          ok: false,
+          error: `messages[${i}].content 超过 ${LLM_MAX_MESSAGE_CHARS} 字符上限（当前 ${content.length}）`,
+          reason: "message_too_long",
+          limit_chars: LLM_MAX_MESSAGE_CHARS,
+          index: i
+        },
+        400
+      );
+    }
+  }
+  return null;
+}
+
+// 39th 续³ · Phase 5 加固 · KV 缺失 strict guard（生产 fail-closed）
+// 调用方：handleRegister / handleGoogleAuth / handleLicenseVerify / handleLlmChat / handleLlmStream
+// 命中时返 jsonResponse 503 + console.error；通过返 null
+function assertRateLimitKvAvailable(env, contextLabel) {
+  if (env.RATE_LIMIT_KV) return null;
+  const isStrict = env[STRICT_RATE_LIMIT_ENV] === "1";
+  if (!isStrict) {
+    console.warn(`[strict-kv] ${contextLabel}: RATE_LIMIT_KV missing but STRICT_RATE_LIMIT not set; fail-open (dev mode)`);
+    return null;
+  }
+  console.error(`[strict-kv] CRITICAL: RATE_LIMIT_KV missing in production (${contextLabel}) — refusing request`);
+  return jsonResponse(
+    {
+      ok: false,
+      error: "服务暂不可用：限速服务未配置（管理员请检查 KV binding）",
+      reason: "kv_missing"
+    },
+    503
+  );
 }
 
 // 39th 续 · Phase 4.3 · 检测并记录 token 暴涨（audit_log 软告警，不阻塞调用）
