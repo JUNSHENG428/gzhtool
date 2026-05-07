@@ -33,6 +33,7 @@
 | 19 | **部署 checklist 给用户的命令绝对不能用 zsh 行内 `#` 注释**（用 SQL 风格 `--` 或多行 docstring） | wrangler 命令 / migration sql | 2026-05-04 39th 续 | 2 (踩 2 次) |
 | 20 | **plan / SKU schema 演进不要硬编码默认值**——必须接受参数 + 显式归一化（`planCode \|\| 'pro'`） | issueProLicense / virtual SKU | 2026-05-04 39th 续 | — |
 | 21 | **流式响应路径不要做 fallback 链**——半途切换上游会产生错位 JSON | /api/llm/stream / 流式 SSE | 2026-05-04 39th 续 | — |
+| 22 | **gitignore dir-level + file-level 例外组合失效**——`dir/` ignore + `!dir/file` 例外不生效（git 不递归进 ignored dir）；必须改 `dir/*` + `dir/.*` + `!dir/file` | .gitignore / memory-bank/reflexes.md | 2026-05-07 39th 续³ | — |
 
 ---
 
