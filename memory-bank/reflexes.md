@@ -34,6 +34,7 @@
 | 20 | **plan / SKU schema 演进不要硬编码默认值**——必须接受参数 + 显式归一化（`planCode \|\| 'pro'`） | issueProLicense / virtual SKU | 2026-05-04 39th 续 | — |
 | 21 | **流式响应路径不要做 fallback 链**——半途切换上游会产生错位 JSON | /api/llm/stream / 流式 SSE | 2026-05-04 39th 续 | — |
 | 22 | **gitignore dir-level + file-level 例外组合失效**——`dir/` ignore + `!dir/file` 例外不生效（git 不递归进 ignored dir）；必须改 `dir/*` + `dir/.*` + `!dir/file` | .gitignore / memory-bank/reflexes.md | 2026-05-07 39th 续³ | — |
+| 23 | **客户端生成的 fingerprint / UUID 永远是软标识**——不能作为 anti-abuse 唯一信任锚；攻击者改一行扩展代码即可任意伪造。设备唯一性 = client-side trust + server-side rate limit + anomaly detection 三层联防，**信任边界永远在 server 一侧** | device fingerprint / Phase 6 sketch | 2026-05-07 39th 续³ Batch 5 | — |
 
 ---
 
