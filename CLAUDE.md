@@ -8,7 +8,7 @@
 
 ## 5 件最重要的事
 
-1. **四段式架构**：Chrome MV3 扩展（`src/`） + Cloudflare Worker（`server/worker.js` 单文件）+ 静态官网（`site/`） + 桌面助手 Runbi Helper（`desktop/`，PyInstaller 打 .app/.exe）
+1. **四段式架构**：`src/`（扩展）+ `server/`（Worker）+ `site/`（官网）+ `desktop/`（桌面助手）— 详见 [memory-bank/systemPatterns.md](memory-bank/systemPatterns.md) §总体架构
 2. **当前版本 0.3.2**（manifest.json 是版本号唯一真源；`npm run version:sync` 同步到 package.json）
 3. **License 反向 gating 模型**：Free 1 设备 / Monthly 3 设备 / Yearly 10 设备 + 🔓 自定义 API Key 仅年费独享（详细配额见下方表）
 4. **Worker 已在 production**：`https://api.docuearn.com` · 最新 Version `d443df79`（2026-05-04）

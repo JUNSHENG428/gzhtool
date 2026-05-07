@@ -1,3 +1,6 @@
+/* 39th 续³ #18 · HTML5 [hidden] 全局兜底（与 design-tokens.css 同条；popup 独立未 @import）*/
+[hidden] { display: none !important; }
+
 :root {
   color-scheme: light;
   font-family: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", sans-serif;

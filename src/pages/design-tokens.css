@@ -5,6 +5,18 @@
  * 美学方向：暖色纸面 + 墨绿主色 + 衬线标题（Noto Serif SC）+
  * UI 使用 DM Sans，避免通用系统 UI 字体堆栈的「模板感」。
  */
+
+/**
+ * 39th 续³ #18 · HTML5 [hidden] 全局兜底（已踩 4 次同坑根治）
+ * UA `[hidden] { display: none }` 优先级最低，会被业务 .foo { display: flex/grid/block }
+ * 完全覆盖 → DOM 设 hidden=true 但视觉仍显示。!important 强制兜底。
+ * 历史踩坑：21st AI 模板对话框 / 25th task-center panel / 34th task-center 再踩 / 38th publish-actions。
+ * 详见 memory-bank/reflexes.md 模式约定·网站部署段。
+ * 此条加在 design-tokens.css 是因 options / page / workspace / hot-topics 都 @import 它（自动覆盖）；
+ * popup.css 独立未引 design-tokens 需单独加（已加）。
+ */
+[hidden] { display: none !important; }
+
 :root {
   color-scheme: light;
 
