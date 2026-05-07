@@ -1938,7 +1938,7 @@ ${resetUrl}
 //   "lookup_failed"   - D1 查询异常
 //   "failed"          - Resend API 错误
 //   "sent"            - 成功发出
-async function sendSecurityAlertEmail(env, { userId, type, details }) {
+export async function sendSecurityAlertEmail(env, { userId, type, details }) {
   if (!env.RESEND_API_KEY || !userId) return "skipped";
 
   // 节流预检（39th 续² · review 反馈）：先 get 不 put——Resend 失败时不写节流标，下次告警可重试
@@ -3012,7 +3012,7 @@ function assertRateLimitKvAvailable(env, contextLabel) {
 //   - 若未来要严格计数（合规审计场景），用 D1 表 + COMMIT 事务替代 KV
 //
 // 调用方：handleLlmChat 成功路径 + handleLlmStream flush（统一计入流式调用）
-async function detectAndLogTokenSpike(env, userId, plan, tokensThisCall) {
+export async function detectAndLogTokenSpike(env, userId, plan, tokensThisCall) {
   if (!env.RATE_LIMIT_KV || !env.DB) return;
   const total = Number(tokensThisCall) || 0;
   if (total <= 0) return;
@@ -3086,7 +3086,7 @@ async function detectAndLogTokenSpike(env, userId, plan, tokensThisCall) {
 //
 // 调用方：handleLicenseVerify 成功路径（writeVerifyLog "ok" 之后）
 // userId 入参用于撞顶时自动给用户发安全告警邮件（节流后台 KV 把控）
-async function detectAndLogMultiDeviceBurst(env, licenseKey, userId, fingerprint, plan, ip, ua) {
+export async function detectAndLogMultiDeviceBurst(env, licenseKey, userId, fingerprint, plan, ip, ua) {
   if (!env.RATE_LIMIT_KV || !env.DB || !fingerprint || !licenseKey) return;
   try {
     const fingerprintHash = await sha256Hex(fingerprint);

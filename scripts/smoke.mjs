@@ -3137,4 +3137,211 @@ console.log("\n运行 server/worker.js · Phase 4 防滥用 + 安全邮件单测
   console.log("✓ Phase 5 加固 · LLM body 大小三常量（100KB / 50 / 20K）");
 }
 
+// ===========================================================================
+// 39th 续³ #8 修复 · Phase 4 防滥用 helpers KV mock 集成单测（防 Phase 4 三件套未来回归）
+// ===========================================================================
+// 这批测验证 worker.js 三个 helper 的状态机：
+//   - detectAndLogTokenSpike       · KV sum 累计 + 阈值检测 + flag dedup
+//   - detectAndLogMultiDeviceBurst · KV set 去重 + 阈值检测 + flag dedup
+//   - sendSecurityAlertEmail        · 节流（24h vs 7d 按 type）+ Resend 失败不写节流标
+console.log("\n运行 server/worker.js · Phase 4 helpers KV mock 集成单测 …");
+{
+  const worker = await import("../server/worker.js");
+  const { createMockKv, createMockDb, mockFetch } = await import("./test-helpers/mock-cf-bindings.mjs");
+
+  // ---- detectAndLogTokenSpike ----
+  // case 1: 单次低于阈值 → 不写 audit_log
+  {
+    const kv = createMockKv();
+    const db = createMockDb();
+    const env = { RATE_LIMIT_KV: kv, DB: db };
+    await worker.detectAndLogTokenSpike(env, "user-1", "free", 500);
+    assert(db._calls.length === 0, "below threshold: no audit_log INSERT");
+    assert([...kv._store.keys()].some((k) => k.startsWith("token_spike:sum:user-1:")), "sum bucket created");
+  }
+
+  // case 2: 单次超阈值 → 写 audit_log + 发邮件 attempt
+  {
+    const kv = createMockKv();
+    const db = createMockDb();
+    const env = { RATE_LIMIT_KV: kv, DB: db };
+    // free 阈值 5000，单次 6000 直接撞顶
+    await worker.detectAndLogTokenSpike(env, "user-2", "free", 6000);
+    const auditCalls = db._calls.filter((c) => c.sql.includes("INSERT INTO llm_audit_log"));
+    assert(auditCalls.length === 1, `above threshold: 1 audit_log INSERT (got ${auditCalls.length})`);
+    assert(auditCalls[0].args[7] === "suspicious_spike", `status=suspicious_spike (got ${auditCalls[0].args[7]})`);
+    assert([...kv._store.keys()].some((k) => k.startsWith("token_spike:flag:user-2:")), "flag set after first alert");
+  }
+
+  // case 3: 同窗口内第二次撞阈值 → flag 去重，不重复 audit_log
+  {
+    const kv = createMockKv();
+    const db = createMockDb();
+    const env = { RATE_LIMIT_KV: kv, DB: db };
+    await worker.detectAndLogTokenSpike(env, "user-3", "free", 6000);
+    db._calls.length = 0; // 清第一次的调用记录
+    await worker.detectAndLogTokenSpike(env, "user-3", "free", 6000);
+    const auditCalls = db._calls.filter((c) => c.sql.includes("INSERT INTO llm_audit_log"));
+    assert(auditCalls.length === 0, `same window dedup: 0 INSERT (got ${auditCalls.length})`);
+  }
+
+  // case 4: KV / DB 缺失时 silent 返回（防生产漏配崩）
+  {
+    await worker.detectAndLogTokenSpike({}, "user-4", "free", 6000);
+    await worker.detectAndLogTokenSpike({ DB: createMockDb() }, "user-4", "free", 6000);
+    // 没崩就过
+    assert(true, "missing KV/DB: silent return without throw");
+  }
+  console.log("✓ detectAndLogTokenSpike 4 case（below / above / dedup / missing-binding）");
+
+  // ---- detectAndLogMultiDeviceBurst ----
+  // case 1: free plan 单 license 加 2 个 fingerprint → 没撞阈值 (free=3)
+  {
+    const kv = createMockKv();
+    const db = createMockDb();
+    const env = { RATE_LIMIT_KV: kv, DB: db };
+    await worker.detectAndLogMultiDeviceBurst(env, "GZHT-XXXX-YYYY-1234", "user-1", "fp-a", "free", "1.1.1.1", "UA");
+    await worker.detectAndLogMultiDeviceBurst(env, "GZHT-XXXX-YYYY-1234", "user-1", "fp-b", "free", "1.1.1.1", "UA");
+    const auditCalls = db._calls.filter((c) => c.sql.includes("INSERT INTO verify_log"));
+    assert(auditCalls.length === 0, `below burst threshold: 0 verify_log INSERT (got ${auditCalls.length})`);
+  }
+
+  // case 2: free plan 加 4 个 fingerprint → 撞阈值（free 阈值 = 1+2 = 3）
+  {
+    const kv = createMockKv();
+    const db = createMockDb();
+    const env = { RATE_LIMIT_KV: kv, DB: db };
+    for (const fp of ["a", "b", "c", "d"]) {
+      await worker.detectAndLogMultiDeviceBurst(env, "GZHT-XXXX-YYYY-5678", "user-2", `fp-${fp}`, "free", "1.1.1.1", "UA");
+    }
+    const auditCalls = db._calls.filter((c) => c.sql.includes("INSERT INTO verify_log"));
+    assert(auditCalls.length === 1, `above burst threshold: 1 verify_log INSERT (got ${auditCalls.length})`);
+    assert(auditCalls[0].args[3] === "multi_device_burst", `result=multi_device_burst`);
+  }
+
+  // case 3: 同 fingerprint 重复 verify → 不重复加 set
+  {
+    const kv = createMockKv();
+    const db = createMockDb();
+    const env = { RATE_LIMIT_KV: kv, DB: db };
+    await worker.detectAndLogMultiDeviceBurst(env, "GZHT-XXXX-YYYY-9999", "user-3", "fp-same", "free", "1.1.1.1", "UA");
+    await worker.detectAndLogMultiDeviceBurst(env, "GZHT-XXXX-YYYY-9999", "user-3", "fp-same", "free", "1.1.1.1", "UA");
+    await worker.detectAndLogMultiDeviceBurst(env, "GZHT-XXXX-YYYY-9999", "user-3", "fp-same", "free", "1.1.1.1", "UA");
+    const auditCalls = db._calls.filter((c) => c.sql.includes("INSERT INTO verify_log"));
+    assert(auditCalls.length === 0, `same fp dedup: 0 INSERT despite 3 calls`);
+  }
+  console.log("✓ detectAndLogMultiDeviceBurst 3 case（below / above / dedup）");
+
+  // ---- sendSecurityAlertEmail ----
+  // case 1: 节流命中（同 day key 已存在）→ 返 throttled，不发邮件
+  {
+    const kv = createMockKv();
+    const db = createMockDb();
+    db._setResponse("SELECT email FROM users WHERE id = ?", ["user-1"], { email: "test@example.com" });
+    const today = new Date().toISOString().slice(0, 10);
+    kv._store.set(`security_email:user-1:token_spike:${today}`, "1");
+    const env = { RATE_LIMIT_KV: kv, DB: db, RESEND_API_KEY: "fake" };
+    const fetcher = mockFetch();
+    const status = await worker.sendSecurityAlertEmail(env, {
+      userId: "user-1",
+      type: "token_spike",
+      details: { plan: "free", cumulative: 6000, threshold: 5000 }
+    });
+    fetcher._restore();
+    assert(status === "throttled", `throttled when key exists (got ${status})`);
+    assert(fetcher.calls.length === 0, `throttled: no Resend call`);
+  }
+
+  // case 2: 正常发送 → status="sent"，节流标在 Resend 200 后才写
+  {
+    const kv = createMockKv();
+    const db = createMockDb();
+    db._setResponse("SELECT email FROM users WHERE id = ?", ["user-2"], { email: "test2@example.com" });
+    const env = { RATE_LIMIT_KV: kv, DB: db, RESEND_API_KEY: "fake", SITE_URL: "https://test.com" };
+    const fetcher = mockFetch();
+    const status = await worker.sendSecurityAlertEmail(env, {
+      userId: "user-2",
+      type: "token_spike",
+      details: { plan: "free", cumulative: 6000, threshold: 5000 }
+    });
+    fetcher._restore();
+    assert(status === "sent", `sent (got ${status})`);
+    assert(fetcher.calls.length === 1, `Resend called once`);
+    assert(fetcher.calls[0].url === "https://api.resend.com/emails", `Resend URL`);
+    const today = new Date().toISOString().slice(0, 10);
+    assert(kv._store.has(`security_email:user-2:token_spike:${today}`), `节流标在 Resend 成功后写入`);
+  }
+
+  // case 3: Resend 失败 → status="failed"，节流标不写（review 反馈：失败可重试）
+  {
+    const kv = createMockKv();
+    const db = createMockDb();
+    db._setResponse("SELECT email FROM users WHERE id = ?", ["user-3"], { email: "test3@example.com" });
+    const env = { RATE_LIMIT_KV: kv, DB: db, RESEND_API_KEY: "fake", SITE_URL: "https://test.com" };
+    const fetcher = mockFetch();
+    fetcher._setNextResponse({ ok: false, status: 500, body: "{}" });
+    const status = await worker.sendSecurityAlertEmail(env, {
+      userId: "user-3",
+      type: "token_spike",
+      details: { plan: "free", cumulative: 6000, threshold: 5000 }
+    });
+    fetcher._restore();
+    assert(status === "failed", `failed (got ${status})`);
+    const today = new Date().toISOString().slice(0, 10);
+    assert(!kv._store.has(`security_email:user-3:token_spike:${today}`), `Resend 失败时不写节流标允许重试`);
+  }
+
+  // case 4: device_limit_exceeded 用 7-day weekEpoch bucket 而非 YYYY-MM-DD（39th 续³ #6）
+  {
+    const kv = createMockKv();
+    const db = createMockDb();
+    db._setResponse("SELECT email FROM users WHERE id = ?", ["user-4"], { email: "test4@example.com" });
+    const env = { RATE_LIMIT_KV: kv, DB: db, RESEND_API_KEY: "fake", SITE_URL: "https://test.com" };
+    const fetcher = mockFetch();
+    const status = await worker.sendSecurityAlertEmail(env, {
+      userId: "user-4",
+      type: "device_limit_exceeded",
+      details: { plan: "free", activated: 1, limit: 1, licenseKey: "GZHT-XXXX-YYYY-DEVI" }
+    });
+    fetcher._restore();
+    assert(status === "sent", `sent`);
+    const throttleKey = [...kv._store.keys()].find((k) => k.startsWith("security_email:user-4:device_limit_exceeded:"));
+    assert(throttleKey?.includes("week-"), `device_limit 用 weekEpoch bucket（key=${throttleKey}）`);
+  }
+
+  // case 5: RESEND_API_KEY 缺失 → status="skipped"
+  {
+    const status = await worker.sendSecurityAlertEmail(
+      { RATE_LIMIT_KV: createMockKv(), DB: createMockDb() },
+      { userId: "user-5", type: "token_spike", details: {} }
+    );
+    assert(status === "skipped", `RESEND_API_KEY 缺失：skipped`);
+  }
+
+  // case 6: userId 缺失 → status="skipped"
+  {
+    const status = await worker.sendSecurityAlertEmail(
+      { RATE_LIMIT_KV: createMockKv(), DB: createMockDb(), RESEND_API_KEY: "fake" },
+      { userId: null, type: "token_spike", details: {} }
+    );
+    assert(status === "skipped", `userId 缺失：skipped`);
+  }
+
+  // case 7: users.email 查询为空 → status="no_email"
+  {
+    const kv = createMockKv();
+    const db = createMockDb();
+    db._setResponse("SELECT email FROM users WHERE id = ?", ["user-7"], { email: "" });
+    const env = { RATE_LIMIT_KV: kv, DB: db, RESEND_API_KEY: "fake" };
+    const status = await worker.sendSecurityAlertEmail(env, {
+      userId: "user-7",
+      type: "token_spike",
+      details: {}
+    });
+    assert(status === "no_email", `email 为空：no_email`);
+  }
+
+  console.log("✓ sendSecurityAlertEmail 7 case（throttled / sent / failed-retry / weekly-bucket / skipped × 3）");
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);
