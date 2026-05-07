@@ -498,18 +498,48 @@ async function handleDeviceUnbind(request, env) {
     return jsonResponse({ ok: false, error: "该 Key 不属于当前账号" }, 404);
   }
 
+  // 39th 续³ #12 · 设备解绑审计：DELETE 前 SELECT 拿到被删的 fingerprint，
+  // DELETE 后 changes > 0 才写 verify_log（用户投诉「我的设备无故消失」时可回查证据链）。
+  let deletedFp = "";
+  let deletedDeviceId = "";
+  try {
+    if (deviceId) {
+      const target = await env.DB.prepare(
+        "SELECT id, device_fingerprint FROM device_activations WHERE license_key = ? AND id = ?"
+      )
+        .bind(key, deviceId)
+        .first();
+      deletedDeviceId = target?.id || "";
+      deletedFp = target?.device_fingerprint || "";
+    } else {
+      deletedFp = fingerprint;
+    }
+  } catch (err) {
+    console.warn("[device-unbind] pre-select failed", err?.message || err);
+  }
+
+  let result;
   if (deviceId) {
-    await env.DB.prepare(
+    result = await env.DB.prepare(
       "DELETE FROM device_activations WHERE license_key = ? AND id = ?"
     )
       .bind(key, deviceId)
       .run();
   } else {
-    await env.DB.prepare(
+    result = await env.DB.prepare(
       "DELETE FROM device_activations WHERE license_key = ? AND device_fingerprint = ?"
     )
       .bind(key, fingerprint)
       .run();
+  }
+
+  const changes = Number(result?.meta?.changes) || 0;
+  if (changes > 0) {
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    const ua = request.headers.get("User-Agent") || "";
+    const fpHash = deletedFp ? (await sha256Hex(deletedFp)).slice(0, 12) : "";
+    const detail = `user_id=${auth.userId} fp_hash=${fpHash} device_id=${deletedDeviceId}`;
+    await writeVerifyLog(env, key, ip, ua, "device_unbound_user", detail);
   }
   return jsonResponse({ ok: true });
 }
@@ -2640,6 +2670,18 @@ async function pruneStaleDeviceActivations(env) {
   }
   try {
     const cutoff = Date.now() - STALE_DEVICE_PRUNE_DAYS * 86_400_000;
+
+    // 39th 续³ #12 · 设备清理审计：先 SELECT 拿到要删的行，再 DELETE，最后按
+    // license_key 聚合写 verify_log（每个 license 一行，detail 记 fingerprint hash 短码）
+    // 用户投诉「我的设备列表突然少了几台」时可回查证据链
+    const stale = await env.DB.prepare(
+      "SELECT license_key, device_fingerprint FROM device_activations WHERE last_seen_at < ?"
+    )
+      .bind(cutoff)
+      .all();
+    const rows = stale?.results || [];
+    if (rows.length === 0) return;
+
     const result = await env.DB.prepare(
       "DELETE FROM device_activations WHERE last_seen_at < ?"
     )
@@ -2648,6 +2690,28 @@ async function pruneStaleDeviceActivations(env) {
     const n = Number(result?.meta?.changes) || 0;
     if (n > 0) {
       console.log(`[cron] pruneStaleDeviceActivations: deleted ${n} rows older than ${STALE_DEVICE_PRUNE_DAYS} days`);
+    }
+
+    // 按 license_key 聚合（cron 单次跑可能涉及多张 license，每张独立写一行 audit）
+    // 卡 license 数量 ≤ 50（极端场景下避免一次性写 1000+ 行 audit；超出的 license
+    // 会在下一次 cron 运行时被覆盖——cron 每小时跑、cutoff 是 90 天，几次内一定能记到）
+    const byLicense = new Map();
+    for (const row of rows) {
+      const k = row.license_key;
+      if (!k) continue;
+      if (!byLicense.has(k)) byLicense.set(k, []);
+      byLicense.get(k).push(row.device_fingerprint || "");
+    }
+    let writeBudget = 50;
+    for (const [licenseKey, fps] of byLicense.entries()) {
+      if (writeBudget-- <= 0) break;
+      // detail 限 256 字节，每个 fp_hash 取 sha256 前 8 字符；最多列 8 个，超出标 +N more
+      const fpHashes = await Promise.all(
+        fps.slice(0, 8).map(async (fp) => fp ? (await sha256Hex(fp)).slice(0, 8) : "empty")
+      );
+      const more = fps.length > 8 ? `+${fps.length - 8}` : "";
+      const detail = `cron_cutoff_${STALE_DEVICE_PRUNE_DAYS}d count=${fps.length} fps=${fpHashes.join(",")}${more}`;
+      await writeVerifyLog(env, licenseKey, "cron", "Cloudflare-Worker-Cron", "device_pruned_cron", detail);
     }
   } catch (error) {
     console.error("[cron] pruneStaleDeviceActivations failed", error?.message || error);
@@ -2689,11 +2753,21 @@ async function handleLicenseDevicePrune(request, env) {
     .bind(key, cutoff)
     .run();
 
+  // 39th 续³ #12 · 用户主动批量 prune 审计：deleted > 0 才记
+  // 用户投诉「我点了一键清理，但好像清掉了我还在用的设备」时可回查证据链
+  const deleted = Number(result?.meta?.changes) || 0;
+  if (deleted > 0) {
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    const ua = request.headers.get("User-Agent") || "";
+    const detail = `user_id=${auth.userId} days=${days} deleted=${deleted}`;
+    await writeVerifyLog(env, key, ip, ua, "device_pruned_user", detail);
+  }
+
   return jsonResponse({
     ok: true,
     key,
     days,
-    deleted: Number(result?.meta?.changes) || 0
+    deleted
   });
 }
 
