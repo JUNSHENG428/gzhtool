@@ -63,6 +63,16 @@ hiddenimports = collect_submodules("DrissionPage")
 # DrissionPage 自带的资源文件（settings yaml 等）
 datas += collect_data_files("DrissionPage")
 
+# —— 39th 续³ Batch 15 (A1)：rumps 菜单栏（仅 macOS）—— #
+# rumps 内部 import PyObjC 的若干子模块，PyInstaller 静态分析可能漏；
+# 显式加 hiddenimports 确保打包后 .app 启动时能 import 到。
+# 跨平台 spec：win/linux 上即使没装 rumps 也不会影响（collect_submodules 失败时返 []）。
+if sys.platform == "darwin":
+    try:
+        hiddenimports += collect_submodules("rumps")
+    except Exception:
+        pass  # 未装 rumps 时打包出来的 .app 走 tkinter 主窗口 fallback
+
 
 a = Analysis(
     [str(ENTRY_SCRIPT)],

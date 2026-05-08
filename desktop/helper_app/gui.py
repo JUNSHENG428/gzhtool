@@ -1017,5 +1017,17 @@ class HelperApp:
 
 
 def main() -> int:
-    HelperApp().run()
+    """39th 续³ Batch 15 (A1)：macOS 启动菜单栏 tray 模式（如果 rumps 可用）；
+    其它平台或未装 rumps 时自动回退到 tkinter 主窗口 mainloop。"""
+    app = HelperApp()
+    try:
+        from .tray import is_available, run_with_tray
+    except ImportError:
+        is_available = lambda: False  # noqa: E731
+        run_with_tray = None
+    if is_available() and run_with_tray is not None:
+        run_with_tray(app)
+    else:
+        app.run()
+    return 0
     return 0

@@ -2,6 +2,9 @@
 DrissionPage==4.1.0.18
 # 注：DrissionPage 不直接依赖 lxml，但建议显式带上以免某些场景下解析失败
 lxml>=4.9.0
+# 39th 续³ Batch 15 (A1)：macOS 菜单栏图标（仅 mac 安装；win/linux 走 tkinter 主窗口模式）
+# rumps 是轻量 NSStatusBar wrapper（~50KB），优于直接调 PyObjC 的复杂度
+rumps==0.4.0; sys_platform == "darwin"
 
 # 构建依赖（只在打包机/CI 上需要，运行时不打包）
 pyinstaller==6.10.0
