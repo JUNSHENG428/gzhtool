@@ -49,6 +49,8 @@
   };
   const SYNC_BANNER_ID = "wechat-editor-sync-banner";
   const SYNC_BANNER_DISMISS_COOLDOWN_MS = 30 * 60 * 1000;
+  // 39th 续³ Batch 9：草稿箱列表页的 pending banner（"已收到推送但当前不是新建图文页"引导）
+  const PENDING_PULL_BANNER_ID = "wechat-pending-pull-banner";
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type !== "IMPORT_ARTICLE_TO_WECHAT_EDITOR") {
@@ -644,8 +646,80 @@
    *  - [×] 关闭：记 STATE.lastSyncBannerDismissedAt，30 分钟内不再自动弹
    *  - 时间用 setInterval 每分钟更新"X 分钟前"显示
    */
+  /**
+   * 39th 续³ Batch 9 · 草稿箱列表页 pending pull banner
+   *
+   * 触发：浮球 PULL 流程到达 mp tab 但 isEditor:false（用户停在 list_card / 素材库 /
+   *      管理后台等非「新建图文」编辑页）。importArticle 早返回不写入字段，但 payload
+   *      已抵达——用户感知不到"草稿已经推过来了"，会以为推送失败或在 Q 自己。
+   *
+   * 文案规则：
+   *   1. 明确告诉用户「已检测到推送 · 文章名 · 字数」让他放心
+   *   2. 解释为什么没自动写入（"当前是草稿箱列表页"）
+   *   3. 给一条 actionable 引导（"请点右上角『新的创作』新建图文页"）
+   *   4. 加「重新拉一次」按钮：用户切完页后想重发 PULL 时不用回 mp 浮球点
+   *
+   * 视觉：暖橙 accent 边线 warning 风格，区分于成功 banner 的墨绿 brand
+   */
+  function renderPendingPullBanner(payload) {
+    document.getElementById(PENDING_PULL_BANNER_ID)?.remove();
+    document.getElementById(SYNC_BANNER_ID)?.remove(); // 与成功 banner 互斥
+    if (!payload) return;
+    const title = String(payload.meta?.title || "").trim() || "未命名";
+    const bodyChars = Number(payload?.bundle?.bodyChars || 0);
+    const charsHint = bodyChars > 0 ? ` · ${bodyChars} 字` : "";
+
+    const banner = document.createElement("div");
+    banner.id = PENDING_PULL_BANNER_ID;
+    banner.style.cssText = [
+      "position:fixed",
+      "top:12px",
+      "left:50%",
+      "transform:translateX(-50%)",
+      "z-index:2147483646",
+      "max-width:680px",
+      "padding:12px 16px",
+      `background:${TOKEN.surfaceElevated}`,
+      `color:${TOKEN.ink}`,
+      `border:1px solid ${TOKEN.line}`,
+      `border-left:3px solid ${TOKEN.accent}`,
+      "border-radius:10px",
+      `box-shadow:${TOKEN.shadowMd}`,
+      `font-family:${TOKEN.fontSans}`,
+      "font-size:12px",
+      "line-height:1.6",
+      "display:flex",
+      "align-items:flex-start",
+      "gap:12px",
+      `animation:rb-toast-in 240ms ${TOKEN.easeOut}`
+    ].join(";");
+
+    banner.innerHTML = `
+      <span style="font-size:16px;flex:none;">📥</span>
+      <span style="flex:1;min-width:0;">
+        <strong style="color:${TOKEN.accent};">已检测到新推送的草稿：《${escapeHtmlAttr(title)}》${escapeHtmlAttr(charsHint)}</strong>
+        <br />
+        <span style="color:${TOKEN.inkSecondary};">当前是草稿箱列表页，未自动写入。请点右上角绿色「<strong>新的创作</strong>」按钮新建图文页，进入编辑器后再点浮球的「📥 拉草稿」即可写入。</span>
+      </span>
+      <button type="button" data-pending-action="retry" style="flex:none;padding:5px 12px;border:1px solid ${TOKEN.accent};background:${TOKEN.accent};color:${TOKEN.cream};border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;">💡 重新拉一次</button>
+      <button type="button" data-pending-action="close" aria-label="关闭" style="flex:none;width:22px;height:22px;border:none;background:transparent;color:${TOKEN.softInk};font-size:16px;line-height:1;cursor:pointer;border-radius:4px;">×</button>
+    `;
+
+    banner.querySelector('[data-pending-action="retry"]')?.addEventListener("click", () => {
+      // 重新发 PULL 让 SW 走一遍流程；如果用户已经切到「新建图文」页，importArticle
+      // 这次会成功写入；如果还在 list_card 页，banner 会重新刷出来（payload 透传）。
+      chrome.runtime.sendMessage({ type: "PULL_DRAFT_TO_MP_EDITOR" }).catch(() => {});
+    });
+    banner.querySelector('[data-pending-action="close"]')?.addEventListener("click", () => {
+      banner.remove();
+    });
+
+    document.body.appendChild(banner);
+  }
+
   function renderSyncBanner(record) {
     document.getElementById(SYNC_BANNER_ID)?.remove();
+    document.getElementById(PENDING_PULL_BANNER_ID)?.remove(); // 与 pending banner 互斥
     if (!record) return;
 
     const banner = document.createElement("div");
@@ -912,6 +986,12 @@
     if (!result.isEditor) {
       result.message = "当前不是公众号图文编辑页。请先登录并进入新建图文页后重试。";
       renderHelperDock(result);
+      // 39th 续³ Batch 9：草稿箱列表页（list_card）等非编辑页的引导 banner——
+      // 用户从润笔浮球 PULL 时如果 mp tab 停在草稿箱列表页，importArticle 会
+      // 因 isEditor:false 早返回，dock 里有提示但不够显眼，用户经常会以为是
+      // 推送失败。这里加一个常驻顶栏 banner，明确告诉用户：草稿已经推过来了，
+      // 只是当前不在「新建图文」编辑页所以没自动写入；引导点右上角「新的创作」。
+      renderPendingPullBanner(payload);
       return result;
     }
 
