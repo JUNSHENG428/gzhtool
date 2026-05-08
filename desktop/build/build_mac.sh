@@ -26,7 +26,25 @@ echo "→ Python: $(python3 --version)"
 echo "→ PyInstaller: $(pyinstaller --version)"
 
 # —— 清理上次产物 —— #
-rm -rf build dist
+# 39th 续³ Batch 13：增强清理。原 rm -rf 在 macOS 偶发遇到 .app 被 Finder/
+# Spotlight/quicklook 索引或上次 helper 进程未完全退出，报 "Directory not empty"。
+# 修法：① 先 pkill 残留 helper 进程；② rm -rf 失败时 sleep 1 自动重试一次；
+# ③ 仍失败给用户清晰的错误指引而非崩溃退出。
+pkill -f "Runbi Helper.app/Contents/MacOS/Runbi Helper" 2>/dev/null || true
+rm -rf build dist 2>/dev/null || true
+if [[ -d dist || -d build ]]; then
+  echo "→ 首次清理未完成，等 1s 后重试（Finder/Spotlight 释放索引锁）"
+  sleep 1
+  rm -rf build dist 2>/dev/null || true
+fi
+if [[ -d dist || -d build ]]; then
+  echo "✗ 清理 dist/build 仍然失败。可能原因：" >&2
+  echo "  1. 仍有 Runbi Helper 进程在运行 → pkill -f 'Runbi Helper'" >&2
+  echo "  2. Finder 中已打开 dist/ 窗口 → 关闭 Finder 中此目录窗口" >&2
+  echo "  3. 文件权限问题 → ls -la@ dist build 看 ACL/xattr" >&2
+  echo "  手动清理后重试：rm -rf build dist && bash $0" >&2
+  exit 1
+fi
 mkdir -p dist
 
 # —— 调用 PyInstaller —— #
