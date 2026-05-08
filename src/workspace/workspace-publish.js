@@ -193,6 +193,16 @@ function _bindPublishEvents() {
       const article = state.articleBundle[idx];
       if (!article) return;
       article.meta = { ...article.meta, publishEnabled: target.checked };
+
+      // 39th 续³ Batch 8 · Bug 1 修复：勾选时同步更新 currentArticleIndex。
+      // 浮球 PULL strip 按钮不传 articleId（[wechat-editor-helper.js#1362] sendMessage
+      // 不带 payload），workspace `_buildPullReadyPayload` fallback 用 currentArticleIndex
+      // 选篇。不同步的话用户在「发布」页勾第 N 篇，但浮球 PULL 拉的还是 bundle[0]
+      // （或上次「编辑排版」页看的那篇），与用户期望不符——表现为「推送的是旧草稿没更新」。
+      // 只在勾选=true 时更新，取消勾选不动；多篇都勾选时取最后勾的那个（符合 LRU 直觉）。
+      if (target.checked && Number.isFinite(idx) && idx >= 0 && idx < state.articleBundle.length) {
+        state.currentArticleIndex = idx;
+      }
       _ctx.schedulePersist();
       renderPublishArticleList();
     });

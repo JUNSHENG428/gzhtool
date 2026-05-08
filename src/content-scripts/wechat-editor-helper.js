@@ -940,6 +940,11 @@
     STATE.result = result;
 
     // 38th 续 14：写入 lastSyncRecord 给后续 toast / banner / 浮球 tooltip 三层视觉反馈
+    // 39th 续³ Batch 8：PULL 通道（用户主动点浮球）每次强制显示 banner，跳过 30min cooldown——
+    // cooldown 只对老的"自动同步"通道有意义；浮球 PULL 是用户**主动操作**且**容易拉错篇**
+    // （若 workspace currentArticleIndex 与「发布」页勾选篇不同步会拉到错的 bundle[0]），
+    // 必须每次都让用户看到"当前是哪篇"反馈，否则用户在 mp 编辑器里看到的内容跟期望不符
+    // 时不自知就直接保存草稿了（Bug 报告: 推送的是旧草稿没自动更新）。
     if (result.bodyWritten || result.titleWritten) {
       STATE.lastSyncRecord = {
         title: String(payload.meta?.title || "").trim() || "未命名",
@@ -949,11 +954,9 @@
         bodyChars: Number(payload?.bundle?.bodyChars || 0),
         syncedAt: Number(payload?.bundle?.syncedAt || Date.now())
       };
-      // 顶部常驻 banner（用户手动关闭过且在冷却期内时跳过，避免烦扰）
-      const dismissCooldown = Date.now() - STATE.lastSyncBannerDismissedAt;
-      if (dismissCooldown > SYNC_BANNER_DISMISS_COOLDOWN_MS) {
-        renderSyncBanner(STATE.lastSyncRecord);
-      }
+      // 强制重置 dismissedAt 让 banner 必现
+      STATE.lastSyncBannerDismissedAt = 0;
+      renderSyncBanner(STATE.lastSyncRecord);
     }
     renderHelperDock(result);
     return result;
