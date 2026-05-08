@@ -130,11 +130,82 @@ class HelperApp:
         self.var_allow_private = tk.BooleanVar(value=False)
         self.var_token_display = tk.StringVar(value=self._mask_token(self._auth_token))
 
+        self._build_menubar()
         self._build_ui()
+        self._bind_shortcuts()
+        self._render_log_welcome()
         self._poll_log_queue()
 
         # —— 启动时异步检查更新 —— #
         check_for_update_async(self._on_update_info)
+
+    # ————————————————————————————————————————————————————
+    #  菜单栏 + 快捷键（39th 续³ Batch 11 · macOS 原生感关键信号）
+    # ————————————————————————————————————————————————————
+    def _build_menubar(self) -> None:
+        """跨平台菜单栏。macOS 上自动出现在屏幕顶端 Menu Bar，
+        windows / linux 出现在窗口顶部。这是 mac native app 的关键信号——
+        没有菜单栏的 GUI 在 macOS 上一眼就「不像系统应用」。"""
+        menubar = tk.Menu(self.root)
+
+        # 文件菜单
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(
+            label="启动 helper", accelerator=self._accel_label("R"),
+            command=self._on_start
+        )
+        file_menu.add_command(
+            label="停止 helper", accelerator=self._accel_label("."),
+            command=self._on_stop
+        )
+        file_menu.add_separator()
+        file_menu.add_command(
+            label="复制 helper 地址", accelerator=self._accel_label("C"),
+            command=self._copy_helper_url
+        )
+        file_menu.add_command(label="重置 token", command=self._regenerate_token)
+        if sys.platform != "darwin":
+            # macOS 自动有 Quit；其它平台手动加
+            file_menu.add_separator()
+            file_menu.add_command(
+                label="退出", accelerator=self._accel_label("Q"),
+                command=self._on_close
+            )
+        menubar.add_cascade(label="文件", menu=file_menu)
+
+        # 查看菜单
+        view_menu = tk.Menu(menubar, tearoff=0)
+        view_menu.add_command(
+            label="清空日志", accelerator=self._accel_label("L"),
+            command=self._clear_log
+        )
+        view_menu.add_command(label="打开日志目录", command=self._open_log_folder)
+        view_menu.add_separator()
+        view_menu.add_command(label="一键自检", command=self._run_self_check)
+        menubar.add_cascade(label="查看", menu=view_menu)
+
+        # 帮助菜单
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label="检查更新", command=self._manual_check_update)
+        help_menu.add_separator()
+        help_menu.add_command(label="关于润笔助手", command=self._show_about)
+        menubar.add_cascade(label="帮助", menu=help_menu)
+
+        self.root.config(menu=menubar)
+
+    def _bind_shortcuts(self) -> None:
+        """绑定快捷键（mac ⌘ / win/linux Ctrl）。bind_all 让快捷键在
+        任意子控件 focus 时也响应（除非子控件自己捕获，比如日志窗 ⌘C 复制）。"""
+        mod = "Command" if sys.platform == "darwin" else "Control"
+        self.root.bind_all(f"<{mod}-r>", lambda _e: self._on_start())
+        self.root.bind_all(f"<{mod}-period>", lambda _e: self._on_stop())
+        self.root.bind_all(f"<{mod}-l>", lambda _e: self._clear_log())
+        # ⌘C 不绑——会与 ScrolledText 默认复制冲突，让用户从菜单点
+
+    @staticmethod
+    def _accel_label(key: str) -> str:
+        """菜单加速键标签：mac 显示 ⌘R / win 显示 Ctrl+R"""
+        return f"⌘{key}" if sys.platform == "darwin" else f"Ctrl+{key}"
 
     # ————————————————————————————————————————————————————
     #  UI 构建
@@ -216,8 +287,14 @@ class HelperApp:
             textvariable=self.var_token_display,
             foreground=theme.TEXT_SECONDARY,
         ).grid(row=0, column=1, sticky="ew", padx=4, pady=6)
+        # 39th 续³ Batch 11：眼睛 toggle 显示/隐藏完整 token，方便 debug 时核对（默认 mask）
+        self._token_visible = False
+        self._token_eye_btn = ttk.Button(
+            sec, text="👁", width=3, command=self._toggle_token_visibility
+        )
+        self._token_eye_btn.grid(row=0, column=2, sticky="e", padx=(0, 4), pady=6)
         ttk.Button(sec, text="重置 token", command=self._regenerate_token).grid(
-            row=0, column=2, sticky="e", padx=8, pady=6
+            row=0, column=3, sticky="e", padx=8, pady=6
         )
         self._token_hint_label = ttk.Label(
             sec,
@@ -227,27 +304,31 @@ class HelperApp:
             justify="left",
         )
         self._token_hint_label.grid(
-            row=1, column=0, columnspan=3, sticky="ew", padx=8, pady=(0, 6)
+            row=1, column=0, columnspan=4, sticky="ew", padx=8, pady=(0, 6)
         )
 
-        # 启停按钮
+        # 启停按钮（39th 续³ Batch 11 · 主操作 Primary 样式突出，副操作 ghost 样式）
         actions = ttk.Frame(self.root, style="Main.TFrame")
         actions.pack(fill="x", **pad)
-        self._start_btn = ttk.Button(actions, text="启动 helper", command=self._on_start)
+        self._start_btn = ttk.Button(
+            actions, text="▶ 启动 helper",
+            style="Primary.TButton",
+            command=self._on_start
+        )
         self._start_btn.pack(side="left")
         self._stop_btn = ttk.Button(
-            actions, text="停止", command=self._on_stop, state="disabled"
+            actions, text="■ 停止", command=self._on_stop, state="disabled"
         )
         self._stop_btn.pack(side="left", padx=(8, 0))
         ttk.Button(
-            actions, text="一键自检", command=self._run_self_check
+            actions, text="🩺 一键自检", command=self._run_self_check
         ).pack(side="left", padx=(8, 0))
 
         ttk.Button(
-            actions, text="打开日志目录", command=self._open_log_folder
+            actions, text="📂 日志目录", command=self._open_log_folder
         ).pack(side="right")
         ttk.Button(
-            actions, text="检查更新", command=self._manual_check_update
+            actions, text="🔄 检查更新", command=self._manual_check_update
         ).pack(side="right", padx=(0, 8))
 
         # 底部：日志窗（pack 填满 LabelFrame 客户区，跨 Tk 版本最稳）
@@ -266,6 +347,14 @@ class HelperApp:
             borderwidth=0,
         )
         self._log_text.pack(fill="both", expand=True, padx=6, pady=6)
+
+        # 39th 续³ Batch 11：日志窗 INFO/WARN/ERROR 不同色 tag——
+        # 用户运维时一眼锁定红色 ERROR 行，比"全黑文本里 grep 关键词"快 10 倍
+        self._log_text.tag_configure("INFO", foreground=theme.LOG_INFO)
+        self._log_text.tag_configure("WARN", foreground=theme.LOG_WARN, font=theme.log_mono_font())
+        self._log_text.tag_configure("ERROR", foreground=theme.LOG_ERROR, font=(theme.log_mono_font()[0], theme.log_mono_font()[1], "bold"))
+        self._log_text.tag_configure("DEBUG", foreground=theme.LOG_DEBUG)
+        self._log_text.tag_configure("WELCOME", foreground=theme.TEXT_HINT)
 
         # 状态栏
         bar = ttk.Frame(self.root, style="Main.TFrame")
@@ -320,7 +409,9 @@ class HelperApp:
 
         self._is_busy = True
         self._start_btn.configure(state="disabled")
-        self._set_status("正在启动 …", theme.STATUS_BUSY)
+        # 39th 续³ Batch 11：进度文案强化——用户最常困惑的是"为什么点了启动还要等几秒"，
+        # 明确说出"正在加载浏览器内核（首次约 10s）"让用户安心等待
+        self._set_status("正在加载浏览器内核（首次约 10s）...", theme.STATUS_BUSY)
 
         # 启动放线程（避免 DrissionPage 懒加载阻塞 UI）
         def _runner() -> None:
@@ -635,7 +726,11 @@ class HelperApp:
 
     def _append_log(self, line: str) -> None:
         self._log_text.configure(state="normal")
-        self._log_text.insert("end", line + "\n")
+        # 39th 续³ Batch 11：根据 logging 级别 token 选 tag（INFO/WARN/ERROR/DEBUG）
+        # _setup_logging 用的格式是 "[%(asctime)s] %(levelname)s %(message)s"
+        # 所以可靠地从 line 里提取级别名（比 contains 关键词更精确）
+        tag = self._classify_log_line(line)
+        self._log_text.insert("end", line + "\n", tag)
         # 简单封顶，避免长时间运行后内存爆掉
         line_count = int(self._log_text.index("end-1c").split(".")[0])
         if line_count > 500:
@@ -643,9 +738,75 @@ class HelperApp:
         self._log_text.see("end")
         self._log_text.configure(state="disabled")
 
+    @staticmethod
+    def _classify_log_line(line: str) -> str:
+        """从 '[2026-05-09 10:00:00,123] LEVEL message' 提级别名映射到日志 tag。"""
+        # 跳过时间戳找级别名（line 形如 "[...] INFO 启动 ..."）
+        rb = line.find("] ")
+        if rb < 0:
+            return "INFO"
+        rest = line[rb + 2:]
+        if rest.startswith("ERROR") or rest.startswith("CRITICAL"):
+            return "ERROR"
+        if rest.startswith("WARN"):
+            return "WARN"
+        if rest.startswith("DEBUG"):
+            return "DEBUG"
+        return "INFO"
+
     def _set_status(self, text: str, color: str) -> None:
         self.var_status.set(text)
         self._draw_status_dot(color)
+
+    # ————————————————————————————————————————————————————
+    #  39th 续³ Batch 11 · 新方法
+    # ————————————————————————————————————————————————————
+    def _render_log_welcome(self) -> None:
+        """启动时日志窗显示空状态引导，避免一片空白让新用户不知点哪。"""
+        accel_r = self._accel_label("R")
+        msg = (
+            "─" * 56 + "\n"
+            f"  欢迎使用润笔桌面助手 · v{__version__}\n"
+            "\n"
+            f"  按 {accel_r} 或点上方「▶ 启动 helper」开始服务\n"
+            "  首次启动会下载 Chromium 浏览器内核（约 10 秒）\n"
+            "\n"
+            "  · 启动后扩展端就能通过 helper 抓取需登录态的网页\n"
+            "  · 任何异常都会以红色 ERROR 行显示在本日志窗\n"
+            "  · 出问题时点「🩺 一键自检」生成报告贴给客服\n"
+            + "─" * 56 + "\n"
+        )
+        self._log_text.configure(state="normal")
+        self._log_text.insert("end", msg, "WELCOME")
+        self._log_text.configure(state="disabled")
+
+    def _clear_log(self) -> None:
+        self._log_text.configure(state="normal")
+        self._log_text.delete("1.0", "end")
+        self._log_text.configure(state="disabled")
+        self._render_log_welcome()
+        logging.info("日志窗已清空")
+
+    def _show_about(self) -> None:
+        messagebox.showinfo(
+            "关于润笔助手",
+            f"{APP_NAME_ZH} · {APP_NAME_EN}\n"
+            f"v{__version__}\n\n"
+            "DrissionPage 抓取通道，本地 helper（127.0.0.1）\n"
+            "服务于浏览器扩展端，需登录态网页 → drissionpage 内核加载 → 返回正文\n\n"
+            f"日志: {app_log_dir() / 'helper.log'}\n"
+            f"配置: {app_config_dir()}",
+        )
+
+    def _toggle_token_visibility(self) -> None:
+        """眼睛 toggle：默认 mask（4字+...+4字）；点击切到完整显示，再点切回。"""
+        self._token_visible = not self._token_visible
+        if self._token_visible:
+            self.var_token_display.set(self._auth_token or "（未生成）")
+            self._token_eye_btn.configure(text="🙈")
+        else:
+            self.var_token_display.set(self._mask_token(self._auth_token))
+            self._token_eye_btn.configure(text="👁")
 
     # ————————————————————————————————————————————————————
     #  入口

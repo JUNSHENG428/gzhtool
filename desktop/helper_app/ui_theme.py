@@ -22,11 +22,25 @@ BG_WINDOW = "#f7f5ef"
 BG_LOG = "#fffdf8"
 BG_CANVAS = BG_WINDOW
 
-# —— 语义状态（与既有 gui 行为一致：灰/黄/绿/红）——
+# —— 品牌色（与 design-tokens --brand / --brand-hover / --on-brand-warm 对齐）——
+# 用于 Primary.TButton 突出主操作（启动 helper），副操作仍用默认 ttk.TButton
+BRAND = "#173722"
+BRAND_HOVER = "#1f4a2e"
+ON_BRAND = "#f0d4b0"
+
+# —— 语义状态（39th 续³ Batch 11：与扩展端 design-tokens.css --state-* 完全对齐）——
+# 之前用 #fbbf24/#10b981/#ef4444 是 Tailwind 默认色，与扩展视觉脱节；
+# 改用项目调色板让 desktop / 扩展 / 网站三端状态色统一感成立。
 STATUS_IDLE = "#9ca3af"
-STATUS_BUSY = "#fbbf24"
-STATUS_OK = "#10b981"
-STATUS_ERR = "#ef4444"
+STATUS_BUSY = "#b87514"  # design-tokens --state-warning
+STATUS_OK = "#2e7d4f"    # design-tokens --state-success
+STATUS_ERR = "#b94540"   # design-tokens --state-danger
+
+# —— 日志 tag 配色（39th 续³ Batch 11：日志窗 INFO/WARN/ERROR 不同色让运维一眼锁定问题）——
+LOG_INFO = TEXT_PRIMARY
+LOG_WARN = STATUS_BUSY
+LOG_ERROR = STATUS_ERR
+LOG_DEBUG = TEXT_HINT
 
 # —— 间距（与 8px 栅格一致）——
 PAD_OUTER = {"padx": 12, "pady": 8}
@@ -96,6 +110,24 @@ def apply_ttk_style(root) -> object:
         pass
 
     style.configure("TButton", padding=(10, 6))
+
+    # 39th 续³ Batch 11：Primary.TButton 突出主操作（启动 helper / 重要 confirm 按钮）。
+    # 副操作（停止 / 自检 / 打开日志目录 / 检查更新）保持默认 TButton（ghost 样式），
+    # 让用户视线第一时间锁定主操作——production-quality UI 的「视觉层级」基础。
+    style.configure(
+        "Primary.TButton",
+        background=BRAND,
+        foreground=ON_BRAND,
+        padding=(14, 8),
+        borderwidth=0,
+        focusthickness=0,
+    )
+    style.map(
+        "Primary.TButton",
+        background=[("active", BRAND_HOVER), ("disabled", "#9ca39c")],
+        foreground=[("disabled", "#dcdcdc")],
+    )
+
     style.configure("TCheckbutton", background=BG_LOG, foreground=TEXT_PRIMARY)
     style.map(
         "TCheckbutton",
