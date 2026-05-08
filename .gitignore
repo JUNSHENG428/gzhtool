@@ -38,3 +38,9 @@ memory-bank/*
 memory-bank/.*
 # 例外：reflexes.md 是项目级踩坑沉淀（21 反例约定 + 30 模式约定），属可被新协作者读的项目文档，入版本库
 !memory-bank/reflexes.md
+
+# Journey 测试 artifact（scripts/check-journey.mjs 每次跑覆盖，不该跟版本走）
+docs/JOURNEY_REPORT.md
+
+# Claude Code 个人偏好（项目级 .claude/launch.json 等仍可 commit）
+.claude/settings.local.json
