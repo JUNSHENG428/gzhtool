@@ -284,8 +284,24 @@ function renderWebEditorSyncResult() {
       "网页编辑器辅助模式会把当前篇尝试写入 `mp.weixin.qq.com/cgi-bin/appmsg`。自动失败时，编辑页右下角会出现回退助手。";
     return;
   }
+  // 39th 续³ Batch 7 · Bug 2 · 状态卡入口与「mp 浮球 PULL」语义解耦标记：
+  // 此卡只在用户主动点「💬 同步到公众号编辑页」按钮（syncCurrentToWebEditor）后更新；
+  // mp 浮球 PULL（_buildPullReadyPayload + 浮球 toast「已同步...来自润笔」）走另一条流程
+  // 不更新此 state。如果 syncedAt 距今 > 5 分钟，加陈旧标记，避免用户混淆「为什么浮球 toast
+  // 显示成功，但状态卡还是『未完成』」（实际是上次主动同步留下的旧结果）。
+  const syncedTs = Date.parse(state.lastWebSyncResult.syncedAt);
+  const ageMs = Number.isFinite(syncedTs) ? Date.now() - syncedTs : 0;
+  const isStale = ageMs > 5 * 60 * 1000;
   const syncedAt = new Date(state.lastWebSyncResult.syncedAt).toLocaleString("zh-CN");
-  const lines = [
+  const lines = [];
+  if (isStale) {
+    lines.push(
+      `<em style="color:#7a6f62;">这是 ${formatRelativeAge(ageMs)} 前主动「💬 同步到公众号编辑页」的结果。</em>`,
+      `<em style="color:#7a6f62;">如果你刚通过 mp 浮球拉过新草稿，浮球 toast「已同步…」才是当前操作的最终状态——本卡片不会随浮球 PULL 更新。</em>`,
+      ""
+    );
+  }
+  lines.push(
     `<strong>网页编辑器同步结果</strong>`,
     `标题：${escapeHtml(state.lastWebSyncResult.articleTitle || "")}`,
     `页面：${escapeHtml(state.lastWebSyncResult.pageUrl || WECHAT_WEB_EDITOR_URL)}`,
@@ -293,11 +309,24 @@ function renderWebEditorSyncResult() {
     `摘要写入：${state.lastWebSyncResult.digestWritten ? "成功" : "未完成"}`,
     `正文写入：${state.lastWebSyncResult.bodyWritten ? "成功" : "未完成"}`,
     `时间：${escapeHtml(syncedAt)}`
-  ];
+  );
   if (state.lastWebSyncResult.message) {
     lines.push(`说明：${escapeHtml(state.lastWebSyncResult.message)}`);
   }
   view.webEditorSyncResult.innerHTML = lines.join("<br />");
+}
+
+// 39th 续³ Batch 7 · 相对时间格式化（用于状态卡陈旧标记）
+function formatRelativeAge(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "刚刚";
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec} 秒`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min} 分钟`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} 小时`;
+  const day = Math.floor(hr / 24);
+  return `${day} 天`;
 }
 
 // ── 预览 / 输出 ──

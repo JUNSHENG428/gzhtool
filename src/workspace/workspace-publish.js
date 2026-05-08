@@ -741,8 +741,15 @@ async function _buildPullReadyPayload(articleId = "") {
     throw err;
   }
 
+  // 39th 续³ Batch 7 · Bug 1 · 反例约定第 16 条第二条入口漏修：
+  // mp contenteditable 注入路径不能走 prepareHtmlForWechat（会苛刻 unwrap section/figure
+  // 导致图片承载结构丢失，contenteditable 重解析时图片消失 / 段落被 fold）。
+  // 38th 续 12 已在 syncCurrentToWebEditor revert 过同样的事（line 932-941），但 mp 浮球
+  // PULL 这条入口（_buildPullReadyPayload）漏修——两条入口语义同源（都走 mp 编辑器
+  // contenteditable 注入），HTML 处理必须一致。
+  // content-script wechat-editor-helper.sanitizeHtml 已是独立 sanitize 层兜底。
   const themedHtml = buildExportHtmlForArticle(article);
-  const sanitizedHtml = prepareHtmlForWechat(themedHtml);
+  const sanitizedHtml = themedHtml;
 
   // 解析 article 关联的 wechatProfile（v0.2 profile 联动完整版）。
   // article.meta.targetProfileIndex 由 collectCurrentArticleMeta 自动跟 wechatProfileSelect 同步。
