@@ -653,6 +653,10 @@ class HelperHandler(BaseHTTPRequestHandler):
                     "data": capture,
                 },
             )
+            # 39th 续³ Batch 14 (A3 自动归档)：抓取成功后归档到 ~/Documents/Runbi/Inbox/
+            # 永不抛错（archive 内部已 try-except），不阻塞主响应（已先 _write_json）
+            from .archive import archive_capture
+            archive_capture(capture, source_url=url)
         except PermissionError as exc:
             # 私网/本机地址被拦截
             self._write_json(
@@ -740,6 +744,12 @@ class ServerController:
     @property
     def is_running(self) -> bool:
         return self._server is not None
+
+    @property
+    def runtime(self) -> Optional["DrissionRuntime"]:
+        """39th 续³ Batch 14 (B5)：暴露 runtime 给 GUI 批量抓取复用同一浏览器实例。
+        helper 没启动时返 None，GUI 端必须先 ensure helper running 再调 .scrape。"""
+        return self._runtime
 
     def start(self) -> None:
         if self.is_running:

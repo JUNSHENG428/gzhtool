@@ -180,6 +180,12 @@ class HelperApp:
             command=self._clear_log
         )
         view_menu.add_command(label="打开日志目录", command=self._open_log_folder)
+        # 39th 续³ Batch 14 (A3)：Inbox 入口让用户能看到抓取归档
+        view_menu.add_command(
+            label="打开 Inbox（抓取归档）",
+            accelerator=self._accel_label("I"),
+            command=self._open_inbox_folder,
+        )
         view_menu.add_separator()
         view_menu.add_command(label="一键自检", command=self._run_self_check)
         menubar.add_cascade(label="查看", menu=view_menu)
@@ -200,6 +206,7 @@ class HelperApp:
         self.root.bind_all(f"<{mod}-r>", lambda _e: self._on_start())
         self.root.bind_all(f"<{mod}-period>", lambda _e: self._on_stop())
         self.root.bind_all(f"<{mod}-l>", lambda _e: self._clear_log())
+        self.root.bind_all(f"<{mod}-i>", lambda _e: self._open_inbox_folder())
         # ⌘C 不绑——会与 ScrolledText 默认复制冲突，让用户从菜单点
 
     @staticmethod
@@ -322,6 +329,10 @@ class HelperApp:
         self._stop_btn.pack(side="left", padx=(8, 0))
         ttk.Button(
             actions, text="🩺 一键自检", command=self._run_self_check
+        ).pack(side="left", padx=(8, 0))
+        # 39th 续³ Batch 14 (B5)：批量抓取入口
+        ttk.Button(
+            actions, text="📋 批量抓取", command=self._open_batch_scrape_dialog
         ).pack(side="left", padx=(8, 0))
 
         ttk.Button(
@@ -661,7 +672,24 @@ class HelperApp:
         return ""
 
     def _open_log_folder(self) -> None:
-        path = app_log_dir()
+        self._open_folder(app_log_dir(), "日志目录")
+
+    def _open_inbox_folder(self) -> None:
+        """39th 续³ Batch 14 (A3)：打开抓取归档目录 ~/Documents/Runbi/Inbox/。
+        首次打开会自动创建（archive.py inbox_dir 内部 mkdir parents=True）。
+        """
+        from .archive import inbox_dir
+
+        try:
+            path = inbox_dir()
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showinfo("Inbox 不可用", f"无法定位归档目录：{exc}")
+            return
+        self._open_folder(path, "Inbox 归档目录")
+
+    @staticmethod
+    def _open_folder(path, label: str) -> None:
+        """跨平台用系统 Finder/Explorer/xdg-open 打开目录"""
         try:
             if sys.platform == "darwin":
                 import subprocess  # noqa: WPS433
@@ -676,7 +704,7 @@ class HelperApp:
 
                 subprocess.Popen(["xdg-open", str(path)])
         except Exception as exc:  # noqa: BLE001
-            messagebox.showinfo("日志路径", f"日志目录：\n{path}\n\n打开失败：{exc}")
+            messagebox.showinfo(label, f"目录：\n{path}\n\n打开失败：{exc}")
 
     # ————————————————————————————————————————————————————
     #  更新检查
@@ -797,6 +825,179 @@ class HelperApp:
             f"日志: {app_log_dir() / 'helper.log'}\n"
             f"配置: {app_config_dir()}",
         )
+
+    # ────────── 39th 续³ Batch 14 (B5) · 批量抓取 ────────── #
+    def _open_batch_scrape_dialog(self) -> None:
+        """弹出批量抓取 modal：粘贴多 URL → 串行抓 → 归档到 Inbox。"""
+        if self._controller is None or not self._controller.is_running:
+            messagebox.showwarning(
+                "helper 未启动",
+                "批量抓取需要 helper 已经启动（共享同一个浏览器实例避免反复加载内核）。\n"
+                "请先点「▶ 启动 helper」或按 ⌘R 后重试。",
+            )
+            return
+        if getattr(self, "_batch_running", False):
+            messagebox.showinfo("批量抓取进行中", "已有一个批量任务在跑，请等它完成或取消后再开新任务。")
+            return
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("批量抓取")
+        dlg.transient(self.root)
+        dlg.geometry("560x440")
+        dlg.minsize(480, 360)
+        dlg.configure(background=theme.BG_WINDOW)
+
+        ttk.Label(
+            dlg,
+            text="把要抓的 URL 每行一个粘贴到下方。helper 会依次抓取并归档到 Inbox。",
+            wraplength=520,
+            foreground=theme.TEXT_SECONDARY,
+            justify="left",
+        ).pack(fill="x", padx=14, pady=(14, 6))
+
+        ttk.Label(
+            dlg,
+            text="支持 http(s) 公开页面；需登录态的网站请确认浏览器内核已登录后再批量。",
+            wraplength=520,
+            foreground=theme.TEXT_HINT,
+            justify="left",
+        ).pack(fill="x", padx=14, pady=(0, 8))
+
+        text_frame = ttk.Frame(dlg)
+        text_frame.pack(fill="both", expand=True, padx=14, pady=4)
+        text_box = scrolledtext.ScrolledText(
+            text_frame,
+            height=12,
+            font=theme.log_mono_font(),
+            wrap="none",
+            background=theme.BG_LOG,
+            foreground=theme.TEXT_PRIMARY,
+            insertbackground=theme.TEXT_PRIMARY,
+            highlightthickness=0,
+            borderwidth=1,
+        )
+        text_box.pack(fill="both", expand=True)
+        text_box.focus_set()
+
+        # 底部按钮
+        btn_row = ttk.Frame(dlg, style="Main.TFrame")
+        btn_row.pack(fill="x", padx=14, pady=10)
+
+        def _start() -> None:
+            raw = text_box.get("1.0", "end").strip()
+            urls = [
+                u.strip() for u in raw.splitlines()
+                if u.strip() and not u.strip().startswith("#")
+            ]
+            if not urls:
+                messagebox.showwarning("没有 URL", "请粘贴至少一个 URL（每行一个）后重试。", parent=dlg)
+                return
+            if len(urls) > 50:
+                if not messagebox.askyesno(
+                    "URL 过多",
+                    f"你粘贴了 {len(urls)} 个 URL。串行抓取 50+ 篇可能要 5-10 分钟，"
+                    "中途网络抖动会失败。\n确认继续？",
+                    parent=dlg,
+                ):
+                    return
+            dlg.destroy()
+            self._run_batch_scrape(urls)
+
+        ttk.Button(btn_row, text="开始抓取", style="Primary.TButton", command=_start).pack(
+            side="right"
+        )
+        ttk.Button(btn_row, text="取消", command=dlg.destroy).pack(
+            side="right", padx=(0, 8)
+        )
+
+    def _run_batch_scrape(self, urls: list) -> None:
+        """串行抓取 + 进度提示 + 归档到 Inbox。后台线程跑，主线程更新 UI。"""
+        from .archive import archive_capture, inbox_dir
+
+        runtime = self._controller.runtime if self._controller else None
+        if runtime is None:
+            messagebox.showerror("helper 未启动", "请先启动 helper 再批量抓取。")
+            return
+
+        self._batch_running = True
+        self._batch_cancel = False
+        total = len(urls)
+        results = {"ok": 0, "fail": 0, "files": []}
+
+        # 进度状态条改 status 文字
+        original_status = self.var_status.get()
+        original_color = theme.STATUS_BUSY  # 简化：批量抓取期间用 busy 色
+
+        def _update(i: int, ok: bool, url: str) -> None:
+            tag = "✓" if ok else "✗"
+            short = url if len(url) <= 50 else url[:47] + "..."
+            self._set_status(f"批量抓取 {i}/{total} {tag}  {short}", theme.STATUS_BUSY)
+
+        def _runner() -> None:
+            for i, url in enumerate(urls, 1):
+                if self._batch_cancel:
+                    self.root.after(0, lambda: logging.info("[batch] 用户取消批量抓取"))
+                    break
+                self.root.after(0, _update, i, True, url)
+                try:
+                    capture = runtime.scrape(url, "auto", DEFAULT_TIMEOUT_MS)
+                    path = archive_capture(capture, source_url=url)
+                    if path:
+                        results["ok"] += 1
+                        results["files"].append(str(path.name))
+                    else:
+                        results["fail"] += 1
+                    self.root.after(0, lambda u=url, p=path: logging.info(
+                        "[batch] ✓ %s → %s", u, (p.name if p else "未归档")
+                    ))
+                except Exception as exc:  # noqa: BLE001
+                    results["fail"] += 1
+                    self.root.after(0, lambda u=url, e=exc: logging.error(
+                        "[batch] ✗ %s : %s", u, e
+                    ))
+            self.root.after(0, self._on_batch_done, results, total, original_status)
+
+        threading.Thread(target=_runner, daemon=True, name="helper-batch").start()
+        logging.info("[batch] 开始批量抓取 %d 个 URL", total)
+
+    def _on_batch_done(self, results: dict, total: int, original_status: str) -> None:
+        from .archive import inbox_dir
+
+        self._batch_running = False
+        ok = results.get("ok", 0)
+        fail = results.get("fail", 0)
+        # 状态色按结果
+        if fail == 0:
+            self._set_status(f"✓ 批量抓取完成 {ok}/{total}", theme.STATUS_OK)
+        elif ok == 0:
+            self._set_status(f"✗ 批量抓取全部失败 {fail}/{total}", theme.STATUS_ERR)
+        else:
+            self._set_status(f"⚠ 批量抓取 {ok} 成功 / {fail} 失败", theme.STATUS_BUSY)
+        logging.info("[batch] 完成：成功 %d / 失败 %d / 共 %d", ok, fail, total)
+
+        if messagebox.askyesno(
+            "批量抓取完成",
+            f"成功：{ok} 篇\n失败：{fail} 篇\n共：{total} 篇\n\n"
+            f"已归档到：\n{inbox_dir()}\n\n"
+            "现在打开 Inbox 目录？",
+        ):
+            self._open_inbox_folder()
+        # 5 秒后状态自动复位（除非用户又点了启停）
+        self.root.after(5000, lambda: self._restore_status_if_idle(original_status))
+
+    def _restore_status_if_idle(self, fallback: str) -> None:
+        """批量抓取完成后 5s 把状态行恢复到批量前（避免「批量已完成」长期残留）。"""
+        if not self._is_busy and not getattr(self, "_batch_running", False):
+            cur = self.var_status.get()
+            # 仅当当前还停在批量结果文案时才恢复，避免覆盖用户后续操作的状态
+            if cur.startswith("✓ 批量") or cur.startswith("✗ 批量") or cur.startswith("⚠ 批量"):
+                if self._controller and self._controller.is_running:
+                    self._set_status(
+                        f"运行中 · http://{self.var_host.get()}:{self.var_port.get()}",
+                        theme.STATUS_OK,
+                    )
+                else:
+                    self._set_status("未启动", theme.STATUS_IDLE)
 
     def _toggle_token_visibility(self) -> None:
         """眼睛 toggle：默认 mask（4字+...+4字）；点击切到完整显示，再点切回。"""
