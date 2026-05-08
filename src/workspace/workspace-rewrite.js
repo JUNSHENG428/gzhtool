@@ -155,6 +155,15 @@ export function init(ctx) {
     }
     _selectedTemplateId = value;
     await setActiveTemplateId(value);
+    // 39th 续³ Batch 10：模板有 suggestedTheme 时自动切排版主题。
+    // 用户报：「ai 模板的视觉排版风没出效果，基本是排版主题那里决定的」。
+    // 根因：AI 模板生成器问卷里选的"视觉主题"被存到 template.suggestedTheme，
+    // 但实际改写文章时 workspace 完全不读这个字段——视觉主题永远由 #themeSelect
+    // 下拉决定。原代码只在保存 AI 模板时 toast 文案口头让用户「去编辑台手动切到 X」，
+    // 用户经常没看 toast / 没耐心切，导致模板的视觉风格永远出不来。
+    // 修法：用户切模板时自动应用其 suggestedTheme（保留 escape hatch—— 显式 toast
+    // 告知"已自动切"+ 老主题名，用户想换随时点 #themeSelect 手动切回）。
+    applyTemplateSuggestedTheme(value);
   });
 
   document
@@ -178,8 +187,54 @@ async function openAiGenTemplateFlow() {
       _templates = next;
       _selectedTemplateId = template.id;
       renderTemplateOptions();
+      // 39th 续³ Batch 10：AI 生成模板保存后也自动应用 suggestedTheme
+      // （这是用户填问卷选 visualTheme 的最直接路径——刚保存就立即看到视觉效果，
+      // 而不是等下次手动切模板）
+      applyTemplateSuggestedTheme(template.id);
     }
   });
+}
+
+/**
+ * 39th 续³ Batch 10 · 切模板时自动应用模板推荐的排版主题（suggestedTheme）。
+ *
+ * 设计要点：
+ *   - 只在用户主动 change template 时切 theme（不在 hydrate / restore 时切，
+ *     避免每次进 workspace 都强制覆盖用户上次手选的主题）
+ *   - 已经是同主题时直接 return（避免重复 toast）
+ *   - 检查 themeSelect 里有这个 option 才切（防 suggestedTheme 是已废弃的 id）
+ *   - 触发 themeSelect 'change' 事件让现有 applyTheme listener 自然处理
+ *   - toast 包含旧主题名 + 新主题名，让用户知道发生了什么 + 怎么切回
+ */
+function applyTemplateSuggestedTheme(templateId) {
+  if (!templateId) return;
+  const tpl = _templates.find((t) => t.id === templateId);
+  const suggestedThemeId = String(tpl?.suggestedTheme || "").trim();
+  if (!suggestedThemeId) return;
+
+  const themeSelectEl = document.querySelector("#themeSelect");
+  if (!themeSelectEl) return;
+  if (themeSelectEl.value === suggestedThemeId) return; // 已经是了
+
+  const optionExists = Array.from(themeSelectEl.options).some(
+    (o) => o.value === suggestedThemeId
+  );
+  if (!optionExists) return; // suggestedTheme 已废弃 / option 不在
+
+  const oldOpt = themeSelectEl.options[themeSelectEl.selectedIndex];
+  const oldLabel = oldOpt?.textContent?.trim() || themeSelectEl.value;
+
+  themeSelectEl.value = suggestedThemeId;
+  themeSelectEl.dispatchEvent(new Event("change", { bubbles: true }));
+
+  const newOpt = themeSelectEl.options[themeSelectEl.selectedIndex];
+  const newLabel = newOpt?.textContent?.trim() || suggestedThemeId;
+
+  const setStatus = _ctx?.setStatus || (() => {});
+  setStatus(
+    `已切到模板「${tpl.name}」推荐的「${newLabel}」排版（原「${oldLabel}」）。如需切回，请用顶部「排版主题」下拉手动选。`,
+    "info"
+  );
 }
 
 async function hydrateTemplatePicker() {
