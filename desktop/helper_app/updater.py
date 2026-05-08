@@ -13,7 +13,7 @@ import re
 import threading
 from dataclasses import dataclass
 from typing import Callable, Optional
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .config import GITHUB_RELEASE_REPO, RELEASE_TAG_PREFIX
@@ -68,6 +68,29 @@ def check_for_update_sync(timeout_sec: float = 5.0) -> UpdateInfo:
     try:
         with urlopen(req, timeout=timeout_sec) as resp:
             payload = json.loads(resp.read().decode("utf-8") or "[]")
+    except HTTPError as exc:
+        # 39th 续³ Batch 12：区分 HTTP 状态码给精确文案，不再统一显示
+        # 「网络请求失败：HTTP Error 404: Not Found」吓用户。
+        # GitHub 对未认证访问 private repo 返 404（不是 403），这是标准行为；
+        # repo 公开但无 release 会返 []，不会到这里。
+        if exc.code == 404:
+            return UpdateInfo(
+                has_update=False,
+                current=__version__,
+                error="暂无 helper 发版源（仓库尚未公开发布或未发任何 release）。",
+            )
+        if exc.code == 403:
+            # API rate limit（未认证 60 次/小时）
+            return UpdateInfo(
+                has_update=False,
+                current=__version__,
+                error="GitHub API 调用频率超限，请稍后再试。",
+            )
+        return UpdateInfo(
+            has_update=False,
+            current=__version__,
+            error=f"GitHub Release API 返回 HTTP {exc.code}",
+        )
     except URLError as exc:
         return UpdateInfo(
             has_update=False, current=__version__, error=f"网络请求失败：{exc}"
