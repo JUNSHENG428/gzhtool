@@ -50,6 +50,7 @@ import {
 } from "../shared/license.js";
 import { lintArticle } from "../shared/humanize-checker.js";
 import { safeScanCompliance, parseCustomComplianceTerms } from "../shared/compliance-checker.js";
+import { applyCachedComplianceRules, refreshRemoteComplianceRules } from "../shared/compliance-remote.js";
 import { runHumanizePass } from "../shared/humanize-pass.js";
 import { getActiveVoiceSample } from "../shared/voice-samples.js";
 import { ensureOptionalHostPermission } from "../shared/host-permissions.js";
@@ -106,6 +107,9 @@ const pendingFloatingBallReady = new Map();
 // 不放在 onInstalled 里，因为冷启动（chrome 已开但 SW 被回收后被消息唤起）
 // 不会触发 onInstalled，但会执行顶层代码。
 void restoreTaskRegistry();
+
+// 合规检测远程词库：先注入缓存（同步快），再异步刷新（24h 节流，失败静默）。
+void applyCachedComplianceRules().then(() => refreshRemoteComplianceRules());
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   await getSettings();

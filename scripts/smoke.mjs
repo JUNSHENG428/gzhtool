@@ -3398,7 +3398,18 @@ console.log("\n运行 compliance-checker 合规检测单测 …");
   const noCustom = scanCompliance("我们比竞品A强。");
   assert(!noCustom.hits.some((h) => h.category === "custom"), "未配置自定义词时不应命中 custom");
 
-  console.log("✓ compliance-checker 10 case（clean/极限词/白名单/手机号/高危/article/容错/自定义×3）");
+  // 9. 远程词库合并（setRemoteComplianceRules）
+  const { setRemoteComplianceRules } = await import("../src/shared/compliance-checker.js");
+  const { COMPLIANCE_REMOTE_RULES } = await import("../server/compliance/rules.js");
+  assert(typeof COMPLIANCE_REMOTE_RULES.version === "number", "远程词库应有数字 version");
+  setRemoteComplianceRules({ literal: COMPLIANCE_REMOTE_RULES.literal, regex: COMPLIANCE_REMOTE_RULES.regex });
+  const merged = scanCompliance("这是全网最低价，看完泪崩。");
+  assert(merged.hits.some((h) => h.term === "全网最低"), "应命中远程词库的全网最低");
+  setRemoteComplianceRules(null); // 复位，避免污染后续断言
+  const reset = scanCompliance("全网最低价");
+  assert(!reset.hits.some((h) => h.term === "全网最低"), "复位后不应再命中远程词");
+
+  console.log("✓ compliance-checker 12 case（+自定义×3 +远程合并）");
 }
 
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

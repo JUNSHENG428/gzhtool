@@ -23,6 +23,17 @@ import {
   severityLevel
 } from "./compliance-rules.js";
 
+// 远程词库（GET /api/compliance/rules 下发，与内置库合并）。模块级单例，
+// 每个 JS realm（SW / 页面）各自 setRemoteComplianceRules 一次。
+let _remoteLiteral = [];
+let _remoteRegex = [];
+
+/** 注入远程下发的规则（compliance-remote.js 拉取/缓存后调用）。传 null 清空。 */
+export function setRemoteComplianceRules(rules) {
+  _remoteLiteral = Array.isArray(rules?.literal) ? rules.literal : [];
+  _remoteRegex = Array.isArray(rules?.regex) ? rules.regex : [];
+}
+
 // ---------------------------------------------------------------------
 // 入口
 // ---------------------------------------------------------------------
@@ -42,8 +53,10 @@ export function scanCompliance(input, options = {}) {
   const hits = [];
 
   if (text) {
-    collectLiteralHits(text, hits);
-    collectRegexHits(text, hits);
+    collectLiteralHits(text, LITERAL_RULES, hits);
+    if (_remoteLiteral.length) collectLiteralHits(text, _remoteLiteral, hits);
+    collectRegexHits(text, REGEX_RULES, hits);
+    if (_remoteRegex.length) collectRegexHits(text, _remoteRegex, hits);
     collectCustomHits(text, options.customTerms, hits);
   }
 
@@ -90,8 +103,8 @@ export function safeScanCompliance(input, options = {}) {
 // 命中收集
 // ---------------------------------------------------------------------
 
-function collectLiteralHits(text, hits) {
-  for (const r of LITERAL_RULES) {
+function collectLiteralHits(text, rules, hits) {
+  for (const r of rules) {
     if (!r.term) continue;
     // 白名单：命中词若整体作为白名单短语出现，粗粒度跳过（减误报，MVP 取舍）
     if (Array.isArray(r.whitelist) && r.whitelist.some((w) => w && text.includes(w))) {
@@ -134,8 +147,8 @@ function collectCustomHits(text, customTerms, hits) {
   }
 }
 
-function collectRegexHits(text, hits) {
-  for (const r of REGEX_RULES) {
+function collectRegexHits(text, rules, hits) {
+  for (const r of rules) {
     let re;
     try {
       re = new RegExp(r.source, r.flags || "g");

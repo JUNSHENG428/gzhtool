@@ -63,6 +63,7 @@ import {
 } from "./abuse/detectors.js";
 // 39th 续³ #9 第二步 · sha256Hex 抽到 server/util/crypto.js（避免 detectors 与 worker 循环依赖）
 import { sha256Hex } from "./util/crypto.js";
+import { COMPLIANCE_REMOTE_RULES } from "./compliance/rules.js";
 // re-export 让 smoke 单测继续从 server/worker.js import（保持兼容）
 export { sendSecurityAlertEmail, buildSecurityAlertContent };
 export {
@@ -186,6 +187,7 @@ export default {
 // ============================================================
 const ROUTES = {
   "GET  /api/health": handleHealth,
+  "GET  /api/compliance/rules": handleComplianceRules,
   "POST /api/register": handleRegister,
   "POST /api/login": handleLogin,
   "GET  /api/me": handleMe,
@@ -224,6 +226,17 @@ for (const key of Object.keys(ROUTES)) {
 // ============================================================
 async function handleHealth() {
   return jsonResponse({ ok: true, ts: Date.now() });
+}
+
+// ============================================================
+// GET /api/compliance/rules · 远程版本化合规词库（公开，无需鉴权）
+// 扩展端按 version 缓存；扫描在本地，不上传正文。
+// ============================================================
+async function handleComplianceRules() {
+  const resp = jsonResponse({ ok: true, ...COMPLIANCE_REMOTE_RULES });
+  // 允许 CDN / 浏览器缓存 1 小时（词库变化频率低，配合扩展端 24h 节流）
+  resp.headers.set("Cache-Control", "public, max-age=3600");
+  return resp;
 }
 
 // ============================================================

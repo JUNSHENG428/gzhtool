@@ -22,6 +22,7 @@ import {
   isEditorBodySubstantiveForRewrite
 } from "../shared/ai.js";
 import { scanCompliance, parseCustomComplianceTerms } from "../shared/compliance-checker.js";
+import { applyCachedComplianceRules, refreshRemoteComplianceRules } from "../shared/compliance-remote.js";
 import { STORAGE_KEYS } from "../shared/defaults.js";
 
 // 合规检测 · 实时扫描状态
@@ -129,8 +130,9 @@ export function init(ctx) {
     complianceBadgeBtn.setAttribute("aria-expanded", String(opened));
   });
 
-  // 合规检测 · 实时扫描：加载自定义词 + 监听编辑器输入（防抖）
+  // 合规检测 · 实时扫描：加载自定义词 + 远程词库（先缓存后刷新）+ 监听编辑器输入（防抖）
   void _loadComplianceCustomTerms();
+  void applyCachedComplianceRules().then(() => refreshRemoteComplianceRules());
   try {
     chrome.storage?.onChanged?.addListener((changes, area) => {
       if (area === "local" && changes[STORAGE_KEYS.settings]) {

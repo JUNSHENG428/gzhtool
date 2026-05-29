@@ -10,7 +10,9 @@ export const STORAGE_KEYS = {
   // 「我的文风」样本库。单独走一个 key 而不挤进 settings，
   // 因为 raw 字段可能存几千字原文，混在 settings 里每次保存都要全量重写整个 settings，
   // 不必要地放大 chrome.storage.local 的 IO；选中态（activeVoiceSampleId）仍然在 settings 里。
-  voiceSamples: "wechatWriterVoiceSamples"
+  voiceSamples: "wechatWriterVoiceSamples",
+  // 合规检测 · 远程词库缓存（GET /api/compliance/rules 下发，按 version 覆盖）
+  complianceRules: "wechatWriterComplianceRules"
 };
 
 // =====================================================================
