@@ -978,9 +978,9 @@
         </div>
 
         <label class="split-full">
-          <span>自部署热点接口 <small class="field-meta">NewsNow Base · 留空走官方源</small></span>
-          <input id="hotTopicsNewsnowBase" type="url" placeholder="https://hot.inkgold.info/" />
-          <small class="field-hint"><strong>什么时候改</strong>：自己搭了 NewsNow / RSSHub 实例。<strong>留空走官方源</strong>，新手不用管。</small>
+          <span>NewsNow 接口地址 <small class="field-meta">NewsNow Base · 留空走官方源</small></span>
+          <input id="hotTopicsNewsnowBase" type="text" placeholder="https://hot.inkgold.info/" />
+          <small class="field-hint"><strong>什么时候改</strong>：自己搭了 NewsNow 实例（推荐，知乎等反爬源会稳很多）。<strong>支持英文逗号填多个</strong>地址，按顺序自动兜底；留空走官方源。</small>
         </label>
         <div class="row" style="margin: -6px 0 12px; gap: 8px;">
           <button type="button" class="btn btn-secondary btn-sm" id="testHotTopicsNewsnow">
@@ -989,16 +989,23 @@
           <span class="muted" id="testHotTopicsNewsnowResult" aria-live="polite"></span>
         </div>
 
-        <p class="muted">
-          RSSHub 兜底地址在「抓取增强 → RSSHub Base URL」里配置（默认
-          <code>https://rsshub.app/</code>），同样支持自托。
-        </p>
+        <label class="split-full">
+          <span>RSSHub 兜底地址 <small class="field-meta">RSSHub Base · 留空走 rsshub.app</small></span>
+          <input id="rsshubBaseUrl" type="text" placeholder="https://rsshub.app" />
+          <small class="field-hint"><strong>什么时候改</strong>：公共 <code>rsshub.app</code> 限流严重（知乎常 403）。自托一份填这里最稳。<strong>支持英文逗号填多个</strong>地址，按顺序自动兜底；留空走官方源。</small>
+        </label>
+        <div class="row" style="margin: -6px 0 12px; gap: 8px;">
+          <button type="button" class="btn btn-secondary btn-sm" id="testHotTopicsRsshub">
+            测试 RSSHub 连接
+          </button>
+          <span class="muted" id="testHotTopicsRsshubResult" aria-live="polite"></span>
+        </div>
 
         <p class="muted">
-          抓取顺序：先 NewsNow，失败时自动回退到 RSSHub 兜底，再失败才提示错误。
-          某个后端连续 3 次失败会自动冷却 10 分钟，避免反复轰炸已挂掉的服务。
-          公共服务限流频繁，强烈推荐部署自己的版本（NewsNow / RSSHub 都有一键部署方案，
-          见 <code>docs/SELFHOST_HOTTOPICS.md</code>）。
+          抓取顺序：先 NewsNow（可多个）→ 失败回退 RSSHub（可多个）→ 再失败才提示。
+          某个后端连续 3 次失败自动冷却 10 分钟，避免反复轰炸已挂服务。
+          <strong>知乎/微博等反爬较严的源，公共免费实例经常不可达，最彻底的解法是自部署</strong>
+          （NewsNow / RSSHub 都有 5 分钟免费一键部署方案，见 <code>docs/SELFHOST_HOTTOPICS.md</code>）。
         </p>
       </section>
 

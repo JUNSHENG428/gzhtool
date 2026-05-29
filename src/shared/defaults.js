@@ -198,7 +198,10 @@ export const DEFAULT_SETTINGS = {
   // 每次成功调用 sendall(is_to_all=true) +1，进入新自然月时由 UI 自动 reset 到 0。
   wechatSendAllUsageMonth: "",
   wechatSendAllUsageCount: 0,
+  // 热点接口自定义 base。两者都支持英文逗号分隔填多个地址（按顺序兜底，
+  // 第一个失败自动试下一个），留空走官方默认源。自托实例填这里可大幅提升知乎等反爬源的可达性。
   hotTopicsNewsnowBase: "",
+  rsshubBaseUrl: "",
   // DrissionPage 增强抓取（可选）。需要本地启动一个 helper 服务，
   // 走 Chromium 真实环境抓取，可绕过部分前端反爬/懒加载页面。
   // 默认关闭；开启时也会保留"内置抓取兜底"，所以即使 helper 挂掉也不至于全链路失败。

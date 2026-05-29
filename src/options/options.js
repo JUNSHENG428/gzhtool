@@ -93,6 +93,7 @@ const fields = {
   wechatSendTagId: document.querySelector("#wechatSendTagId"),
   wechatSendIgnoreReprint: document.querySelector("#wechatSendIgnoreReprint"),
   hotTopicsNewsnowBase: document.querySelector("#hotTopicsNewsnowBase"),
+  rsshubBaseUrl: document.querySelector("#rsshubBaseUrl"),
   drissionEnabled: document.querySelector("#drissionEnabled"),
   drissionHelperUrl: document.querySelector("#drissionHelperUrl"),
   drissionTimeoutMs: document.querySelector("#drissionTimeoutMs"),
@@ -127,6 +128,8 @@ const testWechatConnectionButton = document.querySelector("#testWechatConnection
 const testWechatConnectionResult = document.querySelector("#testWechatConnectionResult");
 const testHotTopicsNewsnowButton = document.querySelector("#testHotTopicsNewsnow");
 const testHotTopicsNewsnowResult = document.querySelector("#testHotTopicsNewsnowResult");
+const testHotTopicsRsshubButton = document.querySelector("#testHotTopicsRsshub");
+const testHotTopicsRsshubResult = document.querySelector("#testHotTopicsRsshubResult");
 const testDrissionConnectionButton = document.querySelector("#testDrissionConnectionButton");
 const testDrissionConnectionResult = document.querySelector("#testDrissionConnectionResult");
 const drissionHelperTokenStatus = document.querySelector("#drissionHelperTokenStatus");
@@ -152,6 +155,11 @@ testWechatConnectionButton.addEventListener("click", testWechatConnection);
 if (testHotTopicsNewsnowButton) {
   testHotTopicsNewsnowButton.addEventListener("click", () =>
     testHotTopicsBackend("newsnow")
+  );
+}
+if (testHotTopicsRsshubButton) {
+  testHotTopicsRsshubButton.addEventListener("click", () =>
+    testHotTopicsBackend("rsshub")
   );
 }
 testDrissionConnectionButton?.addEventListener("click", testDrissionConnection);
@@ -1140,16 +1148,17 @@ async function refreshWechatSendUsage() {
 }
 
 async function testHotTopicsBackend(kind) {
-  if (kind !== "newsnow") return;
-  const button = testHotTopicsNewsnowButton;
-  const resultEl = testHotTopicsNewsnowResult;
-  const baseField = fields.hotTopicsNewsnowBase;
+  const isRsshub = kind === "rsshub";
+  const button = isRsshub ? testHotTopicsRsshubButton : testHotTopicsNewsnowButton;
+  const resultEl = isRsshub ? testHotTopicsRsshubResult : testHotTopicsNewsnowResult;
+  const baseField = isRsshub ? fields.rsshubBaseUrl : fields.hotTopicsNewsnowBase;
   if (!button || !resultEl) return;
 
   button.disabled = true;
   setTestResult(resultEl, "loading", "正在测试...");
 
-  const baseUrl = baseField?.value?.trim() || "";
+  // 支持逗号分隔多个 base；测试只验第一个（其余在实际抓取时按序兜底）
+  const baseUrl = (baseField?.value?.split(/[\n,;]+/)[0] || "").trim();
 
   try {
     // 必须在 click handler 用户手势上下文里同步申请 origin 权限——否则 SW 端

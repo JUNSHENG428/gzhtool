@@ -232,21 +232,26 @@ export async function fetchHotTopics(sourceId, opts = {}) {
   let payload = null;
 
   if (meta.newsNow) {
-    const base = normalizeBase(newsnowBase, DEFAULT_NEWSNOW_BASE);
-    if (!forceRefresh && (await isBaseCoolingDown(base))) {
-      errors.push(`NewsNow: 上次失败后冷却中（${COOLDOWN_MS / 60000} 分钟）`);
-    } else {
+    const bases = buildNewsnowBases(newsnowBase);
+    const multi = bases.length > 1;
+    for (const base of bases) {
+      if (payload) break;
+      const tag = multi ? `NewsNow(${shortHost(base)})` : "NewsNow";
+      if (!forceRefresh && (await isBaseCoolingDown(base))) {
+        errors.push(`${tag}: 上次失败后冷却中（${COOLDOWN_MS / 60000} 分钟）`);
+        continue;
+      }
       try {
         const candidate = await fetchNewsNowHot(fetchedAt, meta, base);
         if (candidate.items.length >= MIN_VALID_ITEMS) {
           payload = candidate;
           await recordBaseSuccess(base);
         } else {
-          errors.push("NewsNow: 返回空列表");
+          errors.push(`${tag}: 返回空列表`);
           // 空列表 = 上游某网站今天没数据 / 被反爬，不是 NewsNow 自己挂了，不计 base
         }
       } catch (e) {
-        errors.push(`NewsNow: ${shortMessage(e)}`);
+        errors.push(`${tag}: ${shortMessage(e)}`);
         if (!e?.upstreamPerSource) {
           await recordBaseFailure(base, shortMessage(e));
         }
@@ -277,20 +282,25 @@ export async function fetchHotTopics(sourceId, opts = {}) {
   }
 
   if (!payload && meta.rsshub) {
-    const base = resolveRsshubBaseUrl({ rsshubBaseUrl });
-    if (!forceRefresh && (await isBaseCoolingDown(base))) {
-      errors.push(`RSSHub: 兜底链路也在冷却（${COOLDOWN_MS / 60000} 分钟）`);
-    } else {
+    const bases = buildRsshubBases(rsshubBaseUrl);
+    const multi = bases.length > 1;
+    for (const base of bases) {
+      if (payload) break;
+      const tag = multi ? `RSSHub(${shortHost(base)})` : "RSSHub";
+      if (!forceRefresh && (await isBaseCoolingDown(base))) {
+        errors.push(`${tag}: 兜底链路也在冷却（${COOLDOWN_MS / 60000} 分钟）`);
+        continue;
+      }
       try {
         const candidate = await fetchRsshubHot(fetchedAt, meta, base);
         if (candidate.items.length >= MIN_VALID_ITEMS) {
           payload = candidate;
           await recordBaseSuccess(base);
         } else {
-          errors.push("RSSHub: 返回空列表");
+          errors.push(`${tag}: 返回空列表`);
         }
       } catch (e) {
-        errors.push(`RSSHub: ${shortMessage(e)}`);
+        errors.push(`${tag}: ${shortMessage(e)}`);
         if (!e?.upstreamPerSource) {
           await recordBaseFailure(base, shortMessage(e));
         }
@@ -319,7 +329,7 @@ export async function fetchHotTopics(sourceId, opts = {}) {
   } else if (allEmpty) {
     advice = `当前时段「${meta.label}」榜单可能没有新数据，可以稍后再试或换个源（推荐：知乎热榜 / GitHub Trending / 36氪）。`;
   } else {
-    advice = `首选 NewsNow 与 RSSHub 兜底均不可达。建议先点「🔄 强制刷新」立即重试一次（会绕过冷却），仍不行可在「设置 → 热点接口」点测试连接定位问题，或自部署一份 NewsNow / RSSHub（部署指南见 docs/SELFHOST_HOTTOPICS.md）。`;
+    advice = `公共免费实例对${meta.label}这类反爬较严的源经常不可达，**最彻底的解决办法是自部署**：在「设置 → 热点接口」填自己的 NewsNow / RSSHub 地址（两个字段都支持英文逗号填多个，按顺序自动兜底），部署只需 5 分钟免费（指南见 docs/SELFHOST_HOTTOPICS.md）。临时办法：点「🔄 强制刷新」绕过冷却重试，或先换个源（微博热搜 / GitHub Trending / 36氪 通常更稳）。`;
   }
 
   return {
@@ -581,6 +591,39 @@ function portalPayload(fetchedAt, meta, portal) {
 function normalizeBase(value, fallback) {
   const text = String(value || "").trim() || fallback;
   return text.endsWith("/") ? text : `${text}/`;
+}
+
+// 把用户配置（可英文逗号 / 换行 / 分号分隔多个）拆成有序 base 列表，
+// 末尾补上官方默认源做最终兜底；去重保序。让用户能「自托优先 + 公共兜底」。
+function buildNewsnowBases(value) {
+  const parts = String(value || "")
+    .split(/[\n,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((b) => normalizeBase(b, DEFAULT_NEWSNOW_BASE));
+  const def = normalizeBase("", DEFAULT_NEWSNOW_BASE);
+  if (!parts.includes(def)) parts.push(def);
+  return Array.from(new Set(parts));
+}
+
+function buildRsshubBases(value) {
+  const parts = String(value || "")
+    .split(/[\n,;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((b) => b.replace(/\/+$/, ""));
+  const def = resolveRsshubBaseUrl({});
+  if (!parts.includes(def)) parts.push(def);
+  return Array.from(new Set(parts));
+}
+
+// 取 base 的 host 做错误提示标注（多实例时区分是哪个挂了）
+function shortHost(base) {
+  try {
+    return new URL(base).host;
+  } catch {
+    return base;
+  }
 }
 
 function shortMessage(error) {
