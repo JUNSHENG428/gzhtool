@@ -99,6 +99,9 @@ export function lintArticle(input, options = {}) {
   // 10. 结尾段命令式收尾（仅 article 输入时有效）
   collectEndingCommandIssues(input, issues);
 
+  // 11. 结尾段升华 / 诗意收尾（否定+肯定句式 / 量词叠词排比）
+  collectPoeticEndingIssues(input, issues);
+
   // 算分
   let deduction = 0;
   for (const it of issues) deduction += it.weight || severityToWeight(it.severity);
@@ -530,6 +533,47 @@ function collectEndingCommandIssues(input, issues) {
   }
 }
 
+// 升华式 / 诗意收尾检测（LLM 最爱的"金句结尾"）：只看最后一段
+//  ① 否定+肯定句式：「不会在 X……（而）在 Y……」
+//  ② 量词叠词排比：「一公里一公里地 / 一步一步 / 一辆辆」
+function collectPoeticEndingIssues(input, issues) {
+  const lastParagraph = pickLastParagraph(input);
+  if (!lastParagraph) return;
+  const patterns = [
+    {
+      re: /不(?:会|是|在|靠)[^。！!？?]{2,40}(?:而是|而在|而要|，而|，在)[^。！!？?]{2,50}[。！!]/g,
+      label: "不会在 X，而在 Y"
+    },
+    {
+      // 叠词排比：一公里一公里 / 一步一步 / 一点一点（X X 重复）
+      re: /(一[\u4e00-\u9fa5]{1,2})\1地?/g,
+      label: "量词叠词排比"
+    },
+    {
+      // 一辆辆 / 一点点（一 + 字 + 同字）
+      re: /一[\u4e00-\u9fa5]?([\u4e00-\u9fa5])\1/g,
+      label: "量词叠词排比"
+    }
+  ];
+  const seen = new Set();
+  for (const { re, label } of patterns) {
+    const matches = String(lastParagraph).match(re) || [];
+    for (const m of matches) {
+      const key = m.trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      issues.push({
+        kind: "poetic-ending",
+        severity: "error",
+        weight: 8,
+        text: key,
+        label,
+        hint: `结尾命中升华/诗意套路「${label}」。这是 AI 金句结尾最强信号，改成落在具体事实或留个具体悬念。`
+      });
+    }
+  }
+}
+
 // ---------------------------------------------------------------------
 // 4) 工具
 // ---------------------------------------------------------------------
@@ -573,6 +617,10 @@ function pickLastParagraph(input) {
     }
   }
   if (input.closing) return String(input.closing).trim();
+  // bodyHtml 形态（workspace 实际改写产物）：剥标签后取最后一段
+  if (typeof input.bodyHtml === "string" && input.bodyHtml.trim()) {
+    return pickLastParagraph(input.bodyHtml);
+  }
   return "";
 }
 

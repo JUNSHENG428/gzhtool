@@ -3412,4 +3412,28 @@ console.log("\n运行 compliance-checker 合规检测单测 …");
   console.log("✓ compliance-checker 12 case（+自定义×3 +远程合并）");
 }
 
+console.log("\n运行 humanize-checker 升华结尾检测单测 …");
+{
+  const { lintArticle } = await import("../src/shared/humanize-checker.js");
+  // 升华式结尾（否定+肯定 + 量词叠词）应命中 poetic-ending
+  const poetic = lintArticle({
+    bodyHtml:
+      "<p>比亚迪跑通了完整闭环，装车跑起来了。</p>" +
+      "<p>成败不会在发布会的PPT上见分晓，而在一辆辆下线的车里，被真实路况一公里一公里地验出来。</p>"
+  });
+  assert(
+    poetic.issues.some((i) => i.kind === "poetic-ending"),
+    "升华式结尾（不会在X而在Y + 一公里一公里）应命中 poetic-ending"
+  );
+  // 平实结尾不应误报
+  const plain = lintArticle({
+    bodyHtml: "<p>璇玑A3已规模化量产，2026下半年开始上车。</p><p>具体表现要看后续的季度财报和召回数据。</p>"
+  });
+  assert(
+    !plain.issues.some((i) => i.kind === "poetic-ending"),
+    "平实结尾不应误报 poetic-ending"
+  );
+  console.log("✓ humanize-checker 升华结尾 2 case（命中 / 不误报）");
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

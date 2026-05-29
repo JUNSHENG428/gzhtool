@@ -102,7 +102,10 @@ export const AI_VOCAB_BLACKLIST = Object.freeze([
   { phrase: "换句话说", weight: 6 },
   { phrase: "不可否认", weight: 6 },
   { phrase: "可问题在于", weight: 3 },
-  { phrase: "问题在于", weight: 3 }
+  { phrase: "问题在于", weight: 3 },
+  // 去 AI 味"替换字典反噬"——机械替换产生的新套话，一旦固定出现同样是 AI 痕迹
+  { phrase: "差不多同期", weight: 5 },
+  { phrase: "顺带一提", weight: 3 }
 ]);
 
 // ---------------------------------------------------------------------
@@ -136,7 +139,16 @@ export const AI_PHRASE_BLACKLIST = Object.freeze([
   { phrase: "划时代", weight: 6 },
   // 否定式排比（结构化匹配在 humanize-checker 里做正则；这里只是参考）
   { phrase: "不仅是……更是", weight: 6 },
-  { phrase: "不仅仅是", weight: 4 }
+  { phrase: "不仅仅是", weight: 4 },
+  // 升华式 / 诗意收尾套路（LLM 最爱的"金句结尾"，一眼可辨）
+  { phrase: "见分晓", weight: 7 },
+  { phrase: "拭目以待", weight: 8 },
+  { phrase: "时间会给出答案", weight: 9 },
+  { phrase: "时间会证明", weight: 8 },
+  { phrase: "答案藏在", weight: 7 },
+  { phrase: "未来可期", weight: 8 },
+  { phrase: "值得期待", weight: 5 },
+  { phrase: "唯一不变的是变化", weight: 9 }
 ]);
 
 // ---------------------------------------------------------------------
@@ -283,6 +295,34 @@ export const RULE_CARDS = Object.freeze([
     label: "反同义词循环",
     do: "同一概念可重复用同一个词。",
     dont: "「主人公 → 主要角色 → 中心人物 → 英雄」机械轮换。"
+  },
+  {
+    id: "anti-poetic-ending",
+    priority: 9,
+    label: "反升华结尾",
+    do: "结尾落在一个具体事实、动作或具体悬念上，平实收住。",
+    dont: "「不会在 X 见分晓，而在 Y 里…」否定+肯定句式、「一辆辆/一步步」量词排比、「时间会给出答案/拭目以待」等金句升华。"
+  },
+  {
+    id: "anti-over-fragment",
+    priority: 6,
+    label: "反过度碎句",
+    do: "短句是调味，长短交错才像人。",
+    dont: "连续 3 句以上都是 5 字以内的残句（如「实操层面。出事故，兜底。」），那是另一种用力过猛的风格指纹。"
+  },
+  {
+    id: "anti-template-heading",
+    priority: 6,
+    label: "反模板小标题",
+    do: "小标题用具体名词或观点短句。",
+    dont: "「N 个必须正视的 X」「X 的真实含金量/真相」「不得不说的 N 件事」这类填空模板。"
+  },
+  {
+    id: "natural-cohesion",
+    priority: 8,
+    label: "句间自然衔接",
+    do: "相邻句子靠语义、指代和逻辑推进自然承接（前句抛出、后句接住或反驳）；衔接用口语化的「这就…/所以…/可…」少量点缀。",
+    dont: "句子互相孤立、话题硬跳；也不要每句都用「然而/因此/与此同时/值得注意的是」书面过渡词起头。短句是调味，不能把一个完整意思切成互不相关的碎片。"
   }
 ]);
 
@@ -302,9 +342,9 @@ export function getTopRuleCards(limit = 8) {
 // ---------------------------------------------------------------------
 
 export const AI_VOCAB_REPLACEMENTS = Object.freeze([
-  ["此外", "还有 / 顺带一提 / 补一句"],
-  ["与此同时", "差不多同期 / 同期"],
-  ["然而", "话说回来 / 不过 / 可问题在于"],
+  ["此外", "还有 / 另外 / 补一句"],
+  ["与此同时", "同期 / 那阵子 / 几乎同时"],
+  ["然而", "话说回来 / 不过 / 但"],
   ["因此", "所以 / 这就导致 / 于是"],
   ["重要的", "要紧的 / 绕不开的 / 实打实"],
   ["显著的", "肉眼可见的 / 一目了然"],
