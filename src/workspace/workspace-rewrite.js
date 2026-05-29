@@ -38,6 +38,65 @@ let _complianceScanTimer = null;
 const AI_GEN_OPTION_VALUE = "__ai_gen__";
 
 /**
+ * 图片保全兜底（仅用于「AI 合规改写 / 深度去 AI 味」这两条直接吐 HTML 的路径）。
+ *
+ * 这两条路径把模型返回的 HTML 直接 innerHTML 写回编辑器，绕过了 normalizeArticle
+ * 里的 injectMissingImages 漏图兜底。模型经常会在重写时丢掉 <figure>/<img>，
+ * 导致抓取到的配图被改写「吃掉」。
+ *
+ * 策略：比对原始 HTML 与模型 HTML 里出现的图片 src 集合，把模型丢掉的原图（以
+ * 原始 <figure> 整块为单位，保留 data-image-index / 图注 / 排布）补回到正文末尾。
+ * 仅在 DOM 环境（页面 realm）可用——本文件运行在 workspace 页面，DOMParser 可用。
+ *
+ * @param {string} originalHtml 改写前编辑器 innerHTML
+ * @param {string} rewrittenHtml 模型返回并 sanitize 后的 HTML
+ * @returns {string} 保证原图不丢的 HTML
+ */
+function preserveImagesInRewrittenHtml(originalHtml, rewrittenHtml) {
+  try {
+    if (typeof DOMParser === "undefined") return rewrittenHtml;
+    const norm = (src) => String(src || "").trim().replace(/[#?].*$/, "");
+
+    const parser = new DOMParser();
+    const origDoc = parser.parseFromString(String(originalHtml || ""), "text/html");
+    const newDoc = parser.parseFromString(String(rewrittenHtml || ""), "text/html");
+
+    // 模型输出里已经存在的图片 src 集合
+    const presentSrcs = new Set(
+      Array.from(newDoc.querySelectorAll("img"))
+        .map((img) => norm(img.getAttribute("src")))
+        .filter(Boolean)
+    );
+
+    // 原图：优先以 <figure> 整块为单位（含 data-image-index / 图注 / 样式排布），
+    // 没有外层 figure 的裸 <img> 退化为自身。
+    const seen = new Set();
+    const missingBlocks = [];
+    for (const img of Array.from(origDoc.querySelectorAll("img"))) {
+      const src = norm(img.getAttribute("src"));
+      if (!src || seen.has(src)) continue;
+      seen.add(src);
+      if (presentSrcs.has(src)) continue; // 模型保住了，跳过
+      const figure = img.closest("figure");
+      missingBlocks.push((figure || img).outerHTML);
+    }
+
+    if (missingBlocks.length === 0) return rewrittenHtml;
+
+    const restored = missingBlocks
+      .map(
+        (block) =>
+          `<section data-restored-image="1" style="margin:16px 0;">${block}</section>`
+      )
+      .join("");
+    return `${rewrittenHtml}${restored}`;
+  } catch (_err) {
+    // 兜底里再出错也不能阻断改写——直接返回模型原文
+    return rewrittenHtml;
+  }
+}
+
+/**
  * 判断 settings 是否有"可用的 AI 配置"。
  * 至少要 apiBaseUrl + apiKey 都非空才能跑 chat completions；model 缺失时
  * ai.js 会用 settings.model 兜底，但若也空则 requestRewrite 直接抛错。
@@ -849,7 +908,7 @@ async function runDeepHumanize() {
     const judge = await requestHumanizeJudge(settings, bodyHtml);
     if (resultEl) resultEl.textContent = `审稿员评分 ${judge.score}/100，正在重写…`;
     const rewritten = await requestDeepHumanizeRewrite(settings, bodyHtml, judge.findings);
-    const clean = sanitizeHtml(rewritten);
+    const clean = preserveImagesInRewrittenHtml(bodyHtml, sanitizeHtml(rewritten));
     if (!clean || !clean.trim()) {
       setStatus?.("深度去 AI 味没有返回有效内容，请重试。", "warning");
       return;
@@ -1026,7 +1085,7 @@ async function runAiComplianceRewrite() {
   try {
     const settings = await getSettings();
     const rewritten = await requestComplianceRewrite(settings, bodyHtml, terms);
-    const clean = sanitizeHtml(rewritten);
+    const clean = preserveImagesInRewrittenHtml(bodyHtml, sanitizeHtml(rewritten));
     if (!clean || !clean.trim()) {
       setStatus?.("AI 没有返回有效内容，请重试或手动替换。", "warning");
       return;
