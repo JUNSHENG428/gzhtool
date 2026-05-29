@@ -16,12 +16,15 @@ import {
 import { PAID_FEATURES, checkDeAiBoostAccess, checkLicense } from "../shared/license.js";
 import { showUpgradeModal } from "../shared/upgrade-modal.js";
 import { sanitizeHtml } from "../shared/utils.js";
+import { lintArticle } from "../shared/humanize-checker.js";
 import { openAiTemplateDialog } from "../shared/ai-template-dialog.js";
 import {
   buildManualPrompt,
   buildRewriteSourceFromCurrentArticle,
   isEditorBodySubstantiveForRewrite,
-  requestComplianceRewrite
+  requestComplianceRewrite,
+  requestHumanizeJudge,
+  requestDeepHumanizeRewrite
 } from "../shared/ai.js";
 import { scanCompliance, parseCustomComplianceTerms } from "../shared/compliance-checker.js";
 import { applyCachedComplianceRules } from "../shared/compliance-remote.js";
@@ -163,6 +166,11 @@ export function init(ctx) {
   // AI 合规改写（付费）：把命中违规表达整体改写成合规说法
   document.querySelector("#aiComplianceRewriteBtn")?.addEventListener("click", () => {
     void runAiComplianceRewrite();
+  });
+
+  // 「深度去 AI 味」按钮（付费 · 第二模型评审 + 整体重写）
+  document.querySelector("#deepHumanizeBtn")?.addEventListener("click", () => {
+    void runDeepHumanize();
   });
 
   // 「去 AI 味」开关 chip：与 settings.humanizeEnabled 双向绑定
@@ -801,6 +809,86 @@ function applyHumanizeChipState(chip, enabled, intensity, hasAccess) {
  * @param {object|null} humanizePass   { applied, sectionCount, intensity }，
  *                                     stage 2 接入后才有；用于在 summary 里说明二次润色是否生效
  */
+/**
+ * 深度去 AI 味（付费 · 第二模型评审 pass）：
+ *  1) 用 AI 当「AI 检测审稿员」找出语义/论证层 AI 痕迹（本地 lint 抓不到的）
+ *  2) 拿 findings 当靶子整体重写正文
+ *  3) sanitize 写回 + 重跑本地 lint
+ * 复用 ai.deAiBoost 付费闸门；不自动跑（用户点按钮才触发），消耗 2 次 AI 调用。
+ */
+async function runDeepHumanize() {
+  const { setStatus, showLoading, hideLoading } = _ctx;
+  const editorEl = document.querySelector("#editor");
+  const resultEl = document.querySelector("#deepHumanizeResult");
+  if (!editorEl) return;
+
+  const access = await checkDeAiBoostAccess();
+  if (!access.ok) {
+    const meta = PAID_FEATURES["ai.deAiBoost"];
+    showUpgradeModal({
+      featureName: meta?.name || "去 AI 味增强",
+      hint: access.hint || meta?.hint || "深度去 AI 味是会员功能。",
+      bullets: [
+        "AI 当审稿员找出语义/论证层 AI 痕迹（本地检测看不到的），再整体重写",
+        "免费版仍可用本地 AI 味检测 badge + 主改写自带的去 AI 味约束"
+      ]
+    });
+    return;
+  }
+
+  const bodyHtml = editorEl.innerHTML || "";
+  if (!bodyHtml.trim()) {
+    setStatus?.("正文为空，无法做深度去 AI 味。", "warning");
+    return;
+  }
+
+  showLoading?.("AI 审稿员正在评审…", "找出语义/论证层的 AI 痕迹，再整体重写，通常 20–60 秒。");
+  try {
+    const settings = await getSettings();
+    if (resultEl) resultEl.textContent = "评审中…";
+    const judge = await requestHumanizeJudge(settings, bodyHtml);
+    if (resultEl) resultEl.textContent = `审稿员评分 ${judge.score}/100，正在重写…`;
+    const rewritten = await requestDeepHumanizeRewrite(settings, bodyHtml, judge.findings);
+    const clean = sanitizeHtml(rewritten);
+    if (!clean || !clean.trim()) {
+      setStatus?.("深度去 AI 味没有返回有效内容，请重试。", "warning");
+      return;
+    }
+    editorEl.innerHTML = clean;
+    if (typeof _ctx?.onWorkspaceInput === "function") _ctx.onWorkspaceInput();
+    else editorEl.dispatchEvent(new Event("input", { bubbles: true }));
+    // 重跑本地 lint 更新 badge
+    renderHumanizeBadge(safeLocalLint(clean), null);
+    if (resultEl) {
+      resultEl.textContent = `已完成（审稿员原评分 ${judge.score}/100${
+        judge.verdict ? " · " + judge.verdict : ""
+      }）`;
+    }
+    setStatus?.("深度去 AI 味完成，请通读核对事实与语义后再发布。", "success");
+  } catch (err) {
+    const code = err?.code;
+    if (code === "AUTH_REQUIRED" || code === "AUTH_EXPIRED") {
+      setStatus?.("请先登录润笔账户再使用深度去 AI 味（设置页 → 我的会员）。", "warning");
+    } else if (code === "PLATFORM_QUOTA_EXCEEDED") {
+      setStatus?.("本月平台 AI 额度已用完，可升级会员或改用自定义 API Key。", "warning");
+    } else {
+      setStatus?.(`深度去 AI 味失败：${err?.message || "未知错误"}`, "error");
+    }
+    if (resultEl) resultEl.textContent = "";
+  } finally {
+    hideLoading?.();
+  }
+}
+
+// 本地 lint 包装（深度去 AI 味后重跑，给 badge 用）；失败兜底 null
+function safeLocalLint(html) {
+  try {
+    return lintArticle(html);
+  } catch {
+    return null;
+  }
+}
+
 function renderHumanizeBadge(lint, humanizePass) {
   const bar = document.querySelector("#humanizeStatusBar");
   const badge = document.querySelector("#humanizeBadge");

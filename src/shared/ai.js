@@ -1001,8 +1001,25 @@ export async function requestComplianceRewrite(settings, bodyHtml, terms = []) {
     { role: "system", content: sys },
     { role: "user", content: html }
   ];
+  const content = await requestPlainChat(settings, messages, {
+    temperature: 0.4,
+    context: "AI 合规改写接口"
+  });
+  return stripCodeFence(content);
+}
 
-  // 平台模式：POST /api/llm/chat（复用 tier 解析 + 错误码契约）
+// 去掉模型偶尔包裹的 ```html ... ``` 代码块围栏
+function stripCodeFence(text) {
+  let s = String(text || "").trim();
+  s = s.replace(/^```[a-zA-Z]*\s*/, "").replace(/\s*```$/, "");
+  return s.trim();
+}
+
+/**
+ * 通用单轮 chat（复用平台 /api/llm/chat 与 BYOK 两条路由 + 统一错误码），返回 content 字符串。
+ * 给「AI 合规改写 / 第二模型评审 / 深度去 AI 味重写」等一次性任务复用，避免各处重复路由代码。
+ */
+export async function requestPlainChat(settings, messages, { temperature = 0.5, context = "AI 接口" } = {}) {
   if (isPlatformMode(settings)) {
     const authRecord = await getAuthRecord();
     const jwt = authRecord?.token;
@@ -1025,7 +1042,7 @@ export async function requestComplianceRewrite(settings, bodyHtml, terms = []) {
       response = await fetch(`${apiBase}/api/llm/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
-        body: JSON.stringify({ tier, temperature: 0.4, messages })
+        body: JSON.stringify({ tier, temperature, messages })
       });
     } catch (netErr) {
       const err = new Error(`平台 AI 网络错误：${netErr?.message || "未知"}`);
@@ -1056,7 +1073,7 @@ export async function requestComplianceRewrite(settings, bodyHtml, terms = []) {
     }
     const content = extractChatContent(payload);
     if (!content) throw new Error("平台 AI 返回内容为空。");
-    return stripCodeFence(content);
+    return content;
   }
 
   // BYOK 模式
@@ -1064,11 +1081,11 @@ export async function requestComplianceRewrite(settings, bodyHtml, terms = []) {
     throw new Error("请先在设置页填写 API Key 和接口地址。");
   }
   const apiUrl = settings.apiBaseUrl.trim();
-  await ensureOptionalHostPermission(apiUrl, "AI 合规改写接口");
+  await ensureOptionalHostPermission(apiUrl, context);
   const model = String(settings.model || "").trim();
   const { response, payload } = await postChatCompletionWithReasoningFallback(apiUrl, settings.apiKey, {
     model,
-    temperature: 0.4,
+    temperature,
     messages
   });
   if (!response.ok) {
@@ -1076,14 +1093,95 @@ export async function requestComplianceRewrite(settings, bodyHtml, terms = []) {
   }
   const content = extractChatContent(payload);
   if (!content) throw new Error("AI 返回内容为空。");
+  return content;
+}
+
+/**
+ * 第二模型评审（LLM-as-judge）：让模型扮演「AI 检测审稿员」，从语义/论证/句式层
+ * 找出本地正则 lint 抓不到的 AI 味，返回结构化评分 + 具体问题点。
+ *
+ * @returns {Promise<{score:number, verdict:string, findings:Array<{excerpt:string, reason:string}>}>}
+ *   score：0-100，越高越像真人（与本地 lint 同方向，便于对比）
+ */
+export async function requestHumanizeJudge(settings, bodyHtml) {
+  const text = stripHtmlToPlain(bodyHtml);
+  if (!text) throw new Error("正文为空，无法评审。");
+  const sys = [
+    "你是顶级中文 AI 文本检测专家，熟悉 GPTZero / 原创度检测的判定逻辑。",
+    "请评估下面这篇公众号文章「读起来有多像 AI 写的」，重点看本地词表查不到的深层特征：",
+    "- 论证/结构套路（总分总、起承转合过于工整、每段开头都用过渡词）",
+    "- 语义空泛、信息密度低、正确的废话",
+    "- 句式统一、缺乏真人写作的随机性与个人视角",
+    "- 统一敬语 / 客服腔 / 说明书腔",
+    "只输出合法 JSON，不要解释、不要 markdown 代码块：",
+    '{ "score": 0到100整数(越高越像真人), "verdict": "一句话总评<=40字", "findings": [ { "excerpt": "原文里像AI的片段<=40字", "reason": "为什么像AI<=30字" } ] }',
+    "findings 最多 8 条，挑最典型的；若整体已很像真人，findings 可为空、score 给高分。"
+  ].join("\n");
+  const content = await requestPlainChat(
+    settings,
+    [
+      { role: "system", content: sys },
+      { role: "user", content: text.slice(0, 8000) }
+    ],
+    { temperature: 0.2, context: "AI 味评审接口" }
+  );
+  const parsed = extractJson(content) || {};
+  const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)));
+  const findings = Array.isArray(parsed.findings)
+    ? parsed.findings
+        .map((f) => ({
+          excerpt: String(f?.excerpt || "").slice(0, 60),
+          reason: String(f?.reason || "").slice(0, 50)
+        }))
+        .filter((f) => f.excerpt)
+        .slice(0, 8)
+    : [];
+  return { score, verdict: String(parsed.verdict || "").slice(0, 60), findings };
+}
+
+/**
+ * 深度去 AI 味重写：拿评审 findings 当「靶子」，让模型整体重写正文去掉这些 AI 痕迹，
+ * 保留事实/结构/篇幅。返回正文 HTML（调用方 sanitize 后写回）。
+ */
+export async function requestDeepHumanizeRewrite(settings, bodyHtml, findings = []) {
+  const html = String(bodyHtml || "").trim();
+  if (!html) throw new Error("正文为空，无需改写。");
+  const findingLines = (Array.isArray(findings) ? findings : [])
+    .slice(0, 8)
+    .map((f, i) => `${i + 1}. 「${f.excerpt}」—— ${f.reason}`)
+    .join("\n");
+  const sys = [
+    "你是把 AI 生成文本改写成真人手笔的顶级中文编辑。",
+    "请整体重写下面这篇公众号正文，**消除所有 AI 味**：打散过于工整的结构、删掉正确的废话、",
+    "让句长有真人的随机起伏（长短句交错）、去掉过渡词堆砌和统一敬语、适度加入具体细节与个人判断。",
+    "严格要求：① 事实、数据、人名、产品名、引号内文字、列表项、代码、表格、图片一律不得新增或删减；",
+    "② 保持原文的小标题层级与篇幅（±15% 以内）；③ 直接输出重写后的正文 HTML，不要 JSON / markdown 代码块 / 任何解释。",
+    findingLines ? `\n审稿员指出的重点 AI 痕迹（务必改掉）：\n${findingLines}` : ""
+  ].join("\n");
+  const content = await requestPlainChat(
+    settings,
+    [
+      { role: "system", content: sys },
+      { role: "user", content: html }
+    ],
+    { temperature: 0.75, context: "深度去 AI 味接口" }
+  );
   return stripCodeFence(content);
 }
 
-// 去掉模型偶尔包裹的 ```html ... ``` 代码块围栏
-function stripCodeFence(text) {
-  let s = String(text || "").trim();
-  s = s.replace(/^```[a-zA-Z]*\s*/, "").replace(/\s*```$/, "");
-  return s.trim();
+// 纯文本提取（去标签），给评审用；不依赖 DOMParser（页面侧调用，但保持纯函数）
+function stripHtmlToPlain(html) {
+  return String(html || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<\/(p|div|h[1-6]|li|tr|blockquote|section)\s*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export async function testAiConnection({ baseUrl, apiKey, model, timeoutMs = 12000 }) {

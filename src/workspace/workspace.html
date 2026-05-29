@@ -373,8 +373,12 @@
               <div id="humanizePanel" class="humanize-panel" hidden>
                 <div class="humanize-panel-summary"></div>
                 <ul class="humanize-panel-issues" aria-label="可优化项列表"></ul>
+                <div class="humanize-panel-actions">
+                  <button id="deepHumanizeBtn" type="button" class="compliance-ai-btn">🔬 深度去 AI 味<span class="section-tag soft">会员</span></button>
+                  <span class="muted" id="deepHumanizeResult" aria-live="polite"></span>
+                </div>
                 <p class="humanize-panel-foot">
-                  这只是本地启发式检测，仅用于提示风险点；建议结合「去 AI 味」二次润色一起使用。
+                  本地检测只看词汇/句式；「深度去 AI 味」会用 AI 当审稿员找出语义/论证层的 AI 痕迹再整体重写（消耗 2 次 AI 调用）。
                 </p>
               </div>
             </div>
