@@ -1,6 +1,11 @@
 import { THEME_PRESETS } from "./defaults.js";
 import { escapeHtml, escapeAttribute } from "./utils.js";
 
+// 文案长度 / 数量上限（散落各处的魔法数字集中到此，便于维护与对齐）
+const DIGEST_MAX_LEN = 120; // 公众号摘要上限对齐 wechat draft digest
+const TITLE_OPTIONS_MAX = 4; // 备选标题最多展示数
+const KEYWORDS_MAX = 8; // 关键词最多展示数
+
 export function createArticleDraftState(article, sourceImages = []) {
   return {
     meta: {
@@ -10,8 +15,8 @@ export function createArticleDraftState(article, sourceImages = []) {
       cta: article.cta || "",
       digest: createDigest(article),
       coverImageIndex: findCoverImageIndex(article, sourceImages),
-      titleOptions: normalizeStringArray(article.wechatTitleOptions).slice(0, 4),
-      keywords: normalizeStringArray(article.keywords).slice(0, 8)
+      titleOptions: normalizeStringArray(article.wechatTitleOptions).slice(0, TITLE_OPTIONS_MAX),
+      keywords: normalizeStringArray(article.keywords).slice(0, KEYWORDS_MAX)
     },
     bodyHtml: renderArticleBody(article, sourceImages)
   };
@@ -47,6 +52,9 @@ export function composeArticleBodyHtml(meta, bodyHtml) {
   </article>`;
 }
 
+// ⚠️ 依赖 DOMParser：必须在主线程 / content / page 环境调用。不要搬到 Web Worker 或
+// MV3 service worker（无 DOM API，会抛 "DOMParser is not defined"）。长文档若要后台渲染，
+// 主题装饰这一步要么留在主线程，要么改成不依赖 DOM 的字符串处理。
 export function decorateHtmlForTheme(rawHtml, themeName) {
   const theme = THEME_PRESETS[themeName] || THEME_PRESETS["editorial-green"];
   const doc = new DOMParser().parseFromString(rawHtml, "text/html");
@@ -162,6 +170,34 @@ function nodeToMarkdown(node) {
     }
     case "hr":
       return `---\n\n`;
+    case "a": {
+      const href = element.getAttribute("href") || "";
+      return href ? `[${text}](${href})` : text;
+    }
+    case "code":
+      // 行内 code（在 pre 外）→ 反引号；pre 内的 code 由 pre 分支整体处理
+      return element.closest("pre") ? text : `\`${text}\``;
+    case "pre": {
+      const codeEl = element.querySelector("code");
+      const lang = (codeEl?.className || "").replace(/^.*language-/, "").trim();
+      // 还原 renderCodeBlock 的 <br>→\n / &nbsp;→空格（textContent 已自动解码 &nbsp;）
+      const raw = (element.textContent || "").replace(/\u00A0/g, " ");
+      return `\`\`\`${lang}\n${raw.replace(/\n+$/, "")}\n\`\`\`\n\n`;
+    }
+    case "table": {
+      const rows = Array.from(element.querySelectorAll("tr"));
+      if (!rows.length) return `${text}\n\n`;
+      const toCells = (tr) =>
+        Array.from(tr.querySelectorAll("th,td")).map((c) =>
+          collapseWhitespace(c.textContent || "")
+        );
+      const head = toCells(rows[0]);
+      const lines = [`| ${head.join(" | ")} |`, `| ${head.map(() => "---").join(" | ")} |`];
+      for (const tr of rows.slice(1)) {
+        lines.push(`| ${toCells(tr).join(" | ")} |`);
+      }
+      return `${lines.join("\n")}\n\n`;
+    }
     case "div":
     case "section":
     case "article":
@@ -200,18 +236,19 @@ function renderSection(section, sourceImages) {
   const imageBlocks = (section.imageRefs || [])
     .map((imageRef) => renderImageRef(imageRef, sourceImages));
 
-  // 让图片不再总是粘在 section 末尾：把 imageRefs 均匀分布到 paragraphs 之间，
-  // 每张图后面跟一段相邻段落（如果还有的话）。结构、代码、表格、数学块依次跟在最后，
-  // 它们更像"补充信息"，放结尾不会破坏阅读节奏。
+  // 让图片不再总是粘在 section 末尾：把 imageRefs 均匀分布到 paragraphs 之间。
+  // 结构、代码、表格、数学块依次跟在最后，它们更像"补充信息"，放结尾不破坏阅读节奏。
+  // 注意：everyN 必须用**原始图片数**算一次（提到循环外）——若在循环里用会被 shift()
+  // 改变的 inlineImages.length 重算，插一张后步长变大，后面的图就越来越不均匀。
   const inlineImages = [...imageBlocks];
+  const totalImages = imageBlocks.length;
+  const everyN =
+    totalImages > 0 ? Math.max(1, Math.ceil(paragraphs.length / totalImages)) : 0;
   const interleaved = [];
   for (let i = 0; i < paragraphs.length; i += 1) {
     interleaved.push(paragraphs[i]);
-    if (inlineImages.length > 0) {
-      const everyN = Math.max(1, Math.ceil(paragraphs.length / inlineImages.length));
-      if ((i + 1) % everyN === 0) {
-        interleaved.push(inlineImages.shift());
-      }
+    if (inlineImages.length > 0 && everyN > 0 && (i + 1) % everyN === 0) {
+      interleaved.push(inlineImages.shift());
     }
   }
   // 剩下没塞下的图按原顺序追加在段落之后、结构块之前
@@ -231,10 +268,16 @@ function renderSection(section, sourceImages) {
 function renderCodeBlock(block) {
   const language = String(block.language || "").trim();
   const text = String(block.text || "");
+  // 微信会合并连续空格、吃掉 \n（white-space:pre-wrap 不可靠）。按官方适配：
+  // 行首空格 → &nbsp;（不间断空格保住缩进），\n → <br>（保住换行）。
+  // word-break 用 break-word（break-all 会从单词中间断行且微信过滤不稳）+ overflow-x:auto 横滚。
+  const safeText = escapeHtml(text)
+    .replace(/^( +)/gm, (s) => "&nbsp;".repeat(s.length))
+    .replace(/\n/g, "<br>");
   const preStyle =
     "background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:8px;overflow-x:auto;" +
     "font-family:'SFMono-Regular',Menlo,Consolas,'Liberation Mono',monospace;font-size:13px;" +
-    "line-height:1.6;white-space:pre-wrap;word-break:break-all;margin:1em 0;";
+    "line-height:1.6;white-space:pre-wrap;word-break:break-word;margin:1em 0;";
   const codeStyle =
     "font-family:inherit;font-size:inherit;color:inherit;background:transparent;padding:0;";
   const langTag = language
@@ -242,20 +285,27 @@ function renderCodeBlock(block) {
         language.toUpperCase()
       )}</span>`
     : "";
-  return `<pre style="${preStyle}">${langTag}<code style="${codeStyle}">${escapeHtml(text)}</code></pre>`;
+  return `<pre style="${preStyle}">${langTag}<code style="${codeStyle}">${safeText}</code></pre>`;
 }
 
 function renderTableBlock(table) {
   const headers = Array.isArray(table.headers) ? table.headers : [];
   const rows = Array.isArray(table.rows) ? table.rows : [];
   if (headers.length === 0 && rows.length === 0) return "";
+  // 列数对齐：AI 生成的表格行经常和表头列数不一致，按列数补齐/截断防残缺表格。
+  const colCount =
+    headers.length || rows.reduce((m, r) => Math.max(m, Array.isArray(r) ? r.length : 0), 0);
   const tableStyle =
     "width:100%;border-collapse:collapse;margin:1em 0;font-size:14px;line-height:1.6;";
   const thStyle =
     "border:1px solid #d1d5db;background:#f3f4f6;padding:8px 12px;text-align:left;font-weight:600;";
   const tdStyle = "border:1px solid #d1d5db;padding:8px 12px;vertical-align:top;";
+  const padRow = (row) => {
+    const cells = Array.isArray(row) ? row : [];
+    return Array.from({ length: colCount }, (_, i) => cells[i] ?? "");
+  };
   const thead = headers.length
-    ? `<thead><tr>${headers
+    ? `<thead><tr>${padRow(headers)
         .map((h) => `<th style="${thStyle}">${escapeHtml(h || "")}</th>`)
         .join("")}</tr></thead>`
     : "";
@@ -263,13 +313,14 @@ function renderTableBlock(table) {
     ? `<tbody>${rows
         .map(
           (row) =>
-            `<tr>${row
+            `<tr>${padRow(row)
               .map((cell) => `<td style="${tdStyle}">${escapeHtml(cell || "")}</td>`)
               .join("")}</tr>`
         )
         .join("")}</tbody>`
     : "";
-  return `<table style="${tableStyle}">${thead}${tbody}</table>`;
+  // 外层包一层横向滚动容器：微信正文宽度固定，宽表格不包裹会在手机端右半边看不到。
+  return `<section style="overflow-x:auto;margin:1em 0;"><table style="${tableStyle}">${thead}${tbody}</table></section>`;
 }
 
 function renderMathBlock(block) {
@@ -302,16 +353,16 @@ function renderImageRef(imageRef, sourceImages) {
 
 function createDigest(article) {
   if (article.lead?.trim()) {
-    return article.lead.trim().slice(0, 120);
+    return article.lead.trim().slice(0, DIGEST_MAX_LEN);
   }
 
   const firstParagraph = article.sections?.find((section) => section.paragraphs?.length)?.paragraphs?.[0];
-  return String(firstParagraph || "").trim().slice(0, 120);
+  return String(firstParagraph || "").trim().slice(0, DIGEST_MAX_LEN);
 }
 
 function findCoverImageIndex(article, sourceImages) {
   for (const section of article.sections || []) {
-    const index = Number(section.imageRefs?.[0]?.index || 0);
+    const index = Number(section.imageRefs?.[0]?.index ?? 0);
     if (index > 0 && index <= sourceImages.length) {
       return index;
     }
@@ -334,8 +385,11 @@ function applyStyle(element, style) {
   if (!element || !style) {
     return;
   }
-  const existing = element.getAttribute("style");
-  element.setAttribute("style", `${existing ? `${existing};` : ""}${style}`);
+  // 规范化分号拼接，避免出现 ";;" 或缺分号（后写覆盖先写，靠浏览器容错不可靠）。
+  const existing = (element.getAttribute("style") || "").trim().replace(/;\s*$/, "");
+  const incoming = String(style).trim().replace(/;\s*$/, "");
+  const merged = [existing, incoming].filter(Boolean).join(";");
+  element.setAttribute("style", merged ? `${merged};` : "");
 }
 
 function collapseWhitespace(value) {

@@ -3454,4 +3454,42 @@ console.log("\n运行 humanize-checker 升华结尾检测单测 …");
   console.log("✓ humanize-checker 升华结尾 2 case（命中 / 不误报）");
 }
 
+console.log("\n运行 article.js 渲染单测（图片分布 / 表格列对齐 / markdown）…");
+{
+  const { renderArticleBody, htmlToMarkdown } = await import("../src/shared/article.js");
+  // 图片均匀分布：6 段 + 2 图 → everyN=ceil(6/2)=3，应在第3段后、第6段后各插一张（不跑偏）
+  const imgs = [{ src: "https://a.com/1.png" }, { src: "https://a.com/2.png" }];
+  const body = renderArticleBody(
+    {
+      sections: [
+        {
+          paragraphs: ["p1", "p2", "p3", "p4", "p5", "p6"],
+          imageRefs: [{ index: 1 }, { index: 2 }]
+        }
+      ]
+    },
+    imgs
+  );
+  const idxP3 = body.indexOf("p3");
+  const idxImg1 = body.indexOf("1.png");
+  const idxP4 = body.indexOf("p4");
+  assert(idxP3 < idxImg1 && idxImg1 < idxP4, "第1张图应插在 p3 后、p4 前（everyN 用原始图数算）");
+  assert((body.match(/<figure/g) || []).length === 2, "2 张图都应渲染");
+
+  // 表格列对齐：表头 3 列、某行只有 2 格 → 应补齐到 3 个 td
+  const tblBody = renderArticleBody(
+    {
+      sections: [
+        { paragraphs: ["x"], tables: [{ headers: ["A", "B", "C"], rows: [["1", "2"]] }] }
+      ]
+    },
+    []
+  );
+  assert((tblBody.match(/<th style/g) || []).length === 3, "表头 3 列");
+  assert((tblBody.match(/<td style/g) || []).length === 3, "残行应补齐到 3 个 td");
+  assert(tblBody.includes("overflow-x:auto"), "表格应包横向滚动容器");
+  // 注：htmlToMarkdown 依赖 DOMParser（仅浏览器/content 环境），Node smoke 不测。
+  console.log("✓ article.js 渲染 4 case（图片分布/表格列对齐/横滚）");
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

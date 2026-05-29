@@ -8,7 +8,7 @@
 
 ---
 
-## 主反例约定（编号 1-30，progress.md 显式编号）
+## 主反例约定（编号 1-33，progress.md 显式编号）
 
 | # | 一句话规避 | 关键词 | 首次沉淀 | 强化次数 |
 |---|---|---|---|---|
@@ -42,6 +42,9 @@
 | 28 | **第三方/抓取来源 URL 进 `<a href>` 必须 protocol allowlist（仅 http(s)）**——`escapeHtml`/`escapeAttr` 只防属性闭合，挡不住 `javascript:` scheme（扩展页点击执行脚本）；用 `utils.safeHttpUrl` | href XSS / 选题卡 / 抓取链接 | 2026-05-29 40th | — |
 | 29 | **`withRetry` 类重试必须按 `error.code` 跳过不可重试错误**（鉴权/配额/套餐闸门）——否则平台计费路径下重试会二次扣额度 | withRetry / 平台 LLM 计费 | 2026-05-29 40th | — |
 | 30 | **`try { switch }` 内的 `break`/`return` 退出 switch 不触发该 try 的 catch/finally**——已注册的副作用资源（task / 锁 / timer）必须在每个提前退出分支显式清理 | task registry 泄漏 / 闸门 break | 2026-05-29 40th | — |
+| 31 | **去 AI 味「替换字典」用固定映射会反噬**——把一个 AI 词机械换成另一个可识别 AI 词（"与此同时"→"差不多同期"）。替换映射给多选 + prompt 要求每处变化；固定产物泛滥后进黑名单 | humanize-rules / AI_VOCAB_REPLACEMENTS | 2026-05-29 41st | — |
+| 32 | **注入第三方富文本编辑器（mp ProseMirror）优先合成 `paste`（ClipboardEvent+text/html）**走其自身粘贴管线；`innerHTML`/`execCommand insertHTML` 可能被回滚或丢样式；但保留三级兜底不删可用路径（写入与否用 innerHTML 长度判定） | mp 注入 / setEditorHtml | 2026-05-29 41st | (关联 #16) |
+| 33 | **后台"找一个同类扩展 tab 干活"不能盲取 `tabs.query()[0]`**（最老 tab，状态陈旧）——按 `lastAccessed` 取最近聚焦 tab，否则多开 tab 时状态串篇（"同步的是上一篇"） | runFloatingBallPull / 多 tab | 2026-05-29 41st | — |
 
 ---
 
@@ -133,3 +136,4 @@
 
 - 2026-05-07 初版（39th session 收尾后建立，从 progress.md 整理 21 条主反例约定 + 30+ 条模式约定，建立编号体系）
 - 2026-05-29 40th session：新增主反例约定第 24-30 条（LLM 参数钳制 / plan 塌缩链路 / JWT 吊销 / D1 限额原子 / href 协议 allowlist / withRetry 不可重试码 / try-switch break 不触发 catch）+ 工程实践加「D1 增量迁移边界」
+- 2026-05-29 41st session：新增第 31-33 条（替换字典反噬 / mp ProseMirror paste 注入 / 多 tab 委托取最近聚焦 tab）

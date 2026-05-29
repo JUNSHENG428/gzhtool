@@ -16,17 +16,17 @@
 
 ---
 
-## 当前焦点（更新于 2026-05-29 · 40th session）
+## 当前焦点（更新于 2026-05-29 · 41st session）
 
-**全项目安全/正确性 review + 16 项修复全落地**（三路并行 subagent 审查）。后端已部署（Worker `a3e8ed52`，`005_token_epoch.sql` 跑 remote）；**扩展端改动未打包未提交**——上架前需 `npm run release:cws`。验证 smoke 46 / check:ext 40-0-0 / check:js 84 + SW 守卫 0 / 0 lint。反例约定增至 **30 条**（新增 24-30）。详见 [activeContext.md](memory-bank/activeContext.md) 顶部 40th + [progress.md](memory-bank/progress.md) 顶部。
+**合规检测 + 去 AI 味深化 + mp 注入/悬浮球优化**（9 commits 全 push，最新 `72204ec`；后端 deploy Worker `78d85f28`）。验证 smoke / check:js 88 + SW 守卫 0 / check:ext 40-0-0 / 0 lint。反例约定增至 **33 条**（新增 31-33）。详见 [activeContext.md](memory-bank/activeContext.md) 顶部 41st + [progress.md](memory-bank/progress.md) 顶部。
 
-关键修复：#1 LLM 转发参数钳制（防财务 DoS）/ #2 license plan 塌缩全链路修复（月费 SKU 扩展端真生效 + BYOK 正确锁年费）/ #3 登录限速 / #4 JWT token_epoch 吊销 / #10 设备上限原子 INSERT / #11 Lemon 退款吊销 等。
+本 session 落地：① **敏感词/违规检测全套**（MVP→实时扫描/一键替换/自定义词库→远程版本化词库→AI 合规改写付费）② **去 AI 味深化**（lint 按次累扣 + 词表扩容 + skipScore 80 + AI 选题 novelty 去重 + 第二模型评审 pass「深度去 AI 味」+ 升华结尾检测 + 句间流畅衔接）③ **mp 注入按规范优化**（paste 优先 + MutationObserver + sanitizer 补清理）④ **修多 tab 同步串篇**（按 lastAccessed 取最近 tab）+ 悬浮球图标 emoji 化。**扩展端改动上架前需 `npm run release:cws` 重打包。**
 
 待办候选（无优先级）：
 - **上架收尾**：重打包 zip + 出商店 PNG + 实测 + $5 注册（详见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md) §5）
-- **产品补强**（竞品分析结论）：敏感词/违规检测（最该先补）> 基础配图能力 > 对外主打「去 AI 味」
-- Phase 6 设备反伪造（待 review sketch §6-8 决策）
-- 用户侧「我的账户安全」卡片 / admin dashboard 异常聚合 / activeContext.md archive 切分
+- **本地排版结构 lint**（替代脆弱的 mp `verify_article_structure` 远程 API）
+- **基础配图能力**（竞品分析补强 #2，找图断点）
+- Phase 6 设备反伪造（待 review）/ 用户侧账户安全卡 / admin dashboard / activeContext.md archive 切分
 
 ---
 
@@ -62,7 +62,7 @@
 | 20 | plan/SKU schema 演进**不要硬编码默认值**——必须接受参数 + 显式归一化 | `progress.md` 第 20 条 |
 | 21 | **流式响应路径不要做 fallback 链**——半途切上游会产生错位 JSON | `progress.md` 第 21 条 |
 
-完整 30 条见 `memory-bank/reflexes.md` 表格 / `memory-bank/progress.md`「反例约定第 N 条」搜索。
+完整 33 条见 `memory-bank/reflexes.md` 表格 / `memory-bank/progress.md`「反例约定第 N 条」搜索。
 
 ---
 
@@ -101,7 +101,7 @@ wrangler secret put OPENAI_API_KEY                                  # 注入私�
 | 架构模式 / 模块关系 / SOP | `memory-bank/systemPatterns.md` |
 | 当前焦点 / 跨 session 记忆 / 决策归档 | `memory-bank/activeContext.md` 顶部 |
 | 历史 session（按日期） | `memory-bank/activeContext.md` 中段（2026-04 起，append-only） |
-| 已完成功能清单 + 反例约定 30 条 | `memory-bank/progress.md` / `memory-bank/reflexes.md` |
+| 已完成功能清单 + 反例约定 33 条 | `memory-bank/progress.md` / `memory-bank/reflexes.md` |
 | 4 phase 实施 plan | `.claude/plans/iridescent-sprouting-moore.md` |
 | Plan / Skill 系统 | `~/.claude/skills/`（含 21 addy skills + 4 项目 skills） |
 
@@ -139,3 +139,4 @@ cd desktop && python build.py   # 桌面助手打包（需 python.org Python，�
 ## 修订历史
 - 2026-05-07 初版（39th session 收尾后建立，sediment 反例约定 21 条 + 14 处对齐清单 + 验证 SOP 三件套）
 - 2026-05-29 40th session：当前焦点更新为安全 review 16 项修复；反例约定 21→30 条；新增 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)（竞品分析 + 上架就绪度）
+- 2026-05-29 41st session：当前焦点更新为合规检测 + 去 AI 味深化 + mp 注入/悬浮球优化；反例约定 30→33 条
