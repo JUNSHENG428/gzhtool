@@ -3387,7 +3387,18 @@ console.log("\n运行 compliance-checker 合规检测单测 …");
   const safe = safeScanCompliance(undefined);
   assert(safe.level === "ok", "safeScanCompliance(undefined) 应回 ok 不抛");
 
-  console.log("✓ compliance-checker 7 case（clean/极限词/白名单/手机号/高危/article/容错）");
+  // 8. 自定义词库 customTerms
+  const { parseCustomComplianceTerms } = await import("../src/shared/compliance-checker.js");
+  const terms = parseCustomComplianceTerms("竞品A，竞品B\n内部代号X、内部代号X");
+  assert(terms.length === 3 && terms.includes("竞品A") && terms.includes("内部代号X"), "自定义词解析应去重去空，得 3 条");
+  const custom = scanCompliance("我们比竞品A强，内部代号X 即将发布。", { customTerms: terms });
+  assert(custom.hits.some((h) => h.category === "custom" && h.term === "竞品A"), "应命中自定义词竞品A");
+  assert(custom.hits.some((h) => h.term === "内部代号X"), "应命中自定义词内部代号X");
+  // 无自定义词时不命中
+  const noCustom = scanCompliance("我们比竞品A强。");
+  assert(!noCustom.hits.some((h) => h.category === "custom"), "未配置自定义词时不应命中 custom");
+
+  console.log("✓ compliance-checker 10 case（clean/极限词/白名单/手机号/高危/article/容错/自定义×3）");
 }
 
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

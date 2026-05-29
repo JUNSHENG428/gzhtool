@@ -109,7 +109,9 @@ const fields = {
   // select 进 fields 走 saveForm 通用循环 OK；aiSourceMode（radio）独立处理见下方。
   platformTier: document.querySelector("#platformTier"),
   // 39th 续 · Phase 3 · 平台 AI 流式响应开关（checkbox，saveForm 通用循环识别 type=checkbox）
-  platformStreaming: document.querySelector("#platformStreaming")
+  platformStreaming: document.querySelector("#platformStreaming"),
+  // 40th 续 · 合规检测自定义敏感词（textarea，saveForm 通用循环读 .value 持久化）
+  complianceCustomWords: document.querySelector("#complianceCustomWords")
 };
 
 const statusElement = document.querySelector("#status");

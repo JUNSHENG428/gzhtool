@@ -145,6 +145,9 @@ export const DEFAULT_SETTINGS = {
   // 「去 AI 味」二次润色 pass。默认开启，PRO 用户实际生效；
   // 免费版即使 humanizeEnabled=true 也会被 license 闸门拒绝，回退主 pass 结果。
   humanizeEnabled: true,
+  // 合规检测 · 用户自定义敏感词（换行/逗号/顿号分隔；本地检测，不上传）。
+  // 由 compliance-checker.parseCustomComplianceTerms 解析，命中按 severity=2 warn 报。
+  complianceCustomWords: "",
   // 强度档位：
   //  - light：只重写 lint 命中权重最高的 1 段，省时省 token
   //  - medium：重写所有 lint 命中段 + lead；零命中时退化成全段（默认）

@@ -37,13 +37,14 @@ import {
  *   byCategory: Record<string, Array>
  * }}
  */
-export function scanCompliance(input) {
+export function scanCompliance(input, options = {}) {
   const text = extractPlainText(input);
   const hits = [];
 
   if (text) {
     collectLiteralHits(text, hits);
     collectRegexHits(text, hits);
+    collectCustomHits(text, options.customTerms, hits);
   }
 
   // 去重：同 id + 同 index 只留一条
@@ -74,9 +75,9 @@ export function scanCompliance(input) {
 }
 
 /** 不抛错版本（对标 safeLintArticle）：任何异常都回 ok，绝不阻断主链路。 */
-export function safeScanCompliance(input) {
+export function safeScanCompliance(input, options = {}) {
   try {
-    return scanCompliance(input);
+    return scanCompliance(input, options);
   } catch (err) {
     if (typeof console !== "undefined") {
       console.warn("[compliance] scan failed, treated as ok", err);
@@ -103,6 +104,31 @@ function collectLiteralHits(text, hits) {
     while ((idx = text.indexOf(r.term, from)) !== -1 && guard < 200) {
       hits.push(makeHit(r, r.term, idx));
       from = idx + r.term.length;
+      guard += 1;
+    }
+  }
+}
+
+// 用户自定义敏感词（来自设置，severity=2 warn，category=custom）
+function collectCustomHits(text, customTerms, hits) {
+  if (!Array.isArray(customTerms) || customTerms.length === 0) return;
+  const seen = new Set();
+  for (const raw of customTerms) {
+    const term = String(raw || "").trim();
+    if (!term || seen.has(term)) continue;
+    seen.add(term);
+    let from = 0;
+    let idx;
+    let guard = 0;
+    while ((idx = text.indexOf(term, from)) !== -1 && guard < 200) {
+      hits.push(
+        makeHit(
+          { id: `custom.${term}`, category: "custom", severity: SEVERITY.WARN, reason: "自定义敏感词" },
+          term,
+          idx
+        )
+      );
+      from = idx + term.length;
       guard += 1;
     }
   }
@@ -196,6 +222,19 @@ function stripHtmlTags(html) {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
   return s.trim();
+}
+
+/**
+ * 把设置里的「自定义敏感词」字符串解析成数组。
+ * 支持换行 / 中英文逗号 / 顿号 / 空格分隔；去空去重；每条 ≤ 40 字；最多 500 条。
+ */
+export function parseCustomComplianceTerms(value) {
+  if (!value) return [];
+  const parts = String(value)
+    .split(/[\n,，、;；\s]+/)
+    .map((s) => s.trim())
+    .filter((s) => s && s.length <= 40);
+  return Array.from(new Set(parts)).slice(0, 500);
 }
 
 export { SEVERITY };

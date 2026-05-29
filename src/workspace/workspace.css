@@ -2656,6 +2656,34 @@ button[hidden] {
 .compliance-status-bar .compliance-badge-label {
   font-weight: 600;
 }
+.compliance-replace-btn {
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 11px;
+  border: 1px solid #16a34a;
+  background: #16a34a;
+  color: #fff;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.compliance-replace-btn:hover {
+  background: #15803d;
+}
+.compliance-confirm-list {
+  margin: 8px 0;
+  padding-left: 18px;
+  max-height: 240px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.compliance-confirm-list li[data-severity="block"] strong {
+  color: #b91c1c;
+}
+.compliance-confirm-list li[data-severity="warn"] strong {
+  color: #b45309;
+}
 .humanize-panel {
   padding: 8px 14px 12px;
   border-top: 1px dashed rgba(23, 38, 32, 0.1);

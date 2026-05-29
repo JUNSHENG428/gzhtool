@@ -49,7 +49,7 @@ import {
   maybeRefreshLicense
 } from "../shared/license.js";
 import { lintArticle } from "../shared/humanize-checker.js";
-import { safeScanCompliance } from "../shared/compliance-checker.js";
+import { safeScanCompliance, parseCustomComplianceTerms } from "../shared/compliance-checker.js";
 import { runHumanizePass } from "../shared/humanize-pass.js";
 import { getActiveVoiceSample } from "../shared/voice-samples.js";
 import { ensureOptionalHostPermission } from "../shared/host-permissions.js";
@@ -500,7 +500,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           message.payload.preferences?.length
         );
         // 合规检测（本地，不阻断）：扫描最终稿，结果随 meta 下发给 UI 渲染 badge
-        const compliance = safeScanCompliance(article);
+        const compliance = safeScanCompliance(article, {
+          customTerms: parseCustomComplianceTerms(settings.complianceCustomWords)
+        });
         const baseMeta = template
           ? { templateId: template.id, templateName: template.name }
           : {};

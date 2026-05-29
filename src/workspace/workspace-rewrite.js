@@ -21,6 +21,13 @@ import {
   buildRewriteSourceFromCurrentArticle,
   isEditorBodySubstantiveForRewrite
 } from "../shared/ai.js";
+import { scanCompliance, parseCustomComplianceTerms } from "../shared/compliance-checker.js";
+import { STORAGE_KEYS } from "../shared/defaults.js";
+
+// 合规检测 · 实时扫描状态
+let _complianceCustomTerms = [];
+const COMPLIANCE_SCAN_DEBOUNCE_MS = 700;
+let _complianceScanTimer = null;
 
 const AI_GEN_OPTION_VALUE = "__ai_gen__";
 
@@ -120,6 +127,32 @@ export function init(ctx) {
     if (opened) panel.removeAttribute("hidden");
     else panel.setAttribute("hidden", "");
     complianceBadgeBtn.setAttribute("aria-expanded", String(opened));
+  });
+
+  // 合规检测 · 实时扫描：加载自定义词 + 监听编辑器输入（防抖）
+  void _loadComplianceCustomTerms();
+  try {
+    chrome.storage?.onChanged?.addListener((changes, area) => {
+      if (area === "local" && changes[STORAGE_KEYS.settings]) {
+        void _loadComplianceCustomTerms();
+      }
+    });
+  } catch (_) {
+    // storage 不可用（测试环境）忽略
+  }
+  const editorEl = document.querySelector("#editor");
+  editorEl?.addEventListener("input", () => {
+    clearTimeout(_complianceScanTimer);
+    _complianceScanTimer = setTimeout(runRealtimeComplianceScan, COMPLIANCE_SCAN_DEBOUNCE_MS);
+  });
+  // 一键替换：事件委托到合规面板（按钮在 renderComplianceBadge 动态生成）
+  const compliancePanelEl = document.querySelector("#compliancePanel");
+  compliancePanelEl?.addEventListener("click", (e) => {
+    const btn = e.target.closest?.("[data-compliance-replace]");
+    if (!btn) return;
+    const term = btn.getAttribute("data-term") || "";
+    const replace = btn.getAttribute("data-compliance-replace") || "";
+    if (term && replace) applyComplianceReplace(term, replace);
   });
 
   // 「去 AI 味」开关 chip：与 settings.humanizeEnabled 双向绑定
@@ -849,8 +882,55 @@ function severityTag(severity) {
   return "HINT";
 }
 
+async function _loadComplianceCustomTerms() {
+  try {
+    const settings = await getSettings();
+    _complianceCustomTerms = parseCustomComplianceTerms(settings.complianceCustomWords);
+  } catch (_) {
+    _complianceCustomTerms = [];
+  }
+}
+
+/** 实时扫描当前编辑器正文 + 标题，更新合规 badge（防抖后调用）。 */
+function runRealtimeComplianceScan() {
+  const editorEl = document.querySelector("#editor");
+  if (!editorEl) return;
+  const titleEl = document.querySelector("#titleInput");
+  const text = [titleEl?.value || "", editorEl.innerText || ""].join("\n");
+  const result = scanCompliance(text, { customTerms: _complianceCustomTerms });
+  renderComplianceBadge(result);
+}
+
 /**
- * 渲染「合规检查」badge + 详情面板（数据来自 service-worker meta.compliance）。
+ * 一键替换：把编辑器正文里所有 term 替换为 replacement（只动文本节点，不破坏标签），
+ * 替换后触发输入同步并重扫合规。命中在标题里的词不在此处理（标题另行手改）。
+ */
+function applyComplianceReplace(term, replacement) {
+  const editorEl = document.querySelector("#editor");
+  if (!editorEl || !term) return;
+  let replaced = 0;
+  const walker = document.createTreeWalker(editorEl, NodeFilter.SHOW_TEXT, null);
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+  for (const node of nodes) {
+    if (node.nodeValue && node.nodeValue.includes(term)) {
+      node.nodeValue = node.nodeValue.split(term).join(replacement);
+      replaced += 1;
+    }
+  }
+  if (replaced > 0) {
+    // 同步回 article + 持久化（onWorkspaceInput 是 workspace.js 的中央输入处理）
+    if (typeof _ctx?.onWorkspaceInput === "function") _ctx.onWorkspaceInput();
+    else editorEl.dispatchEvent(new Event("input", { bubbles: true }));
+    if (_ctx?.setStatus) _ctx.setStatus(`已把「${term}」替换为「${replacement}」（${replaced} 处），请复核语境。`, "success");
+  }
+  runRealtimeComplianceScan();
+}
+
+/**
+ * 渲染「合规检查」badge + 详情面板。
+ * 数据来源：① service-worker meta.compliance（改写后）② 实时扫描结果。
  * 与 renderHumanizeBadge 并列；clean 时隐藏整条 bar。
  */
 function renderComplianceBadge(compliance) {
@@ -900,6 +980,16 @@ function renderComplianceBadge(compliance) {
       li.appendChild(tag);
       li.appendChild(text);
       li.appendChild(hint);
+      // 一键替换：仅当该命中有明确 replace 候选时显示按钮
+      if (h.replace) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "compliance-replace-btn";
+        btn.setAttribute("data-compliance-replace", h.replace);
+        btn.setAttribute("data-term", h.term);
+        btn.textContent = `替换为「${h.replace}」`;
+        li.appendChild(btn);
+      }
       list.appendChild(li);
     }
     if (hits.length > top.length) {

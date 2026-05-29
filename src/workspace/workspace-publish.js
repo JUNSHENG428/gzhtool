@@ -11,7 +11,7 @@ import { clampIndex, formatRuntimeError } from "../shared/utils.js";
 import { prepareHtmlForWechat } from "../shared/wechat-html.js";
 import { ensureHostPermissionFromGesture } from "../shared/host-permissions.js";
 import { collectPublishRemoteUrls } from "../shared/wechat.js";
-import { safeScanCompliance } from "../shared/compliance-checker.js";
+import { safeScanCompliance, parseCustomComplianceTerms } from "../shared/compliance-checker.js";
 
 /**
  * 判断当前 settings 是否有任何"可发布"的公众号通道。
@@ -443,9 +443,11 @@ export async function publishBundle(mode) {
     }
 
     // 合规检测（本地，不硬阻断）：命中高危/违规词时弹二次确认 modal，用户可选「去修改」或「仍要发布」
+    const complianceSettings = await getSettings();
+    const complianceCustomTerms = parseCustomComplianceTerms(complianceSettings.complianceCustomWords);
     const complianceHits = [];
     for (const article of enabledForPublish) {
-      const res = safeScanCompliance(article);
+      const res = safeScanCompliance(article, { customTerms: complianceCustomTerms });
       for (const h of res.hits) {
         if (h.severity >= 2) complianceHits.push({ ...h, _title: article?.meta?.title?.trim() || "未命名" });
       }

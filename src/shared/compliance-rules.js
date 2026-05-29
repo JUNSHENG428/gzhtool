@@ -22,6 +22,7 @@
 export const SEVERITY = Object.freeze({ BLOCK: 3, WARN: 2, HINT: 1 });
 
 export const CATEGORY_META = Object.freeze({
+  custom: { label: "自定义", severity: 2, note: "你在设置里添加的自定义敏感词" },
   political: { label: "时政敏感", severity: 3, note: "涉政内容请人工复核（本工具不堆砌时政词库）" },
   porn_vulgar: { label: "色情低俗", severity: 3, note: "可能直接封号" },
   illegal: { label: "违法违规", severity: 3, note: "赌博 / 诈骗 / 违禁交易，可能封号" },

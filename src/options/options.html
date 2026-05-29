@@ -411,6 +411,16 @@
         <p class="humanize-cost-hint split-full">
           <strong>token 估算</strong>：一篇 1500 字稿件，主 pass 大约 ~2.5k token；中档位通常只重写 1–3 段（~1.5k–3k token），重档位按章节数（典型 4–6 章）总计 ~3k–5k token。lint 分数 ≥ 85 时整篇会跳过二次润色，直接用主 pass 结果。
         </p>
+
+        <label class="split-full">
+          <span>合规检测 · 自定义敏感词 <small class="field-meta">compliance_custom_words</small></span>
+          <textarea id="complianceCustomWords" rows="3" placeholder="一行一个，或用逗号 / 顿号分隔。例如：竞品名、内部代号、你想规避的词"></textarea>
+          <small class="field-hint">
+            <strong>什么时候改</strong>：你的号有行业特有的敏感词 / 想规避的竞品名 / 历史踩过雷的词。
+            <strong>怎么生效</strong>：改写完成后和发布前会本地扫描这些词并标红提醒（按「违规」级），<strong>不上传、不联网</strong>。
+            内置的广告法极限词 / 导流 / 医疗 / 金融等词库已默认开启，这里只是补充你自己的。
+          </small>
+        </label>
       </section>
 
       <section class="card split-grid" data-section-key="voice" id="opt-anchor-voice">
