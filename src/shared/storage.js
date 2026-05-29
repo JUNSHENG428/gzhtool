@@ -142,6 +142,12 @@ function normalizeStoredTemplate(stored) {
     humanizeProfile:
       stored.humanizeProfile && typeof stored.humanizeProfile === "object"
         ? stored.humanizeProfile
-        : null
+        : null,
+    // AI 生成模板的元信息：之前重载会丢掉，导致「保存后切回此模板自动套用杂志主题」失效、
+    // 以及无法「按原问卷再生成」。这里显式保留。
+    aiGenerated: stored.aiGenerated === true,
+    suggestedTheme: stored.suggestedTheme || null,
+    quizMeta:
+      stored.quizMeta && typeof stored.quizMeta === "object" ? stored.quizMeta : null
   };
 }

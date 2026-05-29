@@ -253,48 +253,76 @@ export async function generateTemplate(input) {
   }
 
   const userPrompt = renderUserPrompt(quiz);
-
   const apiUrl = settings.apiBaseUrl.trim();
   await ensureOptionalHostPermission(apiUrl, "AI 模板生成接口");
+  const fallbackLength = RHYTHM_TO_LENGTH[quiz.rhythm] || "medium";
 
-  // 推理模型（Kimi k2.x / OpenAI o1 / DeepSeek R1）拒绝 temperature 与 response_format，
-  // 由 helper 在 400 命中关键词时自动剥掉这些字段重试。
-  const { response, payload } = await postChatCompletionWithReasoningFallback(
-    apiUrl,
-    settings.apiKey,
-    {
-      model: settings.model.trim(),
-      // 偏低温度 → meta-prompt 输出更稳定、不会瞎发挥
-      temperature: 0.4,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: META_SYSTEM_PROMPT },
-        { role: "user", content: userPrompt }
-      ]
-    },
-    { signal: input?.signal }
-  );
+  // 单次尝试：调 LLM → 解析 → 校验。extraNudge 在重试时追加更严格的纠偏指令。
+  const attemptOnce = async (extraNudge) => {
+    const sys = extraNudge ? `${META_SYSTEM_PROMPT}\n\n【纠偏】${extraNudge}` : META_SYSTEM_PROMPT;
+    // 推理模型（Kimi k2.x / OpenAI o1 / DeepSeek R1）拒绝 temperature 与 response_format，
+    // 由 helper 在 400 命中关键词时自动剥掉这些字段重试。
+    const { response, payload } = await postChatCompletionWithReasoningFallback(
+      apiUrl,
+      settings.apiKey,
+      {
+        model: settings.model.trim(),
+        temperature: 0.4,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: sys },
+          { role: "user", content: userPrompt }
+        ]
+      },
+      { signal: input?.signal }
+    );
+    if (!response.ok) {
+      const message =
+        payload?.error?.message || payload?.message || `LLM 接口报错（HTTP ${response.status}）。`;
+      throw new Error(message);
+    }
+    const content = extractContent(payload);
+    if (!content) {
+      throw new Error("LLM 没有返回内容，再试一次或换个模型试试。");
+    }
+    const parsed = parseJsonStrict(content);
+    const validated = validateAndShape(parsed, { fallbackLength });
+    return { validated, content };
+  };
 
-  if (!response.ok) {
-    const message =
-      payload?.error?.message ||
-      payload?.message ||
-      `LLM 接口报错（HTTP ${response.status}）。`;
-    throw new Error(message);
+  // 自动重试一次：首次解析/校验失败（JSON 坏 / styleInstruction 太短 / 塞了占位符等）
+  // 多半是 LLM 偶发抽风，用更严格的纠偏指令重试一次，显著降低"生成失败"概率。
+  let result;
+  try {
+    result = await attemptOnce("");
+  } catch (firstErr) {
+    if (input?.signal?.aborted) throw firstErr;
+    result = await attemptOnce(
+      `上一次输出不合格（原因：${String(firstErr?.message || "未知").slice(0, 60)}）。` +
+        "请严格只输出合法 JSON；styleInstruction 必须 280–520 字、写满角色+风格+段落节奏+风格雷区，且绝不能出现 {{变量}} 占位符。"
+    );
   }
 
-  const content = extractContent(payload);
-  if (!content) {
-    throw new Error("LLM 没有返回内容，再试一次或换个模型试试。");
-  }
-
-  const parsed = parseJsonStrict(content);
-  // 把问卷的 length 偏好作为兜底，AI 没填或填错时用问卷答案
-  const validated = validateAndShape(parsed, {
-    fallbackLength: RHYTHM_TO_LENGTH[quiz.rhythm] || "medium"
+  const template = composeTemplate(result.validated, {
+    suggestedTheme: quiz.visualTheme,
+    quizMeta: buildQuizMeta(quiz)
   });
-  const template = composeTemplate(validated, { suggestedTheme: quiz.visualTheme });
-  return { template, raw: content };
+  return { template, raw: result.content };
+}
+
+// 把问卷答案结构化落盘到模板，便于「按原问卷再生成」与版本对照（之前只进 meta-prompt 不留痕）
+function buildQuizMeta(quiz) {
+  return {
+    contentPillar: quiz.contentPillar || "",
+    contentPillarOther: quiz.contentPillarOther || "",
+    tone: quiz.tone || "",
+    opening: quiz.opening || "",
+    rhythm: quiz.rhythm || "",
+    cta: quiz.cta || "",
+    visualTheme: quiz.visualTheme || "",
+    audience: quiz.audience || "",
+    extraNotes: quiz.extraNotes || ""
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -428,8 +456,9 @@ export function validateAndShape(raw, opts = {}) {
   if (!name) throw new Error("LLM 返回的模板缺少 name。");
 
   const styleInstruction = trimToLength(raw.styleInstruction, 1800);
-  if (!styleInstruction || styleInstruction.length < 80) {
-    throw new Error("LLM 返回的 styleInstruction 太短或缺失，请重试。");
+  // prompt 要求 280–520 字；下限设 150（低于此基本是敷衍输出，纪律不全，改写质量差）。
+  if (!styleInstruction || styleInstruction.length < 150) {
+    throw new Error("LLM 返回的 styleInstruction 太短或缺失（需 ≥150 字），请重试。");
   }
 
   const userIntro = trimToLength(raw.userIntro, 240);
@@ -449,9 +478,10 @@ export function validateAndShape(raw, opts = {}) {
     audience: trimToLength(defaults.audience, 80) || ""
   };
 
+  // temperature 与 prompt 档位表对齐（0.3–1.0）；超界回落 0.7，避免改写过于发散
   const tempRaw = Number(raw.temperature);
   const temperature =
-    Number.isFinite(tempRaw) && tempRaw >= 0 && tempRaw <= 1.5
+    Number.isFinite(tempRaw) && tempRaw >= 0 && tempRaw <= 1.0
       ? Math.round(tempRaw * 100) / 100
       : 0.7;
 
@@ -509,6 +539,7 @@ export function composeTemplate(shaped, opts = {}) {
     model: "",
     aiGenerated: true,
     suggestedTheme,
+    quizMeta: opts.quizMeta && typeof opts.quizMeta === "object" ? opts.quizMeta : null,
     aiBriefHash: undefined
   };
 }

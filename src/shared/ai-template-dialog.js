@@ -1014,11 +1014,26 @@ function renderAiGenPreview(template) {
   }
   if (_els.previewDefaults) {
     const d = template.defaults || {};
+    const hp = template.humanizeProfile || {};
+    const intensityLabel =
+      { light: "轻", medium: "中", strong: "重" }[hp.intensity] || "中";
+    const voiceLabel =
+      {
+        "force-off": "强制不用",
+        "force-on": "强制使用",
+        auto: "自动"
+      }[template.useVoiceSample] || "自动";
     const rows = [
       ["受众", d.audience],
       ["调性", d.tone],
       ["切入角度", d.angle],
-      ["结尾 CTA", d.cta]
+      ["结尾 CTA", d.cta],
+      // 让用户看懂模板对"去 AI 味 / 个人文风"的控制（之前预览不展示）
+      [
+        "去 AI 味",
+        `${intensityLabel}强度 · 句长突发性≥${hp.burstinessMin ?? "—"} · ${hp.allowFirstPerson === false ? "客观播报" : "允许第一视角"}`
+      ],
+      ["我的文风样本", voiceLabel]
     ];
     _els.previewDefaults.innerHTML = rows
       .map(([label, value]) =>
