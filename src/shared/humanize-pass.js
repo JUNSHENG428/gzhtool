@@ -457,15 +457,16 @@ async function rewriteSnippet({
 // ---------------------------------------------------------------------
 
 function buildHumanizeSystemPrompt({ profile, intensity, issues, voiceSample, template }) {
-  const cards = getTopRuleCards(intensity === "strong" ? 10 : 8);
+  const cards = getTopRuleCards(intensity === "strong" ? 12 : 10);
   const cardLines = cards.map((c) => `- 【${c.label}】${c.do}（避免：${c.dont}）`);
-  const blacklistTop = AI_VOCAB_BLACKLIST.filter((x) => x.weight >= 7)
-    .slice(0, 10)
+  // S2 是专项返工，黑名单喂得比 S1 更全（strong 档全量高权重词）
+  const blacklistTop = AI_VOCAB_BLACKLIST.filter((x) => x.weight >= 5)
+    .slice(0, intensity === "strong" ? 24 : 18)
     .map((x) => x.phrase);
-  const phraseTop = AI_PHRASE_BLACKLIST.filter((x) => x.weight >= 8)
-    .slice(0, 6)
+  const phraseTop = AI_PHRASE_BLACKLIST.filter((x) => x.weight >= 7)
+    .slice(0, 14)
     .map((x) => x.phrase);
-  const dictLines = AI_VOCAB_REPLACEMENTS.slice(0, 8).map(
+  const dictLines = AI_VOCAB_REPLACEMENTS.slice(0, 12).map(
     ([from, to]) => `「${from}」→ ${to}`
   );
 

@@ -155,9 +155,10 @@ export const DEFAULT_SETTINGS = {
   //  - medium：重写所有 lint 命中段 + lead；零命中时退化成全段（默认）
   //  - strong：全段 + lead，且强制注入 voice sample
   humanizeIntensity: "medium",
-  // 主 pass lint 分数 ≥ 此阈值时整篇跳过二次润色 pass，避免给"已经够干净"的稿子白花钱。
-  // 阈值 85 = 主 pass 命中 ≤ 1 条 error 或 ≤ 3 条 warn。设 100 则始终跑 S2，0 则永不跳过。
-  humanizeSkipScore: 85,
+  // 主 pass lint 分数 ≥ 此阈值且**无 error 级痕迹**时才整篇跳过二次润色 pass。
+  // 默认 80（更激进除味）；只要有 error 级 AI 痕迹，即便总分达标也会跑 S2（见 service-worker）。
+  // 设 100 则几乎始终跑 S2，0 则永不跳过。
+  humanizeSkipScore: 80,
   // humanize-pass 段级并发上限。默认 6 在 OpenAI / Anthropic / DeepSeek / 阿里 DashScope 等
   // 主流服务上安全；自部署 vLLM/Ollama 限流时调到 1–2 即可回退顺序执行。
   humanizeMaxConcurrency: 6,

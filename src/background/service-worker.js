@@ -13,7 +13,7 @@ import {
   saveSession,
   saveSettings
 } from "../shared/storage.js";
-import { WECHAT_WEB_EDITOR_URL } from "../shared/defaults.js";
+import { WECHAT_WEB_EDITOR_URL, STORAGE_KEYS } from "../shared/defaults.js";
 import { classifyError } from "../shared/errors.js";
 import {
   collectPublishRemoteUrls,
@@ -405,10 +405,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // 任何一个条件不满足时静默跳过，主 pass 结果照常返回，避免阻塞用户。
         let humanizePass = { applied: false, sectionCount: 0, intensity: "off", errors: [] };
         const humanizeAllowedByTemplate = template?.humanizePassAllowed !== false;
-        const skipScore = Number(settings.humanizeSkipScore ?? 85);
+        const skipScore = Number(settings.humanizeSkipScore ?? 80);
         const lintScore = Number(lint?.score ?? 0);
+        // 即便总分达标，只要还有 error 级 AI 痕迹（如「综上所述」整段套话）也不跳过 S2——
+        // 总分四舍五入会把"单条严重痕迹"洗白，专项返工才能真正除味。
+        const hasErrorIssue =
+          Array.isArray(lint?.issues) && lint.issues.some((it) => it.severity === "error");
         const skipForHighScore =
-          Number.isFinite(skipScore) && skipScore > 0 && lintScore >= skipScore;
+          Number.isFinite(skipScore) && skipScore > 0 && lintScore >= skipScore && !hasErrorIssue;
 
         if (skipForHighScore) {
           humanizePass = {
@@ -1407,6 +1411,43 @@ async function scrapeBackgroundSilent(targetUrl) {
  * 失败策略：任何一步失败都返回 { ok:false, error, errorCode }，
  * 不抛错，让前端用 toast 展示。
  */
+// 汇集"历史选题标题"用于 novelty 去重：① 已写过的草稿标题（__draft_history）
+// ② 上次 AI 选题推荐过的标题（topicPlanCache）。读 storage 失败时静默返空（不阻断选题）。
+async function gatherTopicHistoryTitles() {
+  const titles = [];
+  try {
+    const data = await new Promise((resolve) => {
+      if (!globalThis.chrome?.storage?.local) return resolve({});
+      chrome.storage.local.get(
+        [STORAGE_KEYS.draftHistory, STORAGE_KEYS.topicPlanCache],
+        (d) => resolve(d || {})
+      );
+    });
+    // 草稿历史：每条 record 的 articleBundle[].meta.title
+    const history = data[STORAGE_KEYS.draftHistory];
+    const records = Array.isArray(history) ? history : history?.records || [];
+    for (const rec of records.slice(0, 50)) {
+      const bundle = rec?.articleBundle || rec?.bundle || [];
+      for (const art of bundle) {
+        const t = art?.meta?.title?.trim();
+        if (t) titles.push(t);
+      }
+      const single = rec?.sourcePreview?.title?.trim();
+      if (single) titles.push(single);
+    }
+    // 上次选题缓存：recommendedTopics[].originalTitle
+    const cache = data[STORAGE_KEYS.topicPlanCache];
+    const recs = cache?.result?.recommendedTopics || cache?.recommendedTopics || [];
+    for (const r of recs) {
+      const t = (r?.originalTitle || r?.title || "").trim();
+      if (t) titles.push(t);
+    }
+  } catch (_) {
+    // 静默
+  }
+  return Array.from(new Set(titles)).slice(0, 120);
+}
+
 async function runTopicPlanning(payload = {}) {
   const profile = payload.profile || {};
   const requestedSources = Array.isArray(payload.sourceIds) ? payload.sourceIds : [];
@@ -1528,7 +1569,10 @@ async function runTopicPlanning(payload = {}) {
         meta: { rejectedCount: rejected.length }
       };
     }
-    const scored = scoreCandidates(filtered.kept, profile, { now: Date.now() });
+    // 接通 novelty：把"已写过的草稿标题 + 上次选题推荐过的标题"作为历史，
+    // 让 scoreNovelty 给重复选题降权，避免反复推荐同一批热点。
+    const historyTitles = await gatherTopicHistoryTitles();
+    const scored = scoreCandidates(filtered.kept, profile, { now: Date.now(), historyTitles });
     const aiPoolSize = Math.min(
       20,
       Math.max(8, (effectiveProfile.outputCount || 5) * 3)

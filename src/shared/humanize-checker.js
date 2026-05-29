@@ -200,6 +200,14 @@ function stripHtmlTags(html) {
 // 3) 各类 issue 收集器
 // ---------------------------------------------------------------------
 
+// 按出现次数累扣：同一 AI 套话词反复出现是更强的 AI 信号，不能只扣一次
+// （否则一篇满是「综上所述/值得注意的是」也只扣单条权重 → 分数虚高 → 跳过 S2）。
+// 公式：base + (count-1)*ceil(base/2)，单词封顶 20，总扣分在 lintArticle 里再封 95。
+function countAwareWeight(base, count) {
+  const b = Math.min(10, base);
+  return Math.min(20, b + Math.max(0, count - 1) * Math.ceil(b / 2));
+}
+
 function collectBlacklistIssues(text, issues) {
   const seen = new Map();
   for (const item of AI_VOCAB_BLACKLIST) {
@@ -211,7 +219,7 @@ function collectBlacklistIssues(text, issues) {
         phrase: item.phrase,
         count: matches,
         severity: item.weight >= 8 ? "error" : item.weight >= 5 ? "warn" : "hint",
-        weight: Math.min(10, item.weight),
+        weight: countAwareWeight(item.weight, matches),
         text: item.phrase,
         hint: `命中 AI 套话词「${item.phrase}」共 ${matches} 处。考虑替换为更具体、有动作感的表达。`
       });
@@ -226,7 +234,7 @@ function collectBlacklistIssues(text, issues) {
         phrase: item.phrase,
         count: matches,
         severity: item.weight >= 9 ? "error" : "warn",
-        weight: Math.min(10, item.weight),
+        weight: countAwareWeight(item.weight, matches),
         text: item.phrase,
         hint: `命中 AI 套话短语「${item.phrase}」共 ${matches} 处。`
       });

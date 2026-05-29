@@ -319,21 +319,21 @@ function buildHardConstraintMessage(requestedLength, template = null) {
   };
 
   // 控制 prompt 长度：高优先级卡片只挑 8 张，黑名单挑 weight ≥ 7 的
-  const cards = getTopRuleCards(8);
+  const cards = getTopRuleCards(10);
   const cardLines = cards.map(
     (c) => `- 【${c.label}】${c.do}（避免：${c.dont}）`
   );
 
-  // 黑名单 + 套话短语：只塞 12 个，避免 LLM 把整张表当套话来生产
-  const blacklistTop = AI_VOCAB_BLACKLIST.filter((x) => x.weight >= 7)
-    .slice(0, 8)
+  // 黑名单 + 套话短语：喂更全的高权重集（覆盖不足是"改写后仍有 AI 套话"的主因之一）
+  const blacklistTop = AI_VOCAB_BLACKLIST.filter((x) => x.weight >= 5)
+    .slice(0, 18)
     .map((x) => x.phrase);
-  const phraseTop = AI_PHRASE_BLACKLIST.filter((x) => x.weight >= 8)
-    .slice(0, 6)
+  const phraseTop = AI_PHRASE_BLACKLIST.filter((x) => x.weight >= 7)
+    .slice(0, 12)
     .map((x) => x.phrase);
 
-  // 给 LLM 的"AI 词 → 替代词"字典（控制条数 8 条以内）
-  const dictLines = AI_VOCAB_REPLACEMENTS.slice(0, 8).map(
+  // 给 LLM 的"AI 词 → 替代词"字典
+  const dictLines = AI_VOCAB_REPLACEMENTS.slice(0, 12).map(
     ([from, to]) => `「${from}」可换 ${to}`
   );
 
