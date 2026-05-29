@@ -217,8 +217,9 @@ function renderTopicCardHtml(rec, idx) {
   )?.label;
   const confidencePct = Math.round((rec.confidence ?? 0.6) * 100);
 
-  const titleHtml = hasUrl
-    ? `<a class="topic-card__title-link" href="${escapeAttr(c.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(rec.originalTitle || c.title || "")}</a>`
+  const safeUrl = hasUrl ? safeHttpUrl(c.url) : "";
+  const titleHtml = safeUrl
+    ? `<a class="topic-card__title-link" href="${escapeAttr(safeUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(rec.originalTitle || c.title || "")}</a>`
     : escapeHtml(rec.originalTitle || c.title || "");
 
   return `
@@ -853,6 +854,19 @@ async function runPlanning(metaEl, formEl) {
 // =====================================================================
 function escapeAttr(value) {
   return escapeHtml(String(value)).replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+}
+
+// 只放行 http(s) 链接（热点源 URL 来自第三方，escapeAttr 防不住 javascript: scheme —
+// 点击会在扩展页上下文执行任意脚本）。非法协议返回 ""，调用方降级为纯文本。
+function safeHttpUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const u = new URL(raw, "https://docuearn.com");
+    return u.protocol === "http:" || u.protocol === "https:" ? raw : "";
+  } catch {
+    return "";
+  }
 }
 
 function startPlanningHintTicker(loadingEl) {

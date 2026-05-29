@@ -20,7 +20,7 @@
  *   - 修改密码弹窗
  *   - 付款回流 toast（?from=checkout&result=success）
  */
-import { auth, license, getToken, clearToken, api } from "./api.js";
+import { auth, license, getToken, clearToken, setToken, api } from "./api.js";
 
 const els = {
   greeting: document.getElementById("dashGreeting"),
@@ -427,6 +427,8 @@ function renderRenewalBanner(plan, lic) {
     banner = document.createElement("div");
     banner.id = "renewalBanner";
     banner.className = "renewal-banner";
+    banner.setAttribute("role", "status");
+    banner.setAttribute("aria-live", "polite");
     ensureRenewalBannerStyles();
     const greeting = document.querySelector(".section-head");
     if (greeting?.parentNode) {
@@ -720,10 +722,12 @@ function bindChangePassword() {
     els.changePwSubmit.disabled = true;
     els.changePwSubmit.textContent = "保存中…";
     try {
-      await auth.changePassword(oldPw, newPw);
+      const res = await auth.changePassword(oldPw, newPw);
+      // 后端改密后吊销所有旧 JWT 并发一个新 token，更新本地避免当前会话被踢出。
+      if (res && res.token) setToken(res.token);
       els.changePwForm.reset();
       closeModal(els.changePwModal);
-      showToast("密码已更新，下次登录请使用新密码。", "success", 4000);
+      showToast("密码已更新，其他设备需重新登录。", "success", 4000);
     } catch (error) {
       setChangePwFeedback(error?.message || "保存失败", "error");
     } finally {

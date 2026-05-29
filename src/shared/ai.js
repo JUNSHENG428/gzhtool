@@ -831,34 +831,42 @@ async function requestRewriteViaPlatformStreaming(settings, source, preferences,
   let finalContent = "";
   let lastTokens = 0;
 
+  // 解析单个 SSE 事件块，累加 content / usage。同一帧里 delta 与 usage 合并成一次
+  // onProgress（避免同帧连发两次导致 UI 字数/token 抖动）。
+  const handleEvent = (ev) => {
+    let changed = false;
+    for (const line of ev.split("\n")) {
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+      try {
+        const json = JSON.parse(data);
+        const delta = json?.choices?.[0]?.delta?.content || "";
+        if (delta) {
+          finalContent += delta;
+          changed = true;
+        }
+        if (json?.usage?.completion_tokens) {
+          lastTokens = Number(json.usage.completion_tokens) || 0;
+          changed = true;
+        }
+      } catch {
+        // 忽略单条 parse 失败，继续读
+      }
+    }
+    if (changed) onProgress({ chars: finalContent.length, tokens: lastTokens });
+  };
+
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const events = buffer.split("\n\n");
     buffer = events.pop() || "";
-    for (const ev of events) {
-      for (const line of ev.split("\n")) {
-        if (!line.startsWith("data:")) continue;
-        const data = line.slice(5).trim();
-        if (!data || data === "[DONE]") continue;
-        try {
-          const json = JSON.parse(data);
-          const delta = json?.choices?.[0]?.delta?.content || "";
-          if (delta) {
-            finalContent += delta;
-            onProgress({ chars: finalContent.length, tokens: lastTokens });
-          }
-          if (json?.usage?.completion_tokens) {
-            lastTokens = Number(json.usage.completion_tokens) || 0;
-            onProgress({ chars: finalContent.length, tokens: lastTokens });
-          }
-        } catch {
-          // 忽略单条 parse 失败，继续读
-        }
-      }
-    }
+    for (const ev of events) handleEvent(ev);
   }
+  // flush：流结束后处理 buffer 残片（末尾事件可能无 \n\n 收尾）
+  if (buffer.trim()) handleEvent(buffer);
 
   if (!finalContent) {
     throw new Error("平台 AI 流式返回内容为空");

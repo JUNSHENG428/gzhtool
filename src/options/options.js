@@ -37,6 +37,7 @@ import {
   getAuthRecord,
   getLicenseRecord,
   getLicenseState,
+  isPaidPlan,
   login,
   register,
   bindLicenseToAccount,
@@ -1962,7 +1963,11 @@ function renderLicenseList(summary) {
         row.expires_at && Number(row.expires_at) > 0
           ? `有效至 ${formatLicenseDate(row.expires_at)}`
           : "按订阅周期续费";
-      const planTitle = row.plan === "pro" ? "Pro 会员" : String(row.plan || "Free");
+      const planTitle =
+        row.plan === "monthly" ? "月费会员"
+          : row.plan === "yearly" ? "年费会员"
+          : row.plan === "pro" ? "Pro 会员"
+          : String(row.plan || "Free");
       const statusTag = row.status === "active" ? "已激活" : row.status === "expired" ? "已过期" : "已禁用";
       return `
         <div class="license-list-item" data-key="${escapeAttr(row.key)}">
@@ -2125,7 +2130,7 @@ async function renderFeaturesList() {
   const list = licenseEls.featuresList;
   if (!list) return;
   const state = await getLicenseState({ refresh: false });
-  const isPro = state.effectivePlan === "pro";
+  const isPro = isPaidPlan(state.effectivePlan);
   const items = Object.entries(PAID_FEATURES).map(([key, meta]) => {
     const enabled = meta.tier === "free" || isPro;
     return `<li class="license-feature ${enabled ? "is-on" : "is-off"}">
@@ -2180,10 +2185,10 @@ async function handleActivateLicense() {
     await renderLicenseStatus();
     await renderFeaturesList();
     setLicenseFeedback(
-      verifyRes.plan === "pro"
-        ? "激活成功！Pro 会员所有功能立即可用。"
-        : "激活成功，但当前不在 Pro 会员套餐内。",
-      verifyRes.plan === "pro" ? "success" : "warning"
+      isPaidPlan(verifyRes.plan)
+        ? "激活成功！会员功能立即可用。"
+        : "激活成功，但当前不在付费会员套餐内。",
+      isPaidPlan(verifyRes.plan) ? "success" : "warning"
     );
   } catch (error) {
     // 39th 续 · 撞顶时弹友好 modal 替代裸文案

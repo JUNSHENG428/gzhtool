@@ -194,6 +194,20 @@ export async function getLicenseRecord() {
   return data[STORAGE_LICENSE] || null;
 }
 
+// 39th 续³ · 付费档归一化（修复 monthly/yearly 被塌缩成 free 的链路问题）
+// 真实档：free / monthly / yearly / pro（pro 是历史 SKU，向后兼容当付费档）。
+const PAID_PLANS = new Set(["monthly", "yearly", "pro"]);
+
+export function isPaidPlan(plan) {
+  return PAID_PLANS.has(String(plan || ""));
+}
+
+// 把任意 plan 字段归一化为已知值；未知/free 一律 "free"，付费档原样保留。
+function normalizePlanField(plan) {
+  const p = String(plan || "");
+  return PAID_PLANS.has(p) ? p : "free";
+}
+
 export async function saveLicenseRecord(record) {
   if (!record) {
     await storageRemove(STORAGE_LICENSE);
@@ -202,8 +216,8 @@ export async function saveLicenseRecord(record) {
   await storageSet({
     [STORAGE_LICENSE]: {
       key: String(record.key || "").trim().toUpperCase(),
-      plan: record.plan === "pro" ? "pro" : "free",
-      status: record.status || (record.plan === "pro" ? "active" : "free"),
+      plan: normalizePlanField(record.plan),
+      status: record.status || (isPaidPlan(record.plan) ? "active" : "free"),
       expiresAt: Number(record.expiresAt) || 0,
       features: record.features || {},
       dailyQuota: Number.isFinite(record.dailyQuota) ? record.dailyQuota : null,
@@ -547,19 +561,22 @@ export function evaluateLicense(record) {
   }
 
   // 4) 正常活跃
-  const plan = record.plan === "pro" ? "pro" : "free";
+  // 保留真实档 free / monthly / yearly / pro（不再塌缩成 pro/free），让 BYOK 等
+  // SKU 闸门能区分月费 vs 年费（见 mapEffectivePlanToLlmPlan + meta.plans）。
+  const plan = normalizePlanField(record.plan);
+  const paid = isPaidPlan(plan);
   const features = sanitizeFeatures(record.features, plan);
   const dailyQuota = Number.isFinite(record.dailyQuota)
     ? record.dailyQuota
-    : plan === "pro"
+    : paid
       ? -1
       : FREE_DAILY_REWRITE_QUOTA;
 
-  if (plan !== "pro") {
+  if (!paid) {
     return {
       status: "free",
       label: "免费版",
-      hint: "已绑定 License，但该 Key 不属于 Pro 套餐",
+      hint: "已绑定 License，但该 Key 不属于付费套餐",
       key: record.key,
       displayKey: maskKey(record.key),
       plan: "free",
@@ -571,12 +588,15 @@ export function evaluateLicense(record) {
     };
   }
 
+  // 会员档显示名（月费 / 年费 / 历史 Pro）
+  const planLabel = plan === "monthly" ? "月费会员" : plan === "yearly" ? "年费会员" : "Pro 会员";
+
   const expireText =
     record.expiresAt && Number(record.expiresAt) > 0
-      ? `Pro 会员有效至 ${formatDate(record.expiresAt)}`
-      : "Pro 会员（按订阅周期续费）";
+      ? `${planLabel}有效至 ${formatDate(record.expiresAt)}`
+      : `${planLabel}（按订阅周期续费）`;
 
-  // 即将到期窗口：剩余天数 ≤ 7 但 > 0。功能保持 pro，仅状态码翻 expiring，
+  // 即将到期窗口：剩余天数 ≤ 7 但 > 0。功能保持付费档，仅状态码翻 expiring，
   // 让 UI（workspace member / dashboard / pricing）能挂续费提醒，
   // 又不会误降级关掉付费功能。
   const expiresAt = Number(record.expiresAt) || 0;
@@ -586,13 +606,13 @@ export function evaluateLicense(record) {
       const daysLeft = Math.max(1, Math.ceil(msLeft / (24 * 60 * 60 * 1000)));
       return {
         status: "expiring",
-        label: "Pro 会员（即将到期）",
-        hint: `Pro 会员还剩 ${daysLeft} 天到期，建议提前续费避免功能中断`,
+        label: `${planLabel}（即将到期）`,
+        hint: `${planLabel}还剩 ${daysLeft} 天到期，建议提前续费避免功能中断`,
         daysLeft,
         key: record.key,
         displayKey: maskKey(record.key),
-        plan: "pro",
-        effectivePlan: "pro",
+        plan,
+        effectivePlan: plan,
         expiresAt,
         features,
         dailyQuota,
@@ -603,12 +623,12 @@ export function evaluateLicense(record) {
 
   return {
     status: "pro",
-    label: "Pro 会员",
+    label: planLabel,
     hint: expireText,
     key: record.key,
     displayKey: maskKey(record.key),
-    plan: "pro",
-    effectivePlan: "pro",
+    plan,
+    effectivePlan: plan,
     expiresAt,
     features,
     dailyQuota,
@@ -706,7 +726,7 @@ function mapEffectivePlanToLlmPlan(state) {
  */
 export async function checkDailyQuota(kind = "rewrite", opts = {}) {
   const state = await getLicenseState({ refresh: true });
-  if (state.effectivePlan === "pro") {
+  if (isPaidPlan(state.effectivePlan)) {
     return { ok: true, used: 0, limit: -1, remaining: -1, hint: "" };
   }
   // 显式 limit > license.dailyQuota > FREE_DAILY_REWRITE_QUOTA 兜底
@@ -762,7 +782,7 @@ export async function checkDailyQuota(kind = "rewrite", opts = {}) {
  */
 export async function checkAccountLimit(currentCount = 0) {
   const state = await getLicenseState({ refresh: false });
-  if (state.effectivePlan === "pro") {
+  if (isPaidPlan(state.effectivePlan)) {
     return { ok: true, current: currentCount, limit: -1, hint: "" };
   }
   const limit = FREE_MULTI_ACCOUNT_LIMIT;
@@ -799,8 +819,8 @@ export async function checkAccountLimit(currentCount = 0) {
  */
 export async function checkDeAiBoostAccess() {
   const state = await getLicenseState({ refresh: false });
-  if (state.effectivePlan === "pro") {
-    return { ok: true, plan: "pro", hint: "" };
+  if (isPaidPlan(state.effectivePlan)) {
+    return { ok: true, plan: state.effectivePlan, hint: "" };
   }
   return {
     ok: false,
@@ -821,8 +841,8 @@ export async function checkTemplateAccess(templateId) {
     return { ok: true, plan: "any", hint: "", reason: "" };
   }
   const state = await getLicenseState({ refresh: false });
-  if (state.effectivePlan === "pro") {
-    return { ok: true, plan: "pro", hint: "", reason: "" };
+  if (isPaidPlan(state.effectivePlan)) {
+    return { ok: true, plan: state.effectivePlan, hint: "", reason: "" };
   }
   return {
     ok: false,
@@ -900,8 +920,9 @@ function emptyFeatures() {
 
 function sanitizeFeatures(features, plan) {
   const out = emptyFeatures();
-  if (plan === "pro") {
-    // pro 默认全部功能开（除非 worker 显式关闭某项）
+  if (isPaidPlan(plan)) {
+    // 付费档（monthly/yearly/pro）默认全部功能开（除非 worker 显式关闭某项）；
+    // 细粒度 SKU 闸门（如 BYOK 仅年费）由 checkLicense + meta.plans 单独裁决，不靠此粗粒度。
     for (const key of Object.keys(PAID_FEATURES)) {
       out[key] = features?.[key] !== false;
     }

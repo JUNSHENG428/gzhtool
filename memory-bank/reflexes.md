@@ -8,7 +8,7 @@
 
 ---
 
-## 主反例约定（编号 1-21，progress.md 显式编号）
+## 主反例约定（编号 1-30，progress.md 显式编号）
 
 | # | 一句话规避 | 关键词 | 首次沉淀 | 强化次数 |
 |---|---|---|---|---|
@@ -35,6 +35,13 @@
 | 21 | **流式响应路径不要做 fallback 链**——半途切换上游会产生错位 JSON | /api/llm/stream / 流式 SSE | 2026-05-04 39th 续 | — |
 | 22 | **gitignore dir-level + file-level 例外组合失效**——`dir/` ignore + `!dir/file` 例外不生效（git 不递归进 ignored dir）；必须改 `dir/*` + `dir/.*` + `!dir/file` | .gitignore / memory-bank/reflexes.md | 2026-05-07 39th 续³ | — |
 | 23 | **客户端生成的 fingerprint / UUID 永远是软标识**——不能作为 anti-abuse 唯一信任锚；攻击者改一行扩展代码即可任意伪造。设备唯一性 = client-side trust + server-side rate limit + anomaly detection 三层联防，**信任边界永远在 server 一侧** | device fingerprint / Phase 6 sketch | 2026-05-07 39th 续³ Batch 5 | — |
+| 24 | **转发用户 body 给计费上游的路径必须白名单/钳制放大类参数**（删 `n`/`best_of`/`logit_bias`，按 plan 钳 `max_tokens`）——配额按次数/token 计与单次 n/max_tokens 无关，`{...body}` 直传 = 财务 DoS | LLM 代理 / upstream.js sanitizeForwardBody | 2026-05-29 40th | — |
+| 25 | **`plan` 字段「verify→saveLicenseRecord→evaluateLicense→各闸门」4 处任一写 `=== "pro" ? : "free"` 都会让月费/年费全链路降级**——归一化集中到 `isPaidPlan`，新增付费档必 grep 全仓 `=== "pro"` | license plan 塌缩 / SKU | 2026-05-29 40th | (强化 #20) |
+| 26 | **长 TTL 的 JWT 必须有 server 侧吊销位**（用户表 epoch + claims.te + verify 比对 + 敏感操作 bump）——否则改密/重置后被盗 token 存活满 TTL，"改密自救"失效 | JWT / token_epoch / 改密重置 | 2026-05-29 40th | — |
+| 27 | **D1/SQL 限额"先 COUNT 再 INSERT"非原子，并发可绕过硬上限**——必须 `INSERT...SELECT...WHERE (SELECT COUNT...)<limit` + 检 `meta.changes` | device_activations / 配额硬卡 | 2026-05-29 40th | — |
+| 28 | **第三方/抓取来源 URL 进 `<a href>` 必须 protocol allowlist（仅 http(s)）**——`escapeHtml`/`escapeAttr` 只防属性闭合，挡不住 `javascript:` scheme（扩展页点击执行脚本）；用 `utils.safeHttpUrl` | href XSS / 选题卡 / 抓取链接 | 2026-05-29 40th | — |
+| 29 | **`withRetry` 类重试必须按 `error.code` 跳过不可重试错误**（鉴权/配额/套餐闸门）——否则平台计费路径下重试会二次扣额度 | withRetry / 平台 LLM 计费 | 2026-05-29 40th | — |
+| 30 | **`try { switch }` 内的 `break`/`return` 退出 switch 不触发该 try 的 catch/finally**——已注册的副作用资源（task / 锁 / timer）必须在每个提前退出分支显式清理 | task registry 泄漏 / 闸门 break | 2026-05-29 40th | — |
 
 ---
 
@@ -50,6 +57,7 @@
 - **字段长度类约束三处必须同步**：`WECHAT_FIELD_LIMITS` 常量 + HTML hint 文案 + `validateCurrentArticleForPublish`（[2026-04-26 15th](./progress.md)）
 - **跨多模块共享的规则常量必须 SSOT**——抽 `shared/<domain>-rules.js`（如 humanize-rules）（[2026-04-26 17th](./progress.md)）
 - **chrome.storage.local 大对象（>5KB 或数量>10）走独立 storage key**——voice-samples / draft-history / templates（[2026-04-26 17th](./progress.md)）
+- **D1 增量迁移与全新初始化的边界**：`schema.sql` 已含某列后，**全新库不要再单独跑对应增量迁移**（会 `duplicate column`）；增量迁移（如 `005_token_epoch.sql`）只对「已存在的旧库」补列。local dev 库没建表时跑迁移报 `no such table` 属预期（先灌 schema.sql 再补迁移）（[2026-05-29 40th](./progress.md)）
 
 ### MV3 / Service Worker
 
@@ -124,3 +132,4 @@
 ## 修订历史
 
 - 2026-05-07 初版（39th session 收尾后建立，从 progress.md 整理 21 条主反例约定 + 30+ 条模式约定，建立编号体系）
+- 2026-05-29 40th session：新增主反例约定第 24-30 条（LLM 参数钳制 / plan 塌缩链路 / JWT 吊销 / D1 限额原子 / href 协议 allowlist / withRetry 不可重试码 / try-switch break 不触发 catch）+ 工程实践加「D1 增量迁移边界」

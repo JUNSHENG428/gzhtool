@@ -29,6 +29,7 @@
 // router.js 是纯函数（决策），upstream.js 是带副作用的 IO（fetch + D1 + KV）
 import {
   PLAN_RPM,
+  PLAN_MAX_OUTPUT_TOKENS,
   resolveTierForUser,
   selectUpstreamForTier,
   checkQuota,
@@ -146,12 +147,14 @@ export default {
       const result = await handler(request, env, ctx, url);
       return corsResponse(request, env, result);
     } catch (error) {
-      console.error("worker error", error);
+      // 真实异常 message 可能泄露表结构 / 内部实现，只落 console；客户端拿固定文案 + errorId。
+      const errorId = (crypto.randomUUID && crypto.randomUUID().slice(0, 8)) || String(Date.now());
+      console.error(`worker error [${errorId}]`, error);
       return corsResponse(
         request,
         env,
         jsonResponse(
-          { ok: false, error: error?.message || "服务器内部错误" },
+          { ok: false, error: "服务器内部错误，请稍后再试", error_id: errorId },
           500
         )
       );
@@ -304,7 +307,7 @@ async function handleRegister(request, env) {
     .bind(id, now, email)
     .run();
 
-  const token = await issueJwt(env, { sub: id, email });
+  const token = await issueJwt(env, { sub: id, email, te: 0 });
   return jsonResponse({ ok: true, token, user: { id, email } });
 }
 
@@ -313,11 +316,46 @@ async function handleRegister(request, env) {
 // body: { email, password }
 // ============================================================
 async function handleLogin(request, env) {
+  // KV strict guard（生产漏配 KV 时直接拒登录防无节流爆破）
+  const kvGuard = assertRateLimitKvAvailable(env, "handleLogin");
+  if (kvGuard) return kvGuard;
+
   const body = await readJson(request);
   const email = normalizeEmail(body.email);
   const password = String(body.password || "");
   if (!email || !password) {
     return jsonResponse({ ok: false, error: "请填写邮箱和密码" }, 400);
+  }
+
+  // 限速：① IP 桶防整体在线爆破；② email 桶防针对单账号的字典攻击。
+  // CF-Connecting-IP 由 Cloudflare 注入，客户端无法伪造。
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (ip !== "unknown") {
+    const ipRl = await rateLimit(env, `login:ip:${ip}`, 30, 600);
+    if (!ipRl.allowed) {
+      return jsonResponse(
+        {
+          ok: false,
+          error: "登录尝试过于频繁，请稍后再试",
+          reason: "rate_limited",
+          retryAfterSeconds: ipRl.retryAfter
+        },
+        429
+      );
+    }
+  }
+  const emailKeyHash = (await sha256Hex(email)).slice(0, 24);
+  const emailRl = await rateLimit(env, `login:email:${emailKeyHash}`, 10, 600);
+  if (!emailRl.allowed) {
+    return jsonResponse(
+      {
+        ok: false,
+        error: "该账号登录尝试过于频繁，请稍后再试",
+        reason: "rate_limited",
+        retryAfterSeconds: emailRl.retryAfter
+      },
+      429
+    );
   }
 
   const user = await env.DB.prepare(
@@ -326,6 +364,8 @@ async function handleLogin(request, env) {
     .bind(email)
     .first();
   if (!user) {
+    // 跑一次 dummy PBKDF2 让耗时与"账号存在"路径一致，消除计时型枚举旁路。
+    await pbkdf2Hash(password, DUMMY_PBKDF2_SALT);
     return jsonResponse({ ok: false, error: "邮箱或密码错误" }, 401);
   }
 
@@ -333,6 +373,7 @@ async function handleLogin(request, env) {
   // 直接告诉用户去用对应的 OAuth 入口，避免他对着 dummy hash 试到天荒地老。
   // 用户如果想要密码登录，也可以走「忘记密码」流程主动给账号设一个密码。
   if (user.oauth_provider && !isUsablePasswordHash(user.password_salt)) {
+    await pbkdf2Hash(password, DUMMY_PBKDF2_SALT); // 同样补一次假哈希对齐耗时
     const hint =
       user.oauth_provider === "google"
         ? "该账号通过 Google 登录，请点击页面上的「使用 Google 登录」按钮。"
@@ -349,7 +390,11 @@ async function handleLogin(request, env) {
     .bind(Date.now(), user.id)
     .run();
 
-  const token = await issueJwt(env, { sub: user.id, email: user.email });
+  const token = await issueJwt(env, {
+    sub: user.id,
+    email: user.email,
+    te: await currentTokenEpoch(env, user.id)
+  });
   return jsonResponse({
     ok: true,
     token,
@@ -587,7 +632,11 @@ async function handleChangePassword(request, env) {
     .bind(base64Encode(newHash), base64Encode(newSalt), auth.userId)
     .run();
 
-  return jsonResponse({ ok: true });
+  // 吊销改密前签发的所有旧 JWT（被盗 token 自救），并给当前会话发一个新 token
+  // 让发起改密的这台设备不被踢出（前端拿到 token 后 setToken）。
+  const epoch = await bumpTokenEpoch(env, auth.userId);
+  const token = await issueJwt(env, { sub: auth.userId, email: auth.email, te: epoch });
+  return jsonResponse({ ok: true, token });
 }
 
 // ============================================================
@@ -758,8 +807,10 @@ async function handleReset(request, env) {
     .bind(Date.now(), tokenHash)
     .run();
 
+  // 吊销重置前签发的所有旧 JWT（防被盗 token 在重置后仍存活）
+  const epoch = await bumpTokenEpoch(env, row.user_id);
   // 重置成功直接发一个新 JWT，用户可立即登录
-  const token2 = await issueJwt(env, { sub: row.user_id, email: row.email });
+  const token2 = await issueJwt(env, { sub: row.user_id, email: row.email, te: epoch });
   return jsonResponse({
     ok: true,
     token: token2,
@@ -917,7 +968,11 @@ async function handleGoogleAuth(request, env) {
     .bind(Date.now(), user.id)
     .run();
 
-  const token = await issueJwt(env, { sub: user.id, email: user.email });
+  const token = await issueJwt(env, {
+    sub: user.id,
+    email: user.email,
+    te: await currentTokenEpoch(env, user.id)
+  });
   return jsonResponse({
     ok: true,
     token,
@@ -1090,6 +1145,7 @@ async function handleLicenseVerify(request, env, ctx) {
   }
 
   // ---- 限速 ----
+  // (key, ip) 桶防针对单 key 的高频复验；额外加 ip 全局桶防同 IP 对海量不同 key 探测。
   const rlKey = `rl:verify:${key}:${ip}`;
   const rl = await rateLimit(env, rlKey, 10, 60);
   if (!rl.allowed) {
@@ -1098,6 +1154,16 @@ async function handleLicenseVerify(request, env, ctx) {
       { ok: false, error: `验证过于频繁，请 ${rl.retryAfter}s 后重试` },
       429
     );
+  }
+  if (ip !== "unknown") {
+    const ipRl = await rateLimit(env, `rl:verify:ip:${ip}`, 60, 60);
+    if (!ipRl.allowed) {
+      await writeVerifyLog(env, key, ip, ua, "rate_limited", "ip");
+      return jsonResponse(
+        { ok: false, error: `验证过于频繁，请 ${ipRl.retryAfter}s 后重试` },
+        429
+      );
+    }
   }
 
   const row = await env.DB.prepare(
@@ -1137,8 +1203,32 @@ async function handleLicenseVerify(request, env, ctx) {
       .bind(fpId)
       .first();
 
-    if (!existing) {
-      // 新 fingerprint —— 检查总数是否撞顶
+    const uaHint = summarizeUserAgent(ua);
+    const deviceLimitResponse = (activated) => {
+      return jsonResponse(
+        {
+          ok: false,
+          error: `本 License 已激活 ${activated} 台设备（${devicePlan === "free" ? "免费版" : devicePlan === "monthly" ? "月费会员" : "年费会员"}上限 ${limit} 台）。请到 ${env.SITE_URL || "https://docuearn.com"}/dashboard 解绑闲置设备后重试。`,
+          reason: "device_limit_exceeded",
+          activated,
+          limit,
+          plan: devicePlan
+        },
+        403
+      );
+    };
+
+    if (existing) {
+      // 已计数设备：只刷新 last_seen / label，不受限额影响
+      await env.DB.prepare(
+        `UPDATE device_activations
+            SET last_seen_at = ?, device_label = ?, user_agent_hint = ?
+          WHERE id = ?`
+      )
+        .bind(now, label, uaHint, fpId)
+        .run();
+    } else {
+      // 新 fingerprint —— 先做预检（快速 403 + 告警邮件，覆盖非并发的常规撞顶场景）
       const countRow = await env.DB.prepare(
         "SELECT COUNT(*) AS n FROM device_activations WHERE license_key = ?"
       )
@@ -1160,32 +1250,29 @@ async function handleLicenseVerify(request, env, ctx) {
             await emailTask;
           }
         }
-        return jsonResponse(
-          {
-            ok: false,
-            error: `本 License 已激活 ${activated} 台设备（${devicePlan === "free" ? "免费版" : devicePlan === "monthly" ? "月费会员" : "年费会员"}上限 ${limit} 台）。请到 ${env.SITE_URL || "https://docuearn.com"}/dashboard 解绑闲置设备后重试。`,
-            reason: "device_limit_exceeded",
-            activated,
-            limit,
-            plan: devicePlan
-          },
-          403
-        );
+        return deviceLimitResponse(activated);
+      }
+
+      // 原子条件插入：并发下若另一请求已把名额占满，WHERE 子句阻止本次插入
+      // （SELECT 0 行 → meta.changes=0），从而堵住"先 COUNT 再 INSERT"的竞态绕过。
+      const ins = await env.DB.prepare(
+        `INSERT INTO device_activations (id, license_key, device_fingerprint, device_label, user_agent_hint, activated_at, last_seen_at)
+         SELECT ?, ?, ?, ?, ?, ?, ?
+         WHERE (SELECT COUNT(*) FROM device_activations WHERE license_key = ?) < ?
+         ON CONFLICT(license_key, device_fingerprint)
+         DO UPDATE SET
+           last_seen_at    = excluded.last_seen_at,
+           device_label    = excluded.device_label,
+           user_agent_hint = excluded.user_agent_hint`
+      )
+        .bind(fpId, key, fingerprint, label, uaHint, now, now, key, limit)
+        .run();
+      if (!ins.meta || Number(ins.meta.changes) === 0) {
+        // 并发竞态：名额刚被占满。不重复发邮件（常规撞顶预检已覆盖）
+        await writeVerifyLog(env, key, ip, ua, "device_limit", `race/${limit}`);
+        return deviceLimitResponse(limit);
       }
     }
-
-    const uaHint = summarizeUserAgent(ua);
-    await env.DB.prepare(
-      `INSERT INTO device_activations (id, license_key, device_fingerprint, device_label, user_agent_hint, activated_at, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(license_key, device_fingerprint)
-       DO UPDATE SET
-         last_seen_at    = excluded.last_seen_at,
-         device_label    = excluded.device_label,
-         user_agent_hint = excluded.user_agent_hint`
-    )
-      .bind(fpId, key, fingerprint, label, uaHint, now, now)
-      .run();
 
     // 39th 续 · Phase 4.4 · 同 license 跨设备并发突发软告警（仅 verify 成功时跑）
     // 与 device_limit 互补：limit 防"加 100 台"硬卡，burst 防"卖给多人同时用"软告警
@@ -1200,9 +1287,11 @@ async function handleLicenseVerify(request, env, ctx) {
 
   await writeVerifyLog(env, key, ip, ua, "ok", "");
 
-  const plan = row.plan === "pro" ? "pro" : "free";
+  // 39th 续³ · 修复 plan 塌缩：保留真实档 free / monthly / yearly（pro 向后兼容映射 yearly），
+  // 让扩展端 license.js 能区分月费 vs 年费（BYOK 仅年费独享等 SKU 闸门才能生效）。
+  const plan = devicePlanFromLicenseRow(row);
   const features = featuresForPlan(plan);
-  const dailyQuota = plan === "pro" ? -1 : FREE_DAILY_AI_QUOTA;
+  const dailyQuota = plan !== "free" ? -1 : FREE_DAILY_AI_QUOTA;
 
   // 离线信任签名：插件可在 24h 内不联网也信任 plan
   const signedAt = Date.now();
@@ -1231,11 +1320,25 @@ async function handleLicenseVerify(request, env, ctx) {
 // 让插件能把当前设备从 device_activations 里移除
 // ============================================================
 async function handleLicenseDeactivate(request, env) {
+  // 公开端点（无 JWT）：加 KV strict guard + 限速，防被刷做 D1 写放大 / 噪声
+  const kvGuard = assertRateLimitKvAvailable(env, "handleLicenseDeactivate");
+  if (kvGuard) return kvGuard;
+
   const body = await readJson(request);
   const key = normalizeLicenseKey(body.key);
   const fingerprint = String(body.deviceFingerprint || "");
   if (!key || !fingerprint) {
     return jsonResponse({ ok: false, error: "缺少参数" }, 400);
+  }
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  if (ip !== "unknown") {
+    const rl = await rateLimit(env, `deactivate:ip:${ip}`, 30, 60);
+    if (!rl.allowed) {
+      return jsonResponse(
+        { ok: false, error: "操作过于频繁，请稍后再试", reason: "rate_limited", retryAfterSeconds: rl.retryAfter },
+        429
+      );
+    }
   }
   await env.DB.prepare(
     "DELETE FROM device_activations WHERE license_key = ? AND device_fingerprint = ?"
@@ -1403,6 +1506,21 @@ async function dispatchLemonEvent(env, eventName, payload) {
       return { action: "expired", subscriptionId };
     }
 
+    // 退款 / 争议：必须吊销 license，否则退款用户继续享付费 + 平台 LLM 额度。
+    // 虎皮椒侧有 cron 主动反查退款（syncHupijiaoRefunds），Lemon 通道靠这些 webhook 事件。
+    case "order_refunded":
+    case "subscription_payment_refunded": {
+      await env.DB.prepare(
+        `UPDATE license_keys
+            SET status = 'revoked', updated_at = ?
+          WHERE (ls_subscription_id = ? AND ls_subscription_id != '')
+             OR (ls_order_id = ? AND ls_order_id != '')`
+      )
+        .bind(Date.now(), subscriptionId, orderId)
+        .run();
+      return { action: "revoked_refund", subscriptionId, orderId };
+    }
+
     default:
       return { ignored: true, eventName };
   }
@@ -1432,11 +1550,12 @@ function jsonResponse(data, status = 200) {
 function corsResponse(request, env, response) {
   const origin = request.headers.get("Origin") || "";
   const allowed = (env.ALLOWED_ORIGINS || "").split(",").map((x) => x.trim());
-  const matched =
-    allowed.includes("*") ||
+  // 区分匹配类型：精确 / 模式（含具体域名通配，如 chrome-extension://abc*）算"可信反射 + 可带 cookie"；
+  // 而裸 "*" 全通配只能返回 "*" 且禁止 credentials（反射 origin + credentials:true 的组合一旦误配即放开任意源）。
+  const explicitMatch =
     allowed.includes(origin) ||
     allowed.some((pattern) => {
-      if (!pattern.includes("*")) return pattern === origin;
+      if (pattern === "*" || !pattern.includes("*")) return pattern === origin;
       const re = new RegExp(
         "^" +
           pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") +
@@ -1444,12 +1563,15 @@ function corsResponse(request, env, response) {
       );
       return re.test(origin);
     });
+  const wildcardAll = allowed.includes("*");
 
   const headers = new Headers(response.headers);
-  if (matched && origin) {
+  if (explicitMatch && origin) {
     headers.set("Access-Control-Allow-Origin", origin);
     headers.set("Vary", "Origin");
     headers.set("Access-Control-Allow-Credentials", "true");
+  } else if (wildcardAll) {
+    headers.set("Access-Control-Allow-Origin", "*"); // 不反射 origin，不带 credentials
   }
   headers.set(
     "Access-Control-Allow-Methods",
@@ -1574,6 +1696,19 @@ async function requireAuth(request, env) {
   }
   try {
     const payload = await verifyJwt(env, token);
+    // JWT 吊销校验：改密/重置后 token_epoch 被 bump，旧 token 的 claims.te 落后 → 拒绝。
+    // 历史旧 token 无 te（按 0），未 bump 过的账号 token_epoch=0 → 0 >= 0 通过，向后兼容。
+    const tokenEpoch = Number(payload.te || 0);
+    const currentEpoch = await currentTokenEpoch(env, payload.sub);
+    if (currentEpoch > tokenEpoch) {
+      return {
+        ok: false,
+        response: jsonResponse(
+          { ok: false, error: "登录已失效（密码已变更），请重新登录", reason: "token_revoked" },
+          401
+        )
+      };
+    }
     return { ok: true, userId: payload.sub, email: payload.email };
   } catch (error) {
     return {
@@ -1584,6 +1719,33 @@ async function requireAuth(request, env) {
       )
     };
   }
+}
+
+// ---------- JWT 吊销纪元（token_epoch）----------
+// 读当前用户 token_epoch（缺列 / 缺行视为 0，向后兼容）。
+async function currentTokenEpoch(env, userId) {
+  try {
+    const row = await env.DB.prepare("SELECT token_epoch FROM users WHERE id = ?")
+      .bind(userId)
+      .first();
+    return Number(row?.token_epoch || 0);
+  } catch (_) {
+    // 迁移未跑（列不存在）时不阻断登录，按 0 处理
+    return 0;
+  }
+}
+
+// 把 token_epoch 推进到当前秒，使该用户所有已签发的旧 JWT 立即失效。
+async function bumpTokenEpoch(env, userId) {
+  const epoch = Math.floor(Date.now() / 1000);
+  try {
+    await env.DB.prepare("UPDATE users SET token_epoch = ? WHERE id = ?")
+      .bind(epoch, userId)
+      .run();
+  } catch (_) {
+    // 迁移未跑时静默（不阻断主流程）
+  }
+  return epoch;
 }
 
 // ---------- JWT (HS256) ----------
@@ -1618,6 +1780,10 @@ async function verifyJwt(env, token) {
 }
 
 // ---------- PBKDF2 + HMAC + SHA256 ----------
+// 固定 dummy salt：用户不存在 / OAuth-only 账号走密码登录时跑一次假哈希，
+// 让"账号存在"与"账号不存在"两条路径耗时一致，消除计时型账号枚举旁路。
+const DUMMY_PBKDF2_SALT = new Uint8Array(16);
+
 async function pbkdf2Hash(password, salt) {
   const baseKey = await crypto.subtle.importKey(
     "raw",
@@ -2095,7 +2261,8 @@ async function handleHupijiaoNotify(request, env) {
   // 验签：除 hash 之外所有非空字段，按 key 字典序拼接 + AppSecret，MD5
   const expected = await signHupijiao(params, env.HUPIJIAO_APP_SECRET || "");
   if (!constantTimeEqualString(expected, hash)) {
-    console.warn("[hpj] hash mismatch", { tradeOrderId, expected, got: hash });
+    // 不记录服务端算出的合法签名（expected），日志外泄可辅助伪造；只记收到值前缀。
+    console.warn("[hpj] hash mismatch", { tradeOrderId, gotPrefix: String(hash).slice(0, 8) });
     return new Response("invalid sign", { status: 401 });
   }
 
@@ -2319,8 +2486,9 @@ async function handleLlmChat(request, env, ctx) {
     );
   }
 
-  // 4. 上游 fetch（带降级链）
-  const result = await callUpstreamWithFallback({ env, upstream, model, body });
+  // 4. 上游 fetch（带降级链）— maxOutputTokens 按 plan 钳制单次成本（防财务 DoS）
+  const maxOutputTokens = PLAN_MAX_OUTPUT_TOKENS[plan] || PLAN_MAX_OUTPUT_TOKENS.free;
+  const result = await callUpstreamWithFallback({ env, upstream, model, body, maxOutputTokens });
 
   // 5. 解析 token 用量
   const usage = result.body?.usage || {};
@@ -2474,7 +2642,8 @@ async function handleLlmStream(request, env, ctx) {
   }
 
   // 调上游（不带 fallback，stream 模式不支持 fallback）
-  const result = await streamUpstream({ env, upstream, model, body });
+  const maxOutputTokens = PLAN_MAX_OUTPUT_TOKENS[plan] || PLAN_MAX_OUTPUT_TOKENS.free;
+  const result = await streamUpstream({ env, upstream, model, body, maxOutputTokens });
   if (!result.ok) {
     ctx.waitUntil(
       recordAudit(env, {
@@ -2776,12 +2945,19 @@ async function handleLicenseDevicePrune(request, env) {
 // 校验失败返 jsonResponse；通过返 null 让调用方继续。
 // 调用方：handleLlmChat / handleLlmStream 入口（auth 后、tier 解析前）。
 function validateLlmBodySize(request, body) {
-  const contentLength = Number(request.headers.get("Content-Length") || 0);
-  if (contentLength > LLM_MAX_BODY_BYTES) {
+  // Content-Length 客户端可伪造 / 可缺失（Number(null)=0 会放行），不能作为唯一依据。
+  // 以实际解析后 body 的真实序列化字节数为准做硬限。
+  let actualBytes = 0;
+  try {
+    actualBytes = new TextEncoder().encode(JSON.stringify(body ?? {})).length;
+  } catch (_) {
+    actualBytes = 0;
+  }
+  if (actualBytes > LLM_MAX_BODY_BYTES) {
     return jsonResponse(
       {
         ok: false,
-        error: `请求体过大（${contentLength} 字节，上限 ${LLM_MAX_BODY_BYTES} 字节）`,
+        error: `请求体过大（${actualBytes} 字节，上限 ${LLM_MAX_BODY_BYTES} 字节）`,
         reason: "body_too_large",
         limit_bytes: LLM_MAX_BODY_BYTES
       },
@@ -2802,12 +2978,26 @@ function validateLlmBodySize(request, body) {
   }
   for (let i = 0; i < body.messages.length; i++) {
     const msg = body.messages[i];
-    const content = typeof msg?.content === "string" ? msg.content : "";
-    if (content.length > LLM_MAX_MESSAGE_CHARS) {
+    // content 可能是字符串，也可能是多模态数组/对象（vision 格式）。
+    // 非字符串时按其序列化长度计，避免被当成空串绕过单条上限。
+    const rawContent = msg?.content;
+    const contentLen =
+      typeof rawContent === "string"
+        ? rawContent.length
+        : rawContent == null
+          ? 0
+          : (() => {
+              try {
+                return JSON.stringify(rawContent).length;
+              } catch (_) {
+                return LLM_MAX_MESSAGE_CHARS + 1; // 无法序列化 → 视为超限拒绝
+              }
+            })();
+    if (contentLen > LLM_MAX_MESSAGE_CHARS) {
       return jsonResponse(
         {
           ok: false,
-          error: `messages[${i}].content 超过 ${LLM_MAX_MESSAGE_CHARS} 字符上限（当前 ${content.length}）`,
+          error: `messages[${i}].content 超过 ${LLM_MAX_MESSAGE_CHARS} 字符上限（当前 ${contentLen}）`,
           reason: "message_too_long",
           limit_chars: LLM_MAX_MESSAGE_CHARS,
           index: i
@@ -3149,7 +3339,9 @@ function generateTradeOrderId(userId) {
     .replace(/[^a-zA-Z0-9]/g, "")
     .slice(0, 8) || "anon";
   const tsPart = Date.now().toString(36);
-  const randPart = Math.random().toString(36).slice(2, 6);
+  // 用加密随机源（非 Math.random）避免订单号可预测
+  const randBytes = crypto.getRandomValues(new Uint8Array(3));
+  const randPart = Array.from(randBytes, (b) => b.toString(36).padStart(2, "0")).join("").slice(0, 4);
   return `GZHO_${userPart}_${tsPart}_${randPart}`.slice(0, 32);
 }
 

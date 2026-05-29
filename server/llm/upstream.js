@@ -67,6 +67,47 @@ function pickFallbackModel(targetUpstream) {
 }
 
 // ---------------------------------------------------------------------
+// 转发体清洗（防财务 DoS）
+// ---------------------------------------------------------------------
+
+/**
+ * 配额按调用次数 / 累计 token 计，与单次请求的 `n` / `max_tokens` 无关。若原样透传，
+ * 攻击者可在配额内用 `{n:128, max_tokens:16000}` 把单次请求放大成数百万 token 的真实
+ * 上游账单。这里：① 删除会成倍放大输出的字段；② 把单次输出 token 钳到 plan 上限。
+ *
+ * maxOutputTokens 由调用方按 plan 传入（router.PLAN_MAX_OUTPUT_TOKENS）。
+ */
+const FORBIDDEN_UPSTREAM_FIELDS = Object.freeze([
+  "n", // 一次生成多个 completion → 成本 ×n
+  "best_of", // 服务端生成多个再选优 → 成本 ×best_of
+  "logit_bias", // 可被滥用引导超长输出
+  "logprobs",
+  "top_logprobs"
+]);
+
+const DEFAULT_MAX_OUTPUT_TOKENS = 8_192;
+
+export function sanitizeForwardBody(body, { maxOutputTokens } = {}) {
+  const clean = { ...body };
+  for (const field of FORBIDDEN_UPSTREAM_FIELDS) {
+    delete clean[field];
+  }
+  const cap =
+    Number.isFinite(maxOutputTokens) && maxOutputTokens > 0
+      ? Math.floor(maxOutputTokens)
+      : DEFAULT_MAX_OUTPUT_TOKENS;
+  // 始终封顶输出 token（无论客户端是否传），把单次成本封死。
+  // gpt-4o / deepseek 都接受 max_tokens；推理模型用 max_completion_tokens。
+  const requested = Number(clean.max_tokens);
+  clean.max_tokens = Number.isFinite(requested) && requested > 0 ? Math.min(requested, cap) : cap;
+  const requestedCompletion = Number(clean.max_completion_tokens);
+  if (Number.isFinite(requestedCompletion) && requestedCompletion > 0) {
+    clean.max_completion_tokens = Math.min(requestedCompletion, cap);
+  }
+  return clean;
+}
+
+// ---------------------------------------------------------------------
 // 上游 fetch（单次调用，无降级）
 // ---------------------------------------------------------------------
 
@@ -79,7 +120,7 @@ function pickFallbackModel(targetUpstream) {
  *   { ok: false, status: 503,  body: null,            errorCode: "...",   durationMs: 0 }
  *   { ok: false, status: 5xx,  body: <upstream err>,  errorCode: "...",   durationMs }
  */
-export async function callUpstream({ env, upstream, model, body }) {
+export async function callUpstream({ env, upstream, model, body, maxOutputTokens }) {
   const config = UPSTREAM_CONFIG[upstream];
   if (!config) {
     return {
@@ -101,10 +142,11 @@ export async function callUpstream({ env, upstream, model, body }) {
     };
   }
 
-  // 强制 stream=false（Phase 3 才支持 SSE，当前直返 JSON）
-  // 强制 model（不让客户端 body.model 覆盖路由结果，防越权调旗舰）
-  // 删 tier（平台内部字段，上游不认）
-  const forwardBody = { ...body, model, stream: false };
+  // 先清洗放大字段 + 钳制输出 token（防财务 DoS），再：
+  //   强制 stream=false（Phase 3 才支持 SSE，当前直返 JSON）
+  //   强制 model（不让客户端 body.model 覆盖路由结果，防越权调旗舰）
+  //   删 tier（平台内部字段，上游不认）
+  const forwardBody = { ...sanitizeForwardBody(body, { maxOutputTokens }), model, stream: false };
   delete forwardBody.tier;
 
   const startMs = Date.now();
@@ -161,9 +203,9 @@ export async function callUpstream({ env, upstream, model, body }) {
  *   actualModel:    最终实际命中的 model 名（fallback 时 ≠ 原 model）
  *   fallbackFrom:   原本要调的 upstream（仅 fallback 实际发生时非空）
  */
-export async function callUpstreamWithFallback({ env, upstream, model, body }) {
+export async function callUpstreamWithFallback({ env, upstream, model, body, maxOutputTokens }) {
   // 第一次按原计划调
-  const first = await callUpstream({ env, upstream, model, body });
+  const first = await callUpstream({ env, upstream, model, body, maxOutputTokens });
   if (first.ok) {
     return { ...first, fallbackFrom: null, actualUpstream: upstream, actualModel: model };
   }
@@ -175,7 +217,7 @@ export async function callUpstreamWithFallback({ env, upstream, model, body }) {
   const chain = FALLBACK_CHAIN[upstream] || [];
   for (const altUpstream of chain) {
     const altModel = pickFallbackModel(altUpstream);
-    const alt = await callUpstream({ env, upstream: altUpstream, model: altModel, body });
+    const alt = await callUpstream({ env, upstream: altUpstream, model: altModel, body, maxOutputTokens });
     if (alt.ok) {
       return {
         ...alt,
@@ -208,7 +250,7 @@ export async function callUpstreamWithFallback({ env, upstream, model, body }) {
  *   { ok: true,  status: 200,        upstreamResponse, errorCode: null }   ← caller pipe upstreamResponse.body 到客户端
  *   { ok: false, status: 502/4xx/5xx, upstreamResponse, errorCode: "..." } ← caller 透传错误（不流式）
  */
-export async function streamUpstream({ env, upstream, model, body }) {
+export async function streamUpstream({ env, upstream, model, body, maxOutputTokens }) {
   const config = UPSTREAM_CONFIG[upstream];
   if (!config) {
     return { ok: false, status: 503, upstreamResponse: null, errorCode: "unknown_upstream" };
@@ -223,8 +265,9 @@ export async function streamUpstream({ env, upstream, model, body }) {
     };
   }
 
+  // 同 callUpstream：先清洗放大字段 + 钳制输出 token，再强制 stream/model
   const forwardBody = {
-    ...body,
+    ...sanitizeForwardBody(body, { maxOutputTokens }),
     model,
     stream: true,
     stream_options: { include_usage: true }

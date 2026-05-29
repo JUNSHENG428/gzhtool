@@ -71,6 +71,22 @@ export const PLAN_RPM = Object.freeze({
   yearly: 100
 });
 
+/**
+ * 单次请求的输出 token 硬上限（按 plan）。
+ *
+ * 安全用途：配额按「调用次数 / 累计 token」计，与单次 `max_tokens` / `n` 无关。
+ * 若不钳制，攻击者可在配额次数内用 `{n:128, max_tokens:16000}` 把单次请求放大成
+ * 数百万 token 的真实上游账单（财务 DoS）。upstream.js sanitizeForwardBody 用这个
+ * 上限钳制 max_tokens / max_completion_tokens，并删除 n / best_of 等放大字段。
+ *
+ * 取值偏宽松（长文改写正常 3000-5000 token 输出），仍能把单次成本封顶。
+ */
+export const PLAN_MAX_OUTPUT_TOKENS = Object.freeze({
+  free: 8_192,
+  monthly: 16_384,
+  yearly: 32_768
+});
+
 // ---------------------------------------------------------------------
 // 决策函数（纯函数）
 // ---------------------------------------------------------------------

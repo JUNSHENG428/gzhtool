@@ -24,7 +24,8 @@ import {
   PAID_FEATURES,
   subscribeLicenseChanges,
   LICENSE_CONSTANTS,
-  getLicenseSummaryText
+  getLicenseSummaryText,
+  isPaidPlan
 } from "../shared/license.js";
 import { getUsageSnapshot } from "../shared/usage-stats.js";
 
@@ -163,9 +164,9 @@ function renderHero(state, auth, device, usage) {
   toggleTag(
     "memberHeroExpire",
     state?.expiresAt && Number(state.expiresAt) > 0
-      ? `${state.plan === "pro" ? "Pro 有效至" : "到期"} · ${formatDate(state.expiresAt)}`
-      : state?.plan === "pro"
-        ? "Pro 会员（按订阅周期续费）"
+      ? `${isPaidPlan(state.plan) ? "会员有效至" : "到期"} · ${formatDate(state.expiresAt)}`
+      : isPaidPlan(state?.plan)
+        ? "会员（按订阅周期续费）"
         : ""
   );
 
@@ -252,11 +253,11 @@ function renderQuotaRewrite(state, usage) {
   let pct;
   let hint;
 
-  if (state?.plan === "pro" && state?.dailyQuota === -1) {
+  if (state?.dailyQuota === -1) {
     cap = -1;
     capLabel = "无限";
     pct = Math.min(100, used > 0 ? 12 + Math.min(used, 50) : 0);
-    hint = `今日已使用 ${used} 次，Pro 不限次数`;
+    hint = `今日已使用 ${used} 次，会员不限次数`;
   } else {
     cap = Number(state?.dailyQuota);
     if (!Number.isFinite(cap) || cap <= 0) cap = FREE_DAILY_REWRITE_QUOTA;
@@ -305,7 +306,7 @@ async function readAccountInfo() {
 
 function renderQuotaAccount(state, accountInfo) {
   const used = Number(accountInfo?.count) || 0;
-  const isPro = state?.plan === "pro";
+  const isPro = isPaidPlan(state?.plan);
 
   let cap;
   let capLabel;
@@ -355,7 +356,7 @@ function renderFeatureList(state) {
   const list = document.getElementById("memberFeatureList");
   if (!list) return;
 
-  const isPro = state?.plan === "pro";
+  const isPro = isPaidPlan(state?.plan);
   const features = state?.features || {};
 
   // 排序规则：先解锁的，再 Pro 限定的；同组内固定按 PAID_FEATURES 顺序
@@ -414,7 +415,7 @@ function renderFeatureList(state) {
 // =============================================================
 
 function renderActionButtons(state) {
-  const isPro = state?.plan === "pro";
+  const isPro = isPaidPlan(state?.plan);
   const expiring = state?.status === "expiring";
   const expired = state?.status === "expired" || state?.status === "invalid";
   const stale = state?.status === "stale";

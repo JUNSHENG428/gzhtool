@@ -389,8 +389,8 @@ function setLicensePill(summary) {
  */
 function renderMemberMeta({ state, auth, usage, summary }) {
   if (els.memberQuotaRemain) {
-    if (state?.plan === "pro" && state?.dailyQuota === -1) {
-      els.memberQuotaRemain.textContent = "Pro · 不限次数";
+    if (state?.dailyQuota === -1) {
+      els.memberQuotaRemain.textContent = "会员 · 不限次数";
     } else {
       const cap = Number.isFinite(state?.dailyQuota) && state.dailyQuota > 0
         ? state.dailyQuota

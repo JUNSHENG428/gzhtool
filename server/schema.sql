@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
   google_sub      TEXT,                          -- Google ID Token 的 sub 字段（已绑 Google 时填）
   oauth_provider  TEXT,                          -- 'google' / 'github' / NULL=邮箱密码
   created_at      INTEGER NOT NULL,
-  last_login_at   INTEGER
+  last_login_at   INTEGER,
+  token_epoch     INTEGER NOT NULL DEFAULT 0   -- JWT 吊销纪元；改密/重置时 bump 使旧 token 失效（见 005_token_epoch.sql）
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email          ON users(email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub     ON users(google_sub);

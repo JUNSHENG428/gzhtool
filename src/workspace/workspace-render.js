@@ -5,7 +5,7 @@
  */
 
 import { WECHAT_WEB_EDITOR_URL, THEME_PRESETS } from "../shared/defaults.js";
-import { escapeHtml, escapeAttribute, normalizeText, sanitizeHtml } from "../shared/utils.js";
+import { escapeHtml, escapeAttribute, normalizeText, sanitizeHtml, safeHttpUrl } from "../shared/utils.js";
 
 let _ctx;
 
@@ -248,10 +248,12 @@ function renderPublishResult() {
   if (statusInfo?.articleUrls?.length) {
     lines.push(
       `文章链接：${statusInfo.articleUrls
-        .map(
-          (item) =>
-            `<a href="${escapeAttribute(item.articleUrl)}" target="_blank" rel="noreferrer">第 ${item.index} 篇</a>`
-        )
+        .map((item) => {
+          const safe = safeHttpUrl(item.articleUrl);
+          return safe
+            ? `<a href="${escapeAttribute(safe)}" target="_blank" rel="noreferrer">第 ${item.index} 篇</a>`
+            : `第 ${item.index} 篇`;
+        })
         .join(" / ")}`
     );
   }

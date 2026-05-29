@@ -49,6 +49,9 @@
   };
   const SYNC_BANNER_ID = "wechat-editor-sync-banner";
   const SYNC_BANNER_DISMISS_COOLDOWN_MS = 30 * 60 * 1000;
+  // 模块级保存 banner 的 60s 刷新定时器：重渲染 / 移除前必须 clearInterval，
+  // 否则旧 banner 被 remove 后定时器仍在 detached 节点上跑，长生命周期 mp 编辑页会累积僵尸定时器。
+  let syncBannerTimer = null;
   // 39th 续³ Batch 9：草稿箱列表页的 pending banner（"已收到推送但当前不是新建图文页"引导）
   const PENDING_PULL_BANNER_ID = "wechat-pending-pull-banner";
 
@@ -718,6 +721,11 @@
   }
 
   function renderSyncBanner(record) {
+    // 清掉上一个 banner 的刷新定时器，避免泄漏到 detached 节点
+    if (syncBannerTimer) {
+      clearInterval(syncBannerTimer);
+      syncBannerTimer = null;
+    }
     document.getElementById(SYNC_BANNER_ID)?.remove();
     document.getElementById(PENDING_PULL_BANNER_ID)?.remove(); // 与 pending banner 互斥
     if (!record) return;
@@ -776,12 +784,15 @@
       });
       banner.querySelector('[data-banner-action="close"]')?.addEventListener("click", () => {
         STATE.lastSyncBannerDismissedAt = Date.now();
-        clearInterval(timer);
+        if (syncBannerTimer) {
+          clearInterval(syncBannerTimer);
+          syncBannerTimer = null;
+        }
         banner.remove();
       });
     };
     updateAgo();
-    const timer = setInterval(updateAgo, 60000);
+    syncBannerTimer = setInterval(updateAgo, 60000);
 
     document.documentElement.appendChild(banner);
   }

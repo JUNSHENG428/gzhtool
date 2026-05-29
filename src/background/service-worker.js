@@ -329,6 +329,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (template && PRO_TEMPLATE_IDS.includes(template.id)) {
           const access = await checkTemplateAccess(template.id);
           if (!access.ok) {
+            // 这个 break 在 try 内退出 switch，不会触发下面的 catch / finally；
+            // 必须先把已注册的 task 标 failed，否则任务中心会留一条永远 running 的卡死任务（内存泄漏）。
+            completeRegistryTask(taskId, {
+              status: "failed",
+              error: access.hint || PAID_FEATURES["ai.advancedTemplates"].hint
+            });
             sendResponse({
               ok: false,
               error: access.hint || PAID_FEATURES["ai.advancedTemplates"].hint,
@@ -503,8 +509,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse(responsePayload);
         // task 标 done，把完整结果挂到 task.result，前端通过 GET_TASK_RESULT 拉
         // （前端切到别的 article 时，sendResponse 已发但前端没接住，从 task.result 兜底）
+        // 注：humanizePass.aborted（用户跳过润色）仍属成功——主 pass 结果照常下发，故 status 恒为 done
         completeRegistryTask(taskId, {
-          status: humanizePass?.aborted ? "done" : "done",
+          status: "done",
           result: {
             article,
             meta: { ...baseMeta, requestId, lengthCheck, lint, humanizePass },
@@ -919,6 +926,18 @@ async function bumpWechatSendAllQuota() {
   return nextCount;
 }
 
+// 这些 error.code 重试没有意义（鉴权/配额/未配置/套餐闸门），重试只会：
+// ① 让用户多等几秒才看到「请登录 / 配额用尽」；② 平台模式下若 worker 已计费，重试会二次扣额度。
+const NON_RETRYABLE_ERROR_CODES = new Set([
+  "AUTH_REQUIRED",
+  "AUTH_EXPIRED",
+  "PLATFORM_QUOTA_EXCEEDED",
+  "PLATFORM_UNCONFIGURED",
+  "LICENSE_BYOK_LOCKED",
+  "LICENSE_TEMPLATE_LOCKED",
+  "RATE_LIMITED"
+]);
+
 async function withRetry(fn, maxRetries, operationName) {
   let lastError = null;
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
@@ -926,6 +945,10 @@ async function withRetry(fn, maxRetries, operationName) {
       return await fn();
     } catch (error) {
       lastError = error;
+      // 不可重试错误立即抛出，不浪费 sleep + 不二次扣平台配额
+      if (error && NON_RETRYABLE_ERROR_CODES.has(error.code)) {
+        throw error;
+      }
       if (attempt <= maxRetries) {
         await sleep(1500);
       }

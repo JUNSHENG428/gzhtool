@@ -1,5 +1,6 @@
 export function escapeHtml(value) {
-  return String(value || "")
+  // 用 ?? 而非 ||：数字 0 / 字符串 "0" 是合法内容，不应被吞成空串
+  return String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -9,6 +10,22 @@ export function escapeHtml(value) {
 
 export function escapeAttribute(value) {
   return escapeHtml(value);
+}
+
+/**
+ * 只放行 http(s) 链接。第三方/抓取来源的 URL 可能是 javascript: / data: 等危险 scheme，
+ * 直接进 <a href> 点击会执行脚本（扩展页上下文可触达 chrome.* / storage）。
+ * 非法协议返回 ""，调用方应降级为纯文本或丢弃 href。
+ */
+export function safeHttpUrl(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  try {
+    const u = new URL(raw, "https://docuearn.com");
+    return u.protocol === "http:" || u.protocol === "https:" ? raw : "";
+  } catch {
+    return "";
+  }
 }
 
 export function normalizeText(value) {

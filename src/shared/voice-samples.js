@@ -42,7 +42,11 @@ import {
   countCharsPlain,
   computeSentenceStats
 } from "./humanize-rules.js";
-import { extractChatContent, extractJson } from "./ai.js";
+import {
+  extractChatContent,
+  extractJson,
+  postChatCompletionWithReasoningFallback
+} from "./ai.js";
 import { ensureOptionalHostPermission } from "./host-permissions.js";
 
 const MAX_SAMPLES = 8;
@@ -288,13 +292,12 @@ ${text}`;
   try {
     await ensureOptionalHostPermission(baseUrl, "文风指纹提取接口");
 
-    const response = await fetch(baseUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
+    // 走统一的推理模型剥参 fallback helper：用户若配置了 o1/R1/Kimi 等推理模型，
+    // temperature 等采样字段会被 400 拒绝，helper 命中后剥到最小字段集重试一次。
+    const { response, payload } = await postChatCompletionWithReasoningFallback(
+      baseUrl,
+      apiKey,
+      {
         model,
         // 风格判断是结构化任务，温度低一点，输出更稳。
         temperature: 0.3,
@@ -302,16 +305,14 @@ ${text}`;
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ]
-      }),
-      signal: controller.signal
-    });
+      },
+      { signal: controller.signal }
+    );
 
     if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
       const msg = payload?.error?.message || `指纹接口返回 ${response.status}`;
       throw new Error(msg);
     }
-    const payload = await response.json();
     const content = extractChatContent(payload);
     if (!content) throw new Error("指纹接口返回内容为空");
     const parsed = extractJson(content);
