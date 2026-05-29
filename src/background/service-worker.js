@@ -49,6 +49,7 @@ import {
   maybeRefreshLicense
 } from "../shared/license.js";
 import { lintArticle } from "../shared/humanize-checker.js";
+import { safeScanCompliance } from "../shared/compliance-checker.js";
 import { runHumanizePass } from "../shared/humanize-pass.js";
 import { getActiveVoiceSample } from "../shared/voice-samples.js";
 import { ensureOptionalHostPermission } from "../shared/host-permissions.js";
@@ -498,13 +499,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           article,
           message.payload.preferences?.length
         );
+        // 合规检测（本地，不阻断）：扫描最终稿，结果随 meta 下发给 UI 渲染 badge
+        const compliance = safeScanCompliance(article);
         const baseMeta = template
           ? { templateId: template.id, templateName: template.name }
           : {};
         const responsePayload = {
           ok: true,
           data: article,
-          meta: { ...baseMeta, requestId, lengthCheck, lint, humanizePass }
+          meta: { ...baseMeta, requestId, lengthCheck, lint, humanizePass, compliance }
         };
         sendResponse(responsePayload);
         // task 标 done，把完整结果挂到 task.result，前端通过 GET_TASK_RESULT 拉
@@ -514,7 +517,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           status: "done",
           result: {
             article,
-            meta: { ...baseMeta, requestId, lengthCheck, lint, humanizePass },
+            meta: { ...baseMeta, requestId, lengthCheck, lint, humanizePass, compliance },
             articleId,
             articleTitle
           }

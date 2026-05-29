@@ -11,6 +11,7 @@ import { clampIndex, formatRuntimeError } from "../shared/utils.js";
 import { prepareHtmlForWechat } from "../shared/wechat-html.js";
 import { ensureHostPermissionFromGesture } from "../shared/host-permissions.js";
 import { collectPublishRemoteUrls } from "../shared/wechat.js";
+import { safeScanCompliance } from "../shared/compliance-checker.js";
 
 /**
  * 判断当前 settings 是否有任何"可发布"的公众号通道。
@@ -437,6 +438,22 @@ export async function publishBundle(mode) {
           `《${title}》正在 AI 改写中，请等改写完成（看右下角任务中心）再发布，避免发出旧版本。`,
           "warning"
         );
+        return;
+      }
+    }
+
+    // 合规检测（本地，不硬阻断）：命中高危/违规词时弹二次确认 modal，用户可选「去修改」或「仍要发布」
+    const complianceHits = [];
+    for (const article of enabledForPublish) {
+      const res = safeScanCompliance(article);
+      for (const h of res.hits) {
+        if (h.severity >= 2) complianceHits.push({ ...h, _title: article?.meta?.title?.trim() || "未命名" });
+      }
+    }
+    if (complianceHits.length > 0) {
+      const proceed = await _openComplianceConfirmModal(complianceHits);
+      if (!proceed) {
+        setStatus("已取消发布，请修改命中的高危/违规词后再试。", "warning");
         return;
       }
     }
@@ -1118,6 +1135,73 @@ function _openPublishConfirmModal() {
 function _closePublishConfirmModal() {
   document.querySelector("#publishConfirmBackdrop")?.setAttribute("hidden", "");
   document.querySelector("#publishConfirmModal")?.setAttribute("hidden", "");
+}
+
+// 合规检测拦截 modal（promise 化）：resolve(true)=仍要发布 / resolve(false)=去修改
+// hits 已过滤 severity>=2（违规 + 高危）。
+function _openComplianceConfirmModal(hits) {
+  return new Promise((resolve) => {
+    const backdrop = document.querySelector("#complianceConfirmBackdrop");
+    const modal = document.querySelector("#complianceConfirmModal");
+    const list = document.querySelector("#complianceConfirmList");
+    const summary = document.querySelector("#complianceConfirmSummary");
+    const cancelBtn = document.querySelector("#cancelComplianceConfirmButton");
+    const okBtn = document.querySelector("#confirmComplianceConfirmButton");
+    if (!backdrop || !modal || !list || !cancelBtn || !okBtn) {
+      resolve(true); // modal 缺失时不阻断（容错）
+      return;
+    }
+
+    const block = hits.filter((h) => h.severity >= 3).length;
+    const warn = hits.filter((h) => h.severity === 2).length;
+    if (summary) {
+      const parts = [];
+      if (block) parts.push(`${block} 处高危`);
+      if (warn) parts.push(`${warn} 处违规`);
+      summary.innerHTML = `<strong>检测到 ${parts.join("、")}，可能导致限流或封号：</strong>`;
+    }
+
+    // 去重（同 term+category 只列一次）+ 最多 15 条
+    const seen = new Set();
+    const rows = [];
+    for (const h of hits) {
+      const k = `${h.category}:${h.term}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      rows.push(h);
+      if (rows.length >= 15) break;
+    }
+    list.innerHTML = rows
+      .map(
+        (h) =>
+          `<li data-severity="${h.severity >= 3 ? "block" : "warn"}"><strong>[${_escapeHtml(
+            h.severityLabel
+          )}·${_escapeHtml(h.categoryLabel)}]</strong> 「${_escapeHtml(h.term)}」${
+            h.suggestion ? " — " + _escapeHtml(h.suggestion) : ""
+          }</li>`
+      )
+      .join("");
+
+    const cleanup = () => {
+      backdrop.setAttribute("hidden", "");
+      modal.setAttribute("hidden", "");
+      cancelBtn.removeEventListener("click", onCancel);
+      okBtn.removeEventListener("click", onOk);
+    };
+    const onCancel = () => {
+      cleanup();
+      resolve(false);
+    };
+    const onOk = () => {
+      cleanup();
+      resolve(true);
+    };
+    cancelBtn.addEventListener("click", onCancel);
+    okBtn.addEventListener("click", onOk);
+
+    backdrop.removeAttribute("hidden");
+    modal.removeAttribute("hidden");
+  });
 }
 
 // =====================================================================

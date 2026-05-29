@@ -3344,4 +3344,50 @@ console.log("\n运行 server/worker.js · Phase 4 helpers KV mock 集成单测 �
   console.log("✓ sendSecurityAlertEmail 7 case（throttled / sent / failed-retry / weekly-bucket / skipped × 3）");
 }
 
+console.log("\n运行 compliance-checker 合规检测单测 …");
+{
+  const { scanCompliance, safeScanCompliance } = await import(
+    "../src/shared/compliance-checker.js"
+  );
+
+  // 1. 干净文本 → ok
+  const clean = scanCompliance("今天天气不错，我们聊聊读书心得。");
+  assert(clean.level === "ok" && clean.total === 0, "干净文本应判 ok 且 0 命中");
+
+  // 2. 广告法极限词 → warn（severity 2）
+  const ad = scanCompliance("本产品是国家级最先进的解决方案。");
+  assert(ad.level === "warn", "极限词应判 warn");
+  assert(ad.hits.some((h) => h.term === "国家级" && h.category === "ad_extreme"), "应命中国家级");
+  assert(ad.hits.some((h) => h.term === "最先进"), "应命中最先进");
+
+  // 3. 白名单：100%棉 不应命中 100%（onlyInsideWhitelist 生效）
+  const wl = scanCompliance("这件衣服是 100%棉 的。");
+  assert(!wl.hits.some((h) => h.id === "ad.baifenbai"), "100%棉 白名单应跳过 100% 命中");
+  // 但裸 100% 仍应命中
+  const wl2 = scanCompliance("成功率 100% 保证。");
+  assert(wl2.hits.some((h) => h.id === "ad.baifenbai"), "裸 100% 仍应命中");
+
+  // 4. 导流手机号正则 → warn
+  const phone = scanCompliance("有需要加我电话 13800138000 咨询。");
+  assert(phone.hits.some((h) => h.id === "div.phone"), "应命中手机号正则");
+
+  // 5. 高危（赌博）→ block，level 取最高
+  const block = scanCompliance("提供博彩与代开发票服务。");
+  assert(block.level === "block" && block.counts.block >= 1, "赌博/违法词应判 block");
+
+  // 6. article 对象输入（从 bodyHtml + meta 抽取）
+  const art = scanCompliance({
+    meta: { title: "震惊！这个神药包治百病" },
+    bodyHtml: "<p>稳赚不赔，零风险投资。</p>"
+  });
+  assert(art.total >= 3, "article 对象应从 title + bodyHtml 抽取并命中多条");
+  assert(art.hits.some((h) => h.category === "finance"), "应命中金融违规");
+
+  // 7. safeScanCompliance 容错（异常输入不抛）
+  const safe = safeScanCompliance(undefined);
+  assert(safe.level === "ok", "safeScanCompliance(undefined) 应回 ok 不抛");
+
+  console.log("✓ compliance-checker 7 case（clean/极限词/白名单/手机号/高危/article/容错）");
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

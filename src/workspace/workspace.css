@@ -2649,6 +2649,13 @@ button[hidden] {
 .humanize-badge[data-tier="bad"] .humanize-badge-dot {
   background: #dc2626;
 }
+/* 合规检查 bar：复用 humanize 样式，加一道左侧色条做视觉区分 */
+.compliance-status-bar {
+  border-left: 3px solid #dc2626;
+}
+.compliance-status-bar .compliance-badge-label {
+  font-weight: 600;
+}
 .humanize-panel {
   padding: 8px 14px 12px;
   border-top: 1px dashed rgba(23, 38, 32, 0.1);

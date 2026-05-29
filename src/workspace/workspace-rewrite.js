@@ -111,6 +111,17 @@ export function init(ctx) {
     badgeBtn.setAttribute("aria-expanded", String(opened));
   });
 
+  // 「合规检查」badge：点击切换详情面板
+  const complianceBadgeBtn = document.querySelector("#complianceBadge");
+  complianceBadgeBtn?.addEventListener("click", () => {
+    const panel = document.querySelector("#compliancePanel");
+    if (!panel) return;
+    const opened = panel.hasAttribute("hidden");
+    if (opened) panel.removeAttribute("hidden");
+    else panel.setAttribute("hidden", "");
+    complianceBadgeBtn.setAttribute("aria-expanded", String(opened));
+  });
+
   // 「去 AI 味」开关 chip：与 settings.humanizeEnabled 双向绑定
   initHumanizeToggleChip();
 
@@ -506,6 +517,7 @@ export async function applyRewriteTaskResult(task) {
         : "success"
     );
     renderHumanizeBadge(result.meta?.lint, result.meta?.humanizePass);
+  renderComplianceBadge(result.meta?.compliance);
   }
 
   _sourceImagesByRequestId.delete(task.requestId);
@@ -555,6 +567,7 @@ async function _applyRewriteResultToCurrentArticle(response, sourceImages) {
       : "success"
   );
   renderHumanizeBadge(response.meta?.lint, response.meta?.humanizePass);
+  renderComplianceBadge(response.meta?.compliance);
 }
 
 /**
@@ -834,6 +847,73 @@ function severityTag(severity) {
   if (severity === "error") return "ERROR";
   if (severity === "warn") return "WARN";
   return "HINT";
+}
+
+/**
+ * 渲染「合规检查」badge + 详情面板（数据来自 service-worker meta.compliance）。
+ * 与 renderHumanizeBadge 并列；clean 时隐藏整条 bar。
+ */
+function renderComplianceBadge(compliance) {
+  const bar = document.querySelector("#complianceStatusBar");
+  const badge = document.querySelector("#complianceBadge");
+  const panel = document.querySelector("#compliancePanel");
+  if (!bar || !badge || !panel) return;
+
+  if (!compliance || typeof compliance !== "object" || compliance.level === "ok") {
+    bar.setAttribute("hidden", "");
+    return;
+  }
+
+  const counts = compliance.counts || { block: 0, warn: 0, hint: 0 };
+  const tier = compliance.level === "block" ? "bad" : compliance.level === "warn" ? "warn" : "ok";
+
+  const labelEl = badge.querySelector(".compliance-badge-label");
+  const scoreEl = badge.querySelector(".compliance-badge-score");
+  if (labelEl) labelEl.textContent = "合规检查";
+  if (scoreEl) {
+    const parts = [];
+    if (counts.block) parts.push(`${counts.block} 处高危`);
+    if (counts.warn) parts.push(`${counts.warn} 处违规`);
+    if (counts.hint) parts.push(`${counts.hint} 处提示`);
+    scoreEl.textContent = parts.join(" · ") || "通过";
+  }
+  badge.setAttribute("data-tier", tier);
+  bar.removeAttribute("hidden");
+
+  const list = panel.querySelector(".compliance-panel-issues");
+  if (list) {
+    list.innerHTML = "";
+    const hits = Array.isArray(compliance.hits) ? compliance.hits : [];
+    const top = hits.slice(0, 12);
+    for (const h of top) {
+      const li = document.createElement("li");
+      li.dataset.severity = h.severity >= 3 ? "error" : h.severity >= 2 ? "warn" : "hint";
+      const tag = document.createElement("span");
+      tag.className = "humanize-issue-tag";
+      tag.textContent = `${h.severityLabel || ""}·${h.categoryLabel || ""}`;
+      const text = document.createElement("span");
+      text.className = "humanize-issue-text";
+      text.textContent = `「${h.term}」${h.reason ? " — " + h.reason : ""}`;
+      const hint = document.createElement("span");
+      hint.className = "humanize-issue-hint";
+      hint.textContent = h.suggestion || "";
+      li.appendChild(tag);
+      li.appendChild(text);
+      li.appendChild(hint);
+      list.appendChild(li);
+    }
+    if (hits.length > top.length) {
+      const li = document.createElement("li");
+      li.dataset.severity = "hint";
+      li.innerHTML = `<span class="humanize-issue-tag">…</span><span class="humanize-issue-text">还有 ${
+        hits.length - top.length
+      } 处已折叠</span>`;
+      list.appendChild(li);
+    }
+  }
+
+  panel.setAttribute("hidden", "");
+  badge.setAttribute("aria-expanded", "false");
 }
 
 export async function copyManualPrompt() {

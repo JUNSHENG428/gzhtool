@@ -378,6 +378,20 @@
                 </p>
               </div>
             </div>
+            <div id="complianceStatusBar" class="humanize-status-bar compliance-status-bar" hidden>
+              <button id="complianceBadge" class="humanize-badge compliance-badge" type="button" aria-expanded="false">
+                <span class="humanize-badge-dot" aria-hidden="true"></span>
+                <span class="humanize-badge-label compliance-badge-label">合规检查</span>
+                <span class="humanize-badge-score compliance-badge-score">--</span>
+                <svg class="humanize-badge-chevron" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M6 8 1.5 3.5h9z"/></svg>
+              </button>
+              <div id="compliancePanel" class="humanize-panel compliance-panel" hidden>
+                <ul class="humanize-panel-issues compliance-panel-issues" aria-label="合规风险列表"></ul>
+                <p class="humanize-panel-foot">
+                  本地敏感词/违规检测，仅作辅助提示，<strong>命中不代表微信平台的最终判定结果</strong>。涉政内容请人工复核。
+                </p>
+              </div>
+            </div>
             <main class="workspace-layout layout-single">
         <section class="center-stage" role="region" aria-label="稿件信息区">
           <section class="panel">
@@ -1096,6 +1110,23 @@
       <footer class="modal-footer">
         <button id="cancelPublishConfirmButton" type="button" class="ghost">再检查一下</button>
         <button id="confirmPublishNowButton" type="button" class="primary">确认发布</button>
+      </footer>
+    </div>
+
+    <!-- 合规检测拦截 modal：发布前命中高危/违规词时强提醒（不硬阻断） -->
+    <div id="complianceConfirmBackdrop" class="modal-backdrop" hidden></div>
+    <div id="complianceConfirmModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="complianceConfirmModalTitle" hidden>
+      <header class="modal-header">
+        <h2 id="complianceConfirmModalTitle">⚠️ 发布前合规提醒</h2>
+      </header>
+      <div class="modal-body">
+        <p id="complianceConfirmSummary"><strong>检测到可能导致限流或封号的内容：</strong></p>
+        <ul id="complianceConfirmList" class="compliance-confirm-list"></ul>
+        <p class="muted">本检查为本地辅助提示，<strong>命中不代表微信平台的最终判定结果</strong>；建议先返回修改高危词，再发布。涉政内容请自行人工复核。</p>
+      </div>
+      <footer class="modal-footer">
+        <button id="cancelComplianceConfirmButton" type="button" class="primary">去修改</button>
+        <button id="confirmComplianceConfirmButton" type="button" class="ghost">我已确认，仍要发布</button>
       </footer>
     </div>
 
