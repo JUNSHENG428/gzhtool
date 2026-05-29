@@ -1722,7 +1722,12 @@ async function runFloatingBallPull(mpTabId, extraPayload = {}) {
   let isTransientTab = false;
 
   if (existing.length > 0) {
-    workspaceTabId = existing[0].id;
+    // 多开 workspace tab 时不能盲取 existing[0]（那永远是最老的 tab，导致"同步的是上一篇"）。
+    // 取「最近聚焦/访问」的那个 tab —— 用户刚看/刚抓的那篇就在这个 tab 的内存 state 里。
+    const sorted = [...existing].sort(
+      (a, b) => (Number(b.lastAccessed) || 0) - (Number(a.lastAccessed) || 0)
+    );
+    workspaceTabId = sorted[0].id;
   } else {
     // 后台静默开 workspace tab：active=false 不夺焦，url 加 invisible_for_pull=1 让
     // workspace.js bootstrap 跳过 first-run / autocapture / import 等用户感知副作用。

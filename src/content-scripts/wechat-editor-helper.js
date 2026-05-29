@@ -9,10 +9,11 @@
   const BALL_PRIMARY_SIZE = 48;
   const BALL_SECONDARY_SIZE = 40;
   const BALL_GAP = 6;
-  // strip 总尺寸：1*48 + 4*40 + 4*6 + 12 padding = 244px 高，主球宽决定外宽
-  const STRIP_WIDTH = BALL_PRIMARY_SIZE + 12;
+  const BALL_LABEL_H = 14; // 每球下方 emoji 标签占高（让用户一眼看懂每个球干什么）
+  // strip 总尺寸：(1*48 + 4*40) 球 + 5 个标签 + gap + padding，主球宽决定外宽
+  const STRIP_WIDTH = BALL_PRIMARY_SIZE + 16;
   const STRIP_HEIGHT =
-    BALL_PRIMARY_SIZE + 4 * BALL_SECONDARY_SIZE + 4 * BALL_GAP + 12;
+    BALL_PRIMARY_SIZE + 4 * BALL_SECONDARY_SIZE + 5 * BALL_LABEL_H + 4 * BALL_GAP + 12;
   const FLOATING_BALL_SIZE = STRIP_WIDTH; // 兼容 storage onChanged 老引用
 
   // v0.4 设计 token（hardcode in content-script，不靠 page :root，避免被 mp 后台 CSS 覆盖）
@@ -196,6 +197,27 @@
     // 避免污染宿主页（mp 后台 CSS 也不会用到 rb-strip- 这种自定义前缀）。
     style.textContent = `
       #${STRIP_ID}:active { cursor: grabbing; }
+      #${STRIP_ID} .rb-ball-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+      }
+      #${STRIP_ID} .rb-ball-emoji {
+        font-size: 20px;
+        line-height: 1;
+        font-family: "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
+      }
+      #${STRIP_ID} .rb-ball-label {
+        font-size: 10px;
+        line-height: 1;
+        font-weight: 600;
+        color: ${TOKEN.inkSecondary};
+        font-family: ${TOKEN.fontSans};
+        white-space: nowrap;
+        pointer-events: none;
+        letter-spacing: 0.2px;
+      }
       #${STRIP_ID} button[data-strip-action]:hover {
         transform: scale(1.08);
         box-shadow: ${TOKEN.shadowLg};
@@ -358,18 +380,22 @@
         : drafts.length > 1
           ? `从润笔工作台取草稿（${drafts.length} 篇可选）`
           : "从润笔工作台取当前激活草稿到 mp 编辑器") + lastSyncSuffix;
-    // 5 球字符（衬线 700）：
-    //   取（拉草稿，主动作）/ 编（工作台 编辑台）/ 热（热点）/ 设（设置）/ 问（帮助）
-    return `
-      <button data-strip-action="pull" type="button" tabindex="0" aria-label="${escapeHtml(pullTooltip)}" title="${escapeHtml(pullTooltip)}" style="${ballStyle({ primary: true, disabled: pullDisabled })}">
-        取
-        ${profileDotHtml()}
-      </button>
-      <button data-strip-action="open-workspace" type="button" tabindex="0" aria-label="打开润笔工作台" title="打开润笔工作台" style="${ballStyle()}">编</button>
-      <button data-strip-action="open-hot" type="button" tabindex="0" aria-label="热点抓题" title="热点抓题" style="${ballStyle()}">热</button>
-      <button data-strip-action="open-options" type="button" tabindex="0" aria-label="打开设置" title="打开设置" style="${ballStyle()}">设</button>
-      <button data-strip-action="open-help" type="button" tabindex="0" aria-label="帮助与教程" title="帮助与教程" style="${ballStyle()}">问</button>
-    `;
+    // 5 球：emoji 图标 + 球下小字标签（旧版单字「取/编/热/设/问」太抽象，新人看不懂）。
+    //   📥 取草稿（主动作）/ ✍️ 编辑台 / 🔥 热点 / ⚙️ 设置 / ❓ 帮助
+    const cell = (action, emoji, label, tooltip, opts = {}) =>
+      `<div class="rb-ball-cell">
+        <button data-strip-action="${action}" type="button" tabindex="0" aria-label="${escapeHtml(tooltip)}" title="${escapeHtml(tooltip)}" style="${ballStyle(opts)}">
+          <span class="rb-ball-emoji" aria-hidden="true">${emoji}</span>${opts.primary ? profileDotHtml() : ""}
+        </button>
+        <span class="rb-ball-label">${label}</span>
+      </div>`;
+    return [
+      cell("pull", "📥", "取草稿", pullTooltip, { primary: true, disabled: pullDisabled }),
+      cell("open-workspace", "✍️", "编辑台", "打开润笔工作台（写 / 改 / 排版）"),
+      cell("open-hot", "🔥", "热点", "热点抓题（找选题）"),
+      cell("open-options", "⚙️", "设置", "打开设置"),
+      cell("open-help", "❓", "帮助", "帮助与教程")
+    ].join("");
   }
 
   /** 重渲染 1 号球（profile 状态变化、drafts 数变化时复用） */
