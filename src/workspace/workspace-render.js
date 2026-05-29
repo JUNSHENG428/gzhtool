@@ -39,6 +39,47 @@ export function fillThemeOptions() {
         `<option value="${escapeAttribute(value)}">${escapeHtml(preset.label)}</option>`
     )
     .join("");
+  injectEditorThemeStyles();
+}
+
+// 从 THEME_PRESETS 动态生成「编辑器内」主题样式表（单一数据源，自动覆盖全部 + 未来主题）。
+// 之前编辑器主题样式靠 workspace.css 手写、只覆盖少数几个且只有间距 → 多数主题（尤其
+// 6 个杂志主题）切过去毫无视觉差异。这里把预览用的 THEME_PRESETS 内联样式照搬进编辑器，
+// 让「编辑排版」页所见即所得，每个主题都有鲜明视觉身份。
+function injectEditorThemeStyles() {
+  const STYLE_ID = "rb-editor-theme-styles";
+  if (document.getElementById(STYLE_ID)) return; // 注入一次即可（THEME_PRESETS 是常量）
+
+  // 编辑器有自己的盒模型（内边距/高度/滚动），root 里的 padding/border/margin/阴影/宽度
+  // 不要带进来免得双重边框；只保留视觉身份（背景/字色/字体/行高/字号）。
+  const ROOT_DROP = /^(padding|margin|border|border-radius|box-shadow|max-width|width|height)/i;
+  const filterRoot = (root) =>
+    String(root || "")
+      .split(";")
+      .map((s) => s.trim())
+      .filter((s) => s && !ROOT_DROP.test(s))
+      .join(";");
+
+  const rules = [];
+  for (const [key, t] of Object.entries(THEME_PRESETS)) {
+    const sel = `.editor.theme-${key}`;
+    if (t.root) rules.push(`${sel}{${filterRoot(t.root)}}`);
+    if (t.h2) rules.push(`${sel} h2{${t.h2}}`);
+    if (t.h3) rules.push(`${sel} h3{${t.h3}}`);
+    if (t.p) rules.push(`${sel} p{${t.p}}`);
+    if (t.list) rules.push(`${sel} ul,${sel} ol{${t.list}}`);
+    if (t.li) rules.push(`${sel} li{${t.li}}`);
+    if (t.blockquote) rules.push(`${sel} blockquote{${t.blockquote}}`);
+    if (t.strong) rules.push(`${sel} strong{${t.strong}}`);
+    if (t.figure) rules.push(`${sel} figure{${t.figure}}`);
+    if (t.image) rules.push(`${sel} figure img{${t.image}}`);
+    if (t.figcaption) rules.push(`${sel} figcaption{${t.figcaption}}`);
+    if (t.hr) rules.push(`${sel} hr{${t.hr}}`);
+  }
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = rules.join("\n");
+  document.head.appendChild(style);
 }
 
 export function applyTheme(themeName) {
