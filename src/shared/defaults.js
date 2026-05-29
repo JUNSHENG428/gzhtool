@@ -544,36 +544,36 @@ export const THEME_PRESETS = {
       "margin-top:40px;padding:20px 0;background:transparent;color:#000;border-top:2px solid #000;border-bottom:2px solid #000;border-radius:0;text-align:center;font-family:'Helvetica Neue','Arial',sans-serif;font-size:13px;letter-spacing:0.2em;text-transform:uppercase;font-weight:700;"
   },
 
-  // 2) Kinfolk · 奶白极简静语
-  "kinfolk-quiet": {
-    label: "静语生活 · Kinfolk",
+  // 2) 墨韵书香 · 文史国风（替换原 Kinfolk）：宣纸米底 + 宋体墨色 + 朱红 accent
+  "ink-classic": {
+    label: "墨韵书香",
     root:
-      "font-family:'Helvetica Neue','PingFang SC','Hiragino Sans GB',sans-serif;color:#3a342d;line-height:2.05;font-size:16px;background:#faf8f3;padding:48px 32px;border:none;border-radius:0;",
+      "font-family:'Source Han Serif SC','Noto Serif SC','Songti SC',serif;color:#2a2521;line-height:2.0;font-size:16px;background:#f7f2e7;padding:36px 26px;border:none;border-radius:0;",
     h1:
-      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:30px;line-height:1.35;color:#2a241d;margin:0 0 28px;font-weight:300;letter-spacing:0.02em;text-align:center;",
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:32px;line-height:1.3;color:#1f1a16;margin:0 0 16px;font-weight:700;letter-spacing:0.04em;",
     subtitle:
-      "font-size:11px;line-height:1.8;color:#a8a094;margin:0 auto 36px;text-align:center;padding-bottom:0;border-bottom:none;letter-spacing:0.32em;text-transform:uppercase;font-weight:400;",
+      "font-size:14px;line-height:1.9;color:#8a7a5e;margin:0 0 22px;padding-bottom:16px;border-bottom:1px solid #e2d6bd;letter-spacing:0.08em;",
     lead:
-      "font-size:17px;line-height:2.1;color:#5a5147;background:transparent;border:none;border-radius:0;padding:0;margin:0 auto 36px;text-align:center;max-width:520px;font-weight:300;",
+      "font-size:17px;line-height:2.0;color:#3a322a;background:#efe6d2;border-left:4px solid #9e3b2e;padding:16px 20px;border-radius:10px;margin:0 0 24px;",
     h2:
-      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:13px;line-height:1.6;color:#2a241d;margin:48px 0 18px;padding:0;border:none;font-weight:600;letter-spacing:0.28em;text-transform:uppercase;text-align:center;",
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:24px;line-height:1.5;color:#1f1a16;margin:36px 0 14px;padding-left:14px;border-left:5px solid #9e3b2e;font-weight:700;",
     h3:
-      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:16px;line-height:1.6;color:#3a342d;margin:30px 0 12px;font-weight:500;letter-spacing:0.04em;",
-    p: "margin:0 0 22px;color:#3a342d;font-weight:300;",
+      "font-size:19px;line-height:1.6;color:#3a322a;margin:24px 0 12px;font-weight:700;",
+    p: "margin:0 0 18px;color:#2a2521;",
     blockquote:
-      "margin:36px auto;padding:0;background:transparent;border:none;border-radius:0;color:#5a5147;font-size:20px;line-height:1.7;font-weight:300;font-style:normal;text-align:center;max-width:540px;",
-    list: "margin:0 0 22px 0;padding-left:1.4em;color:#3a342d;font-weight:300;",
+      "margin:24px 0;padding:16px 22px;background:#efe6d2;border-left:4px solid #9e3b2e;border-radius:8px;color:#4a3f33;",
+    list: "margin:0 0 18px 0;padding-left:1.4em;color:#2a2521;",
     li: "margin:0 0 10px;",
     figure:
-      "margin:40px 0;padding:0;background:transparent;border:none;border-radius:0;",
+      "margin:28px 0;padding:10px;background:#fbf7ec;border:1px solid #e2d6bd;border-radius:12px;",
     image:
-      "display:block;width:100%;border-radius:0;object-fit:cover;max-height:560px;background:#efe9dc;",
+      "display:block;width:100%;border-radius:8px;object-fit:cover;max-height:480px;background:#efe6d2;",
     figcaption:
-      "margin-top:14px;font-size:11px;color:#a8a094;text-align:center;line-height:1.8;letter-spacing:0.24em;text-transform:uppercase;font-weight:400;",
-    hr: "border:none;border-top:1px solid #e0d8c8;margin:40px 30% 40px 30%;",
-    strong: "color:#2a241d;font-weight:500;",
+      "margin-top:10px;font-size:13px;color:#9a8a6a;text-align:center;line-height:1.7;",
+    hr: "border:none;border-top:1px solid #d8c7a6;margin:30px 0;",
+    strong: "color:#9e3b2e;font-weight:700;",
     cta:
-      "margin-top:48px;padding:24px 0;background:transparent;color:#5a5147;border:none;border-top:1px solid #d4c9b3;border-bottom:1px solid #d4c9b3;border-radius:0;text-align:center;font-size:12px;letter-spacing:0.32em;text-transform:uppercase;font-weight:500;"
+      "margin-top:30px;padding:18px 22px;background:#2a2521;color:#f7f2e7;border-radius:12px;border-left:4px solid #9e3b2e;"
   },
 
   // 3) Wired · 黑底荧光科技
@@ -640,36 +640,36 @@ export const THEME_PRESETS = {
       "margin-top:38px;padding:22px 24px;background:#0f1d33;color:#f5ede0;border:none;border-radius:0;font-family:'Helvetica Neue','Arial',sans-serif;letter-spacing:0.04em;"
   },
 
-  // 5) Vogue · Didone 时装大刊
-  "vogue-didone": {
-    label: "时装大刊 · Vogue",
+  // 5) 清新知识卡 · 干货科普（替换原 Vogue）：白底 + 青绿 accent + 卡片式区块
+  "clean-card": {
+    label: "清新知识卡",
     root:
-      "font-family:'Helvetica Neue','PingFang SC','Hiragino Sans GB',sans-serif;color:#1a1a1a;line-height:1.85;font-size:16px;background:#ffffff;padding:40px 28px;border:none;border-radius:0;",
+      "font-family:'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;color:#1f2933;line-height:1.85;font-size:16px;background:#ffffff;padding:32px 22px;border:none;border-radius:0;",
     h1:
-      "font-family:'Source Han Serif SC','Noto Serif SC','Bodoni 72',serif;font-size:54px;line-height:1.0;color:#000;margin:0 0 24px;font-weight:700;letter-spacing:-0.04em;text-align:center;",
+      "font-size:30px;line-height:1.3;color:#0f1b2d;margin:0 0 16px;font-weight:800;letter-spacing:-0.01em;",
     subtitle:
-      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:10px;line-height:1.7;color:#1a1a1a;margin:0 0 36px;padding-bottom:0;border-bottom:none;letter-spacing:0.42em;text-transform:uppercase;font-weight:700;text-align:center;",
+      "font-size:14px;line-height:1.8;color:#6b7785;margin:0 0 22px;padding-bottom:16px;border-bottom:1px solid #e3e8ee;",
     lead:
-      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:21px;line-height:1.7;color:#000;background:transparent;border:none;border-radius:0;padding:0;margin:0 auto 36px;text-align:center;max-width:560px;font-weight:400;letter-spacing:-0.005em;",
+      "font-size:17px;line-height:1.9;color:#23303d;background:#eef6f4;border-left:4px solid #2ba397;padding:16px 18px;border-radius:12px;margin:0 0 24px;",
     h2:
-      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:32px;line-height:1.2;color:#000;margin:48px 0 16px;padding:0;border:none;font-weight:700;letter-spacing:-0.02em;text-align:center;",
+      "font-size:22px;line-height:1.45;color:#0f1b2d;margin:34px 0 14px;padding:8px 14px;background:#eef6f4;border-left:5px solid #2ba397;border-radius:0 8px 8px 0;font-weight:700;",
     h3:
-      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:11px;line-height:1.7;color:#000;margin:32px 0 12px;font-weight:700;letter-spacing:0.36em;text-transform:uppercase;text-align:center;",
-    p: "margin:0 0 20px;color:#1a1a1a;",
+      "font-size:18px;line-height:1.6;color:#1f4f48;margin:24px 0 10px;font-weight:700;",
+    p: "margin:0 0 16px;color:#1f2933;",
     blockquote:
-      "margin:40px auto;padding:0;background:transparent;border:none;border-radius:0;color:#000;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:32px;line-height:1.3;font-weight:700;letter-spacing:-0.02em;text-align:center;max-width:600px;",
-    list: "margin:0 0 22px 0;padding-left:1.35em;color:#1a1a1a;",
-    li: "margin:0 0 9px;",
+      "margin:22px 0;padding:16px 20px;background:#f0f7f6;border:1px solid #cfe6e1;border-left:4px solid #2ba397;border-radius:10px;color:#264a44;",
+    list: "margin:0 0 18px 0;padding-left:1.4em;color:#1f2933;",
+    li: "margin:0 0 10px;",
     figure:
-      "margin:36px 0;padding:0;background:transparent;border:none;border-radius:0;",
+      "margin:26px 0;padding:10px;background:#f7fafa;border:1px solid #e3e8ee;border-radius:14px;",
     image:
-      "display:block;width:100%;border-radius:0;object-fit:cover;max-height:600px;background:#f0f0f0;",
+      "display:block;width:100%;border-radius:10px;object-fit:cover;max-height:460px;background:#eef6f4;",
     figcaption:
-      "margin-top:12px;font-family:'Helvetica Neue','Arial',sans-serif;font-size:10px;color:#444;text-align:center;line-height:1.8;letter-spacing:0.32em;text-transform:uppercase;font-weight:600;",
-    hr: "border:none;border-top:1px solid #000;margin:44px 35% 44px 35%;",
-    strong: "color:#000;font-weight:700;",
+      "margin-top:10px;font-size:13px;color:#7c8a96;text-align:center;line-height:1.7;",
+    hr: "border:none;border-top:1px solid #e3e8ee;margin:28px 0;",
+    strong: "color:#1f8d82;font-weight:700;",
     cta:
-      "margin-top:48px;padding:24px 0;background:#000;color:#fff;border:none;border-radius:0;text-align:center;font-family:'Helvetica Neue','Arial',sans-serif;letter-spacing:0.42em;text-transform:uppercase;font-size:11px;font-weight:700;"
+      "margin-top:30px;padding:18px 20px;background:#0f3b36;color:#eafaf6;border-radius:14px;border-left:4px solid #2ba397;"
   },
 
   // 6) 独立刊物 · 朱红 zine
@@ -715,11 +715,11 @@ export const MAGAZINE_THEMES = [
     pairsWith: ["文化评论", "深度专栏", "人物特稿", "财经观察"]
   },
   {
-    id: "kinfolk-quiet",
-    label: "静语生活",
-    inspiration: "Kinfolk",
-    summary: "奶白底极简留白 + 全部 sans-serif + 居中编排，适合慢生活、美食、旅行、家居。",
-    pairsWith: ["情感生活", "时尚美学", "美食旅行", "极简日常"]
+    id: "ink-classic",
+    label: "墨韵书香",
+    inspiration: "国风文史",
+    summary: "宣纸米底 + 宋体墨色 + 朱红 accent，最适合历史、文化、人物、情感故事与书评随笔。",
+    pairsWith: ["历史文化", "情感故事", "人物特稿", "书评随笔"]
   },
   {
     id: "wired-neon",
@@ -736,11 +736,11 @@ export const MAGAZINE_THEMES = [
     pairsWith: ["财经商业", "行业观察", "城市文化", "品牌评论"]
   },
   {
-    id: "vogue-didone",
-    label: "时装大刊",
-    inspiration: "Vogue",
-    summary: "纯白底 + 超大衬线 + 中轴对称 + 巨字间距小标，适合时尚、美妆、视觉、艺术。",
-    pairsWith: ["时尚美学", "视觉艺术", "潮流评论", "设计观察"]
+    id: "clean-card",
+    label: "清新知识卡",
+    inspiration: "干货科普",
+    summary: "白底 + 青绿 accent + 卡片式小标与引用块，最适合教程、科普、干货整理、工具盘点。",
+    pairsWith: ["教程拆解", "知识科普", "干货整理", "工具盘点"]
   },
   {
     id: "paper-zine",

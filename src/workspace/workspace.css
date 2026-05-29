@@ -1724,10 +1724,10 @@ button[hidden] {
 .editor.theme-warm-rose figure,
 .editor.theme-tech-blue figure,
 .editor.theme-editorial-newyorker figure,
-.editor.theme-kinfolk-quiet figure,
+.editor.theme-ink-classic figure,
 .editor.theme-wired-neon figure,
 .editor.theme-monocle-soft figure,
-.editor.theme-vogue-didone figure,
+.editor.theme-clean-card figure,
 .editor.theme-paper-zine figure {
   margin: 24px 0;
 }
@@ -1738,10 +1738,10 @@ button[hidden] {
 .editor.theme-warm-rose figure img,
 .editor.theme-tech-blue figure img,
 .editor.theme-editorial-newyorker figure img,
-.editor.theme-kinfolk-quiet figure img,
+.editor.theme-ink-classic figure img,
 .editor.theme-wired-neon figure img,
 .editor.theme-monocle-soft figure img,
-.editor.theme-vogue-didone figure img,
+.editor.theme-clean-card figure img,
 .editor.theme-paper-zine figure img {
   width: 100%;
   border-radius: 16px;
@@ -1754,10 +1754,10 @@ button[hidden] {
 .editor.theme-warm-rose figcaption,
 .editor.theme-tech-blue figcaption,
 .editor.theme-editorial-newyorker figcaption,
-.editor.theme-kinfolk-quiet figcaption,
+.editor.theme-ink-classic figcaption,
 .editor.theme-wired-neon figcaption,
 .editor.theme-monocle-soft figcaption,
-.editor.theme-vogue-didone figcaption,
+.editor.theme-clean-card figcaption,
 .editor.theme-paper-zine figcaption {
   margin-top: 8px;
   font-size: 13px;

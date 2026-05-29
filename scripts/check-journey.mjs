@@ -362,8 +362,8 @@ async function main() {
     themeOpts.map(t => t.value).join(", "));
 
   // 6 套杂志母版的 ID
-  const MAGAZINE_IDS = ["editorial-newyorker", "kinfolk-quiet", "wired-neon",
-    "monocle-soft", "vogue-didone", "paper-zine"];
+  const MAGAZINE_IDS = ["editorial-newyorker", "ink-classic", "wired-neon",
+    "monocle-soft", "clean-card", "paper-zine"];
 
   const themeShots = {};
   for (const themeId of MAGAZINE_IDS) {
