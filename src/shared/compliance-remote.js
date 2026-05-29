@@ -12,11 +12,24 @@
  */
 
 import { STORAGE_KEYS } from "./defaults.js";
-import { storageGet, storageSet } from "./storage.js";
 import { getApiBase } from "./license.js";
 import { setRemoteComplianceRules } from "./compliance-checker.js";
 
 const REFRESH_THROTTLE_MS = 24 * 60 * 60 * 1000; // 24h
+
+// 低层 chrome.storage.local 访问（与 license.js 同模式，storage.js 未导出通用 get/set）
+async function storageGet(keys) {
+  if (!globalThis.chrome?.storage?.local) return {};
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, (data) => resolve(data || {}));
+  });
+}
+async function storageSet(value) {
+  if (!globalThis.chrome?.storage?.local) return;
+  return new Promise((resolve) => {
+    chrome.storage.local.set(value, () => resolve());
+  });
+}
 
 /** 读缓存的远程词库并注入检测器（无网络）。返回缓存对象或 null。 */
 export async function applyCachedComplianceRules() {

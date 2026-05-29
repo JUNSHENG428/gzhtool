@@ -2684,6 +2684,30 @@ button[hidden] {
 .compliance-confirm-list li[data-severity="warn"] strong {
   color: #b45309;
 }
+.compliance-panel-actions {
+  margin: 8px 0 4px;
+}
+.compliance-ai-btn {
+  appearance: none;
+  border: 1px solid #6d28d9;
+  background: #6d28d9;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.compliance-ai-btn:hover {
+  background: #5b21b6;
+}
+.compliance-ai-btn .section-tag {
+  font-size: 10px;
+  padding: 0 5px;
+}
 .humanize-panel {
   padding: 8px 14px 12px;
   border-top: 1px dashed rgba(23, 38, 32, 0.1);

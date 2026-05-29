@@ -13,16 +13,18 @@ import {
   savePromptTemplates,
   setActiveTemplateId
 } from "../shared/storage.js";
-import { PAID_FEATURES, checkDeAiBoostAccess } from "../shared/license.js";
+import { PAID_FEATURES, checkDeAiBoostAccess, checkLicense } from "../shared/license.js";
 import { showUpgradeModal } from "../shared/upgrade-modal.js";
+import { sanitizeHtml } from "../shared/utils.js";
 import { openAiTemplateDialog } from "../shared/ai-template-dialog.js";
 import {
   buildManualPrompt,
   buildRewriteSourceFromCurrentArticle,
-  isEditorBodySubstantiveForRewrite
+  isEditorBodySubstantiveForRewrite,
+  requestComplianceRewrite
 } from "../shared/ai.js";
 import { scanCompliance, parseCustomComplianceTerms } from "../shared/compliance-checker.js";
-import { applyCachedComplianceRules, refreshRemoteComplianceRules } from "../shared/compliance-remote.js";
+import { applyCachedComplianceRules } from "../shared/compliance-remote.js";
 import { STORAGE_KEYS } from "../shared/defaults.js";
 
 // 合规检测 · 实时扫描状态
@@ -130,9 +132,10 @@ export function init(ctx) {
     complianceBadgeBtn.setAttribute("aria-expanded", String(opened));
   });
 
-  // 合规检测 · 实时扫描：加载自定义词 + 远程词库（先缓存后刷新）+ 监听编辑器输入（防抖）
+  // 合规检测 · 实时扫描：加载自定义词 + 远程词库缓存（页面只读缓存不发网络，
+  // 网络刷新由 service worker 后台做，避免页面 init 触发网络请求/console 噪声）
   void _loadComplianceCustomTerms();
-  void applyCachedComplianceRules().then(() => refreshRemoteComplianceRules());
+  void applyCachedComplianceRules();
   try {
     chrome.storage?.onChanged?.addListener((changes, area) => {
       if (area === "local" && changes[STORAGE_KEYS.settings]) {
@@ -155,6 +158,11 @@ export function init(ctx) {
     const term = btn.getAttribute("data-term") || "";
     const replace = btn.getAttribute("data-compliance-replace") || "";
     if (term && replace) applyComplianceReplace(term, replace);
+  });
+
+  // AI 合规改写（付费）：把命中违规表达整体改写成合规说法
+  document.querySelector("#aiComplianceRewriteBtn")?.addEventListener("click", () => {
+    void runAiComplianceRewrite();
   });
 
   // 「去 AI 味」开关 chip：与 settings.humanizeEnabled 双向绑定
@@ -890,6 +898,67 @@ async function _loadComplianceCustomTerms() {
     _complianceCustomTerms = parseCustomComplianceTerms(settings.complianceCustomWords);
   } catch (_) {
     _complianceCustomTerms = [];
+  }
+}
+
+/**
+ * AI 合规改写（付费 · ai.complianceRewrite 闸门）：把当前正文里命中的违规表达
+ * 整体改写成合规说法，保留原意/风格/结构。只改正文，不动标题/摘要。
+ */
+async function runAiComplianceRewrite() {
+  const { setStatus, showLoading, hideLoading } = _ctx;
+  const editorEl = document.querySelector("#editor");
+  if (!editorEl) return;
+
+  // 付费闸门
+  const access = await checkLicense("ai.complianceRewrite");
+  if (!access.ok) {
+    const meta = PAID_FEATURES["ai.complianceRewrite"];
+    showUpgradeModal({
+      featureName: meta.name,
+      hint: access.hint || meta.hint,
+      bullets: [
+        "AI 自动把极限词 / 导流 / 违规表达改写成合规说法，保留原意与风格",
+        "免费版仍可用本地标红提示 + 一键替换（按建议词逐个替换）"
+      ]
+    });
+    return;
+  }
+
+  const bodyHtml = editorEl.innerHTML || "";
+  if (!bodyHtml.trim()) {
+    setStatus?.("正文为空，无需合规改写。", "warning");
+    return;
+  }
+  // 收集当前命中词（给模型重点提示）
+  const scan = scanCompliance(editorEl.innerText || "", { customTerms: _complianceCustomTerms });
+  const terms = Array.from(new Set(scan.hits.map((h) => h.term)));
+
+  showLoading?.("AI 正在做合规改写…", "把违规/限流表达改成合规说法，保留原意与风格，通常 10–30 秒。");
+  try {
+    const settings = await getSettings();
+    const rewritten = await requestComplianceRewrite(settings, bodyHtml, terms);
+    const clean = sanitizeHtml(rewritten);
+    if (!clean || !clean.trim()) {
+      setStatus?.("AI 没有返回有效内容，请重试或手动替换。", "warning");
+      return;
+    }
+    editorEl.innerHTML = clean;
+    if (typeof _ctx?.onWorkspaceInput === "function") _ctx.onWorkspaceInput();
+    else editorEl.dispatchEvent(new Event("input", { bubbles: true }));
+    runRealtimeComplianceScan();
+    setStatus?.("AI 合规改写完成，请通读核对语义与事实后再发布。", "success");
+  } catch (err) {
+    const code = err?.code;
+    if (code === "AUTH_REQUIRED" || code === "AUTH_EXPIRED") {
+      setStatus?.("请先登录润笔账户再使用 AI 合规改写（设置页 → 我的会员）。", "warning");
+    } else if (code === "PLATFORM_QUOTA_EXCEEDED") {
+      setStatus?.("本月平台 AI 额度已用完，可升级会员或改用一键替换。", "warning");
+    } else {
+      setStatus?.(`AI 合规改写失败：${err?.message || "未知错误"}`, "error");
+    }
+  } finally {
+    hideLoading?.();
   }
 }
 

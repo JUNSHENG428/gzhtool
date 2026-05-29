@@ -975,6 +975,117 @@ export async function requestRewrite(settings, source, preferences, template, vo
   return normalizeArticle(extractJson(content), source, preferences);
 }
 
+/**
+ * 40th 续 · AI 合规改写（付费）：把正文里命中的违规/限流表达改写成合规说法。
+ * 与 requestRewrite 复用同一套平台 / BYOK 路由，但只改正文、返回纯 HTML（不重写标题/摘要）。
+ *
+ * @param {object} settings
+ * @param {string} bodyHtml   当前文章正文 HTML
+ * @param {string[]} terms    命中的违规词（用于提示模型重点处理）
+ * @returns {Promise<string>} 改写后的正文 HTML（调用方需再 sanitize 后写回编辑器）
+ */
+export async function requestComplianceRewrite(settings, bodyHtml, terms = []) {
+  const html = String(bodyHtml || "").trim();
+  if (!html) throw new Error("正文为空，无需合规改写。");
+
+  const termList = Array.isArray(terms) ? terms.filter(Boolean).slice(0, 60) : [];
+  const sys =
+    "你是公众号合规编辑。请把下面这篇文章正文里**可能违规或被平台限流**的表达改写成合规说法，" +
+    "包括但不限于：广告法绝对化用语（最/第一/国家级/100% 等）、诱导关注/加微信/导流、" +
+    "夸大医疗或金融承诺、低俗或违法表述。" +
+    "严格要求：① 保持原意、风格、段落结构和篇幅基本不变；② 不要新增事实或观点；" +
+    "③ 不要删除正文图片、标题层级等结构；④ 直接输出改写后的**正文 HTML**，" +
+    "不要输出 JSON、markdown 代码块或任何解释说明。" +
+    (termList.length ? `\n\n本地已标出的可疑词（重点处理，但不限于这些）：${termList.join("、")}` : "");
+  const messages = [
+    { role: "system", content: sys },
+    { role: "user", content: html }
+  ];
+
+  // 平台模式：POST /api/llm/chat（复用 tier 解析 + 错误码契约）
+  if (isPlatformMode(settings)) {
+    const authRecord = await getAuthRecord();
+    const jwt = authRecord?.token;
+    if (!jwt) {
+      const err = new Error("请先登录润笔账户才能使用平台 AI（设置页 → 我的会员 → 登录）");
+      err.code = "AUTH_REQUIRED";
+      throw err;
+    }
+    let tier = String(settings.platformTier || "").trim();
+    if (!tier) {
+      const m = String(settings.model || "").match(/^platform-([a-z]+)$/i);
+      if (m) tier = m[1].toLowerCase();
+    }
+    if (!tier) tier = "economy";
+
+    const apiBase = String(await getApiBase()).replace(/\/+$/, "");
+    await ensureOptionalHostPermission(apiBase, "润笔平台 AI 接口");
+    let response;
+    try {
+      response = await fetch(`${apiBase}/api/llm/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify({ tier, temperature: 0.4, messages })
+      });
+    } catch (netErr) {
+      const err = new Error(`平台 AI 网络错误：${netErr?.message || "未知"}`);
+      err.code = "NETWORK";
+      throw err;
+    }
+    if (response.status === 401) {
+      const err = new Error("润笔账户登录已过期，请重新登录");
+      err.code = "AUTH_EXPIRED";
+      throw err;
+    }
+    if (response.status === 402) {
+      const data = await response.json().catch(() => ({}));
+      const err = new Error(data?.error || "本月平台 LLM 额度已用完");
+      err.code = "PLATFORM_QUOTA_EXCEEDED";
+      err.data = data;
+      throw err;
+    }
+    if (response.status === 429) {
+      const data = await response.json().catch(() => ({}));
+      const err = new Error(data?.error || "请求过于频繁，请稍后再试");
+      err.code = "PLATFORM_RATE_LIMITED";
+      throw err;
+    }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.error?.message || payload?.error || `平台 AI 返回错误 ${response.status}`);
+    }
+    const content = extractChatContent(payload);
+    if (!content) throw new Error("平台 AI 返回内容为空。");
+    return stripCodeFence(content);
+  }
+
+  // BYOK 模式
+  if (!settings.apiKey?.trim() || !settings.apiBaseUrl?.trim()) {
+    throw new Error("请先在设置页填写 API Key 和接口地址。");
+  }
+  const apiUrl = settings.apiBaseUrl.trim();
+  await ensureOptionalHostPermission(apiUrl, "AI 合规改写接口");
+  const model = String(settings.model || "").trim();
+  const { response, payload } = await postChatCompletionWithReasoningFallback(apiUrl, settings.apiKey, {
+    model,
+    temperature: 0.4,
+    messages
+  });
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || payload?.message || `AI 接口返回错误 ${response.status}`);
+  }
+  const content = extractChatContent(payload);
+  if (!content) throw new Error("AI 返回内容为空。");
+  return stripCodeFence(content);
+}
+
+// 去掉模型偶尔包裹的 ```html ... ``` 代码块围栏
+function stripCodeFence(text) {
+  let s = String(text || "").trim();
+  s = s.replace(/^```[a-zA-Z]*\s*/, "").replace(/\s*```$/, "");
+  return s.trim();
+}
+
 export async function testAiConnection({ baseUrl, apiKey, model, timeoutMs = 12000 }) {
   const targetUrl = String(baseUrl || "").trim();
   const token = String(apiKey || "").trim();

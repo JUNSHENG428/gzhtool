@@ -98,7 +98,8 @@ const PAID_FEATURE_KEYS = [
   "ai.bringYourOwnKey",
   "ai.platformLlm.economy",
   "ai.platformLlm.standard",
-  "ai.platformLlm.flagship"
+  "ai.platformLlm.flagship",
+  "ai.complianceRewrite"
 ];
 
 // 免费版每天 AI 改写次数（pro 不受限）

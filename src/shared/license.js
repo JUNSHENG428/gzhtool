@@ -152,6 +152,12 @@ export const PAID_FEATURES = Object.freeze({
     name: "平台 AI · 旗舰档",
     plans: ["yearly", "pro"],
     hint: "年费独享：GPT-4o（标杆质量）。月费档请用经济 / 标准档已能满足绝大多数公众号写作场景。"
+  },
+  // 40th 续 · AI 合规改写：把命中的违规/限流表达整体改写成合规说法（比逐词替换更智能）
+  "ai.complianceRewrite": {
+    name: "AI 合规改写",
+    plans: PLANS_PAID,
+    hint: "会员专享：一键让 AI 把文章里命中的广告法极限词 / 导流 / 违规表达改写成合规说法，保留原意与风格。免费版可用本地标红提示 + 一键替换。"
   }
 });
 
