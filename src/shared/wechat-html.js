@@ -242,6 +242,18 @@ export function sanitizeInlineStyle(style) {
     value = value.replace(/!important/gi, "").trim();
     if (!value) continue;
 
+    // 微信适配（技术规范 §4.3/§4.4）：
+    // 坑5 · 去掉 font-family，交还微信默认字体栈（iOS 17+ 字号/字间距异常）。
+    //   pre/code 的等宽字体由 applyDefaultStyles 之后单独补，不受此影响。
+    if (key === "font-family") continue;
+    // text-align: start/end 终端兼容差 → 归一到 left/right
+    if (key === "text-align") {
+      if (/^start$/i.test(value)) value = "left";
+      else if (/^end$/i.test(value)) value = "right";
+    }
+    // line-height: 0 会导致文字行重叠 → 丢弃
+    if (key === "line-height" && /^0(px|em|rem|%)?$/i.test(value)) continue;
+
     if (key === "position" && /^(absolute|fixed|sticky)$/i.test(value)) {
       map.set("position", "relative");
       continue;

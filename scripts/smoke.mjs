@@ -164,6 +164,24 @@ function expectNotIncludes(actual, needle, label) {
   const out = sanitizeInlineStyle("color: rgb(220,220,220)");
   expectIncludes(out, "color:rgb(220,220,220)", "亮度 < 235 的浅灰不应被改写");
 }
+// 微信适配（技术规范 §4）：font-family 剥离 / text-align start-end / line-height:0
+{
+  const out = sanitizeInlineStyle("font-family:'PingFang SC',Arial;font-size:16px");
+  expectNotIncludes(out, "font-family", "font-family 应被剥离（交还微信默认字体栈）");
+  expectIncludes(out, "font-size:16px", "其余声明应保留");
+}
+{
+  const out = sanitizeInlineStyle("text-align:start;color:#333");
+  expectIncludes(out, "text-align:left", "text-align:start 应归一为 left");
+  const out2 = sanitizeInlineStyle("text-align:end");
+  expectIncludes(out2, "text-align:right", "text-align:end 应归一为 right");
+}
+{
+  const out = sanitizeInlineStyle("line-height:0;font-size:14px");
+  expectNotIncludes(out, "line-height:0", "line-height:0 应被丢弃（防文字行重叠）");
+  const out2 = sanitizeInlineStyle("line-height:1.8");
+  expectIncludes(out2, "line-height:1.8", "正常 line-height 应保留");
+}
 
 // 字符级清理仍然正确
 {

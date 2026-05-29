@@ -1010,7 +1010,12 @@
     // 才允许往字段里写东西。否则会出现「URL 看着像编辑页但 DOM 是列表/搜索框」的
     // 噩梦场景：findTitleField 匹配到列表的「搜索标题」输入框，把文章标题塞进搜索框。
     // isEditorPage URL 检测 + 这道 surface 检测，**双重防线**才稳。
-    const editorSurface = findEditorSurface();
+    // 编辑器可能异步挂载（PULL 比编辑器渲染先到）：先查一次，没有就用 MutationObserver
+    // 等它出现（技术规范 §3/§5.1：用 MO 而非一次性查询），最多等 2.5s 再判失败。
+    let editorSurface = findEditorSurface();
+    if (!editorSurface) {
+      editorSurface = await waitForEditorSurface(2500);
+    }
     if (!editorSurface) {
       result.message =
         "当前页面没有图文正文编辑区。请确认已经打开公众号「新建图文」编辑页（不是草稿箱列表 / 管理后台）后重试。";
@@ -1108,6 +1113,35 @@
     ]);
   }
 
+  // 等编辑器正文区出现（异步挂载场景）：MutationObserver 监听 DOM 变化，
+  // 每次变化重查 findEditorSurface；命中即 resolve；超时返回 null（调用方给引导）。
+  function waitForEditorSurface(timeoutMs = 2500) {
+    return new Promise((resolve) => {
+      const immediate = findEditorSurface();
+      if (immediate) return resolve(immediate);
+      let done = false;
+      const finish = (val) => {
+        if (done) return;
+        done = true;
+        try {
+          obs.disconnect();
+        } catch {}
+        clearTimeout(timer);
+        resolve(val);
+      };
+      const obs = new MutationObserver(() => {
+        const found = findEditorSurface();
+        if (found) finish(found);
+      });
+      try {
+        obs.observe(document.documentElement, { childList: true, subtree: true });
+      } catch {
+        return resolve(null);
+      }
+      const timer = setTimeout(() => finish(null), Math.max(300, timeoutMs));
+    });
+  }
+
   function findEditorSurface() {
     const pageTarget = pickEditorTarget(document);
     if (pageTarget) {
@@ -1192,17 +1226,44 @@
 
     const node = target.node;
     const doc = target.doc;
+    const win = doc.defaultView || window;
     const safeHtml = sanitizeHtml(html);
 
     try {
       node.focus();
-      if (doc.execCommand) {
+
+      // ① 优先走 paste 事件（技术规范 §2.3 路径 B）：mp 编辑器是 ProseMirror，
+      //    直改 innerHTML / execCommand 可能在下一次事务被回滚或样式丢失；派发带
+      //    text/html 的合成 paste，让 ProseMirror 用自身粘贴管线解析入库，样式更稳。
+      try {
+        if (typeof win.DataTransfer === "function" && typeof win.ClipboardEvent === "function") {
+          if (doc.execCommand) {
+            try {
+              doc.execCommand("selectAll", false);
+            } catch {}
+          }
+          const dt = new win.DataTransfer();
+          dt.setData("text/html", safeHtml);
+          const pasteEvent = new win.ClipboardEvent("paste", {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: dt
+          });
+          node.dispatchEvent(pasteEvent);
+        }
+      } catch {
+        // 合成 paste 不被接受时静默回退到下面的 execCommand / innerHTML
+      }
+
+      // ② 回退：execCommand insertHTML（paste 没把内容写进去时）
+      if (normalizeText(node.innerHTML || "").length < 20 && doc.execCommand) {
         try {
           doc.execCommand("selectAll", false);
           doc.execCommand("insertHTML", false, safeHtml);
         } catch {}
       }
 
+      // ③ 最后兜底：直接 innerHTML（前两条都没生效）
       if (normalizeText(node.innerHTML || "").length < 20) {
         node.innerHTML = safeHtml;
       }
