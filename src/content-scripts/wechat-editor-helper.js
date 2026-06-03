@@ -1255,19 +1255,39 @@
     const win = doc.defaultView || window;
     const safeHtml = sanitizeHtml(html);
 
+    // —— 关键修复（连续导入第二、三篇时编辑器停留在第一篇的根因）——
+    // 旧逻辑：回退路径 ②③ 的触发条件是「编辑器内容 < 20 字」（≈ 编辑器为空）。
+    // 第一篇导入后编辑器已有内容，第二篇再导入时合成 paste（路径 ①）常被 ProseMirror
+    // 忽略（合成 ClipboardEvent 不是 isTrusted），而 ②③ 因「编辑器非空」被跳过，
+    // 于是新内容永远写不进去，必须关掉重开（清空编辑器）才行。
+    // 新逻辑：判定改为「这一次有没有把『新内容』真的写进去」，而不是「编辑器是否为空」，
+    // 让每次导入都强制替换为当前选中的文章。
+    const beforeText = normalizeText(node.innerHTML || "");
+    // 期望写入内容的纯文本指纹（取前 40 字）——用于判断每一步是否真的换成了新内容
+    const desiredFingerprint = normalizeText(safeHtml.replace(/<[^>]+>/g, " ")).slice(0, 40);
+    const wroteNewContent = () => {
+      const cur = normalizeText(node.innerHTML || "");
+      if (desiredFingerprint) return cur.includes(desiredFingerprint);
+      // 没有可比对的文本指纹（如纯图片文章）：内容相对导入前发生变化即视为写入成功
+      return cur !== beforeText && cur.length > 0;
+    };
+    const selectAll = () => {
+      if (!doc.execCommand) return;
+      try {
+        doc.execCommand("selectAll", false);
+      } catch {}
+    };
+
     try {
       node.focus();
 
       // ① 优先走 paste 事件（技术规范 §2.3 路径 B）：mp 编辑器是 ProseMirror，
       //    直改 innerHTML / execCommand 可能在下一次事务被回滚或样式丢失；派发带
       //    text/html 的合成 paste，让 ProseMirror 用自身粘贴管线解析入库，样式更稳。
+      //    先全选，让 paste 替换整篇而不是追加。
       try {
         if (typeof win.DataTransfer === "function" && typeof win.ClipboardEvent === "function") {
-          if (doc.execCommand) {
-            try {
-              doc.execCommand("selectAll", false);
-            } catch {}
-          }
+          selectAll();
           const dt = new win.DataTransfer();
           dt.setData("text/html", safeHtml);
           const pasteEvent = new win.ClipboardEvent("paste", {
@@ -1281,16 +1301,17 @@
         // 合成 paste 不被接受时静默回退到下面的 execCommand / innerHTML
       }
 
-      // ② 回退：execCommand insertHTML（paste 没把内容写进去时）
-      if (normalizeText(node.innerHTML || "").length < 20 && doc.execCommand) {
+      // ② 回退：execCommand insertHTML —— 触发条件改为「新内容还没写进去」，
+      //    而不是「编辑器为空」，否则第二篇导入时会被跳过（连续导入 bug 的根因）。
+      if (!wroteNewContent() && doc.execCommand) {
         try {
-          doc.execCommand("selectAll", false);
+          selectAll();
           doc.execCommand("insertHTML", false, safeHtml);
         } catch {}
       }
 
-      // ③ 最后兜底：直接 innerHTML（前两条都没生效）
-      if (normalizeText(node.innerHTML || "").length < 20) {
+      // ③ 最后兜底：直接 innerHTML 整篇替换（前两条都没把新内容写进去）
+      if (!wroteNewContent()) {
         node.innerHTML = safeHtml;
       }
 
@@ -1545,7 +1566,7 @@
           // 把后端拼好的友好错误文案直接显示给用户
           const next = {
             ...(STATE.result || result),
-            message: resp?.error || "从润笔拉草稿失败，请检查工作台是否已打开。"
+            message: resp?.error || "同步失败，请确认润笔工作台已打开并选好文章后重试。"
           };
           STATE.result = next;
           renderHelperDock(next);
@@ -1580,7 +1601,7 @@
         await navigator.clipboard.writeText(STATE.payload.html);
         const next = {
           ...(STATE.result || result),
-          message: "正文 HTML 已复制。若自动导入失败，请点击正文编辑区后手动粘贴。"
+          message: "正文已复制到剪贴板。请在公众号编辑器的正文区点一下，然后 Ctrl+V 粘贴。"
         };
         STATE.result = next;
         renderHelperDock(next);
@@ -1619,13 +1640,13 @@
     }
     if (result.titleWritten && result.bodyWritten) {
       return isBrowserMode
-        ? "已写入公众号编辑器。请按下方清单完成最后 3 步即可保存草稿。"
-        : "已尝试把当前篇写入网页编辑器。请检查正文和右侧设置项。";
+        ? "文章已同步到公众号编辑器。请按下方清单完成最后 3 步即可保存草稿。"
+        : "文章已同步到公众号编辑器。请检查正文和右侧设置项是否正确。";
     }
     if (result.titleWritten && !result.bodyWritten) {
-      return "标题已写入，但没有找到稳定的正文编辑区。可以直接点「复制正文 HTML」后手动粘贴。";
+      return "标题已同步，但正文未成功写入。请点右侧「复制正文」按钮后手动粘贴到编辑器。";
     }
-    return "自动同步未完全成功。可以用右侧按钮复制正文 HTML 手动粘贴。";
+    return "自动同步未完全成功。请点右侧「复制正文」按钮后手动粘贴。";
   }
 
   function findFirst(selectors) {

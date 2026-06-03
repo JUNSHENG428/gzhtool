@@ -143,7 +143,7 @@ function _bindPublishEvents() {
         .catch((err) => {
           sendResponse({
             ok: false,
-            error: err?.message || "构造 payload 失败",
+            error: err?.message || "没有找到可同步的文章，请回到工作台重新选择草稿后再试。",
             errorCode: err?.code || "FLOATING_BALL_BUILD_FAILED"
           });
         });
@@ -744,6 +744,13 @@ async function _buildPullReadyPayload(articleId = "") {
   let chosenIndex = -1;
   if (articleId) {
     chosenIndex = bundle.findIndex((a) => a?.id === articleId);
+    // 明确指定了要哪篇，却在当前草稿里找不到 —— 不要静默退回第一篇（那正是
+    // "选了第二篇却导入第一篇"的隐患）。直接报清楚的错让用户重新选。
+    if (chosenIndex < 0) {
+      const err = new Error("当前选中的文章已不存在，请重新选择草稿。");
+      err.code = "FLOATING_BALL_ARTICLE_NOT_FOUND";
+      throw err;
+    }
   }
   if (chosenIndex < 0) {
     chosenIndex = Number(state.currentArticleIndex || 0);
