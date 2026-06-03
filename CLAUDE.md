@@ -16,17 +16,17 @@
 
 ---
 
-## 当前焦点（更新于 2026-05-29 · 41st session）
+## 当前焦点（更新于 2026-05-31 · 42nd session）
 
-**合规检测 + 去 AI 味深化 + mp 注入/悬浮球优化**（9 commits 全 push，最新 `72204ec`；后端 deploy Worker `78d85f28`）。验证 smoke / check:js 88 + SW 守卫 0 / check:ext 40-0-0 / 0 lint。反例约定增至 **33 条**（新增 31-33）。详见 [activeContext.md](memory-bank/activeContext.md) 顶部 41st + [progress.md](memory-bank/progress.md) 顶部。
+**AI 改写图片保全 + 官网主题文案 + 金句卡片新功能（Pro）**。① 图片保全 + 官网文案已 commit+push `dc58dd2`；② **金句卡片全新功能已落地 + smoke 46/check:ext 40-0-0/0 lint，待 commit**（8 文件）。反例约定增至 **34 条**（新增第 34 条：PAID_FEATURES 前后端对齐）。详见 [activeContext.md](memory-bank/activeContext.md) 顶部 42nd + [progress.md](memory-bank/progress.md) 顶部。
 
-本 session 落地：① **敏感词/违规检测全套**（MVP→实时扫描/一键替换/自定义词库→远程版本化词库→AI 合规改写付费）② **去 AI 味深化**（lint 按次累扣 + 词表扩容 + skipScore 80 + AI 选题 novelty 去重 + 第二模型评审 pass「深度去 AI 味」+ 升华结尾检测 + 句间流畅衔接）③ **mp 注入按规范优化**（paste 优先 + MutationObserver + sanitizer 补清理）④ **修多 tab 同步串篇**（按 lastAccessed 取最近 tab）+ 悬浮球图标 emoji 化。**扩展端改动上架前需 `npm run release:cws` 重打包。**
+本 session 落地：① **AI 改写图片保全**——主改写本有漏图兜底，缺口在合规/深度去味两条直吐 HTML 路径，加 `preserveImagesInRewrittenHtml`；② **官网 5 处主题文案** Vogue/Kinfolk→墨韵书香/清新知识卡；③ **金句卡片**——`quote-cards.js`（3 主题×2 尺寸 SVG→PNG）+ `requestPunchlines`（复用平台 LLM/BYOK）+ `PAID_FEATURES["ai.quoteCards"]`（含 worker.js 对齐）+ workspace 独立「金句卡片」视图（`workspace-cards.js`：提炼→预览→下载/插入正文）。**金句卡片改动待 commit；扩展端上架前需 `npm run release:cws` 重打包。**
 
 待办候选（无优先级）：
+- **commit 金句卡片改动**（quote-cards/workspace-cards/ai/license/worker/workspace.html/router/css 8 文件）+ 真机端到端（登录 Pro+配 AI）
+- 金句手动编辑/增删（当前纯 AI 提炼）
 - **上架收尾**：重打包 zip + 出商店 PNG + 实测 + $5 注册（详见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md) §5）
-- **本地排版结构 lint**（替代脆弱的 mp `verify_article_structure` 远程 API）
-- **基础配图能力**（竞品分析补强 #2，找图断点）
-- Phase 6 设备反伪造（待 review）/ 用户侧账户安全卡 / admin dashboard / activeContext.md archive 切分
+- **本地排版结构 lint** / **基础配图能力** / Phase 6 设备反伪造 / admin dashboard / activeContext.md archive 切分
 
 ---
 
