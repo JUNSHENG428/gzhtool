@@ -93,6 +93,7 @@ const PAID_FEATURE_KEYS = [
   "ai.templateGenerator",
   "ai.batchRewrite",
   "ai.deAiBoost",
+  "ai.quoteCards",
   "ai.unlimitedDaily",
   "ai.topicPlanner",
   "ai.bringYourOwnKey",

@@ -4065,3 +4065,106 @@ button[hidden] {
 .humanize-skip-btn[hidden] {
   display: none;
 }
+
+/* ============ 金句卡片视图 ============ */
+.cards-view-layout {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+.cards-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin: 18px 0 16px;
+}
+.cards-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted, #6b7280);
+}
+.cards-control > span {
+  font-weight: 600;
+}
+.cards-control select,
+.cards-control input {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong, #d8dbe2);
+  border-radius: var(--radius-md, 10px);
+  background: var(--surface, #fff);
+  color: var(--ink, #1f2937);
+  font-size: 14px;
+}
+.cards-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.cards-status {
+  min-height: 20px;
+  margin: 4px 0 14px;
+  font-size: 13px;
+  color: var(--muted, #6b7280);
+}
+.cards-status[data-tone="error"] { color: #d14343; }
+.cards-status[data-tone="warning"] { color: #b8860b; }
+.cards-status[data-tone="success"] { color: #1f9d63; }
+.cards-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--muted, #8a90a0);
+  border: 1px dashed var(--line-strong, #d8dbe2);
+  border-radius: var(--radius-lg, 16px);
+  font-size: 14px;
+}
+.cards-empty[hidden] { display: none; }
+.cards-grid {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 22px;
+}
+.card-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.card-thumb {
+  width: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: var(--shadow-md, 0 12px 30px rgba(0, 0, 0, 0.18));
+}
+.card-thumb.is-square { aspect-ratio: 1 / 1; }
+.card-thumb.is-portrait { aspect-ratio: 3 / 4; }
+.card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.card-quote {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink, #374151);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card-cell-actions {
+  display: flex;
+  gap: 8px;
+}
+.card-cell-actions .ghost {
+  flex: 1;
+  padding: 7px 0;
+  font-size: 13px;
+}

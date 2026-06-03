@@ -1149,6 +1149,53 @@ export async function requestHumanizeJudge(settings, bodyHtml) {
 }
 
 /**
+ * 金句提炼：从正文里挑出 3-5 句最适合做成「金句卡片」在朋友圈 / 小红书传播的句子。
+ * 走 requestPlainChat —— 自动复用平台 LLM（按 plan 走配额）或用户自配 Key（BYOK），
+ * 与主改写 / 去 AI 味同一套接口体系，无需另接 DeepSeek key。
+ *
+ * @param {object} settings 用户设置（同 requestRewrite）
+ * @param {string} bodyHtmlOrText 正文 HTML 或纯文本
+ * @param {object} [opts] { max = 5 }
+ * @returns {Promise<string[]>} 金句数组（已去重、按长度裁剪）
+ */
+export async function requestPunchlines(settings, bodyHtmlOrText, { max = 5 } = {}) {
+  const text = stripHtmlToPlain(bodyHtmlOrText);
+  if (!text) throw new Error("正文为空，无法提炼金句。");
+  const sys = [
+    "你是公众号 / 小红书金句提炼专家。从给定文章里挑出最适合做成「金句卡片」传播的句子。",
+    "要求：",
+    "1. 每句 10-30 字，独立成立、有观点或情绪、读者愿意转发收藏。",
+    "2. 可对原句做轻微凝练、去掉指代词让它能脱离上下文独立成立，但不得改变原意、不得编造文中没有的信息。",
+    "3. 优先挑「金句感」强的：有反差、有判断、有画面感、能戳中痛点的句子，避免选平铺直叙的过渡句。",
+    "4. 不要选含有具体人名 / 链接 / 第几段「上文」之类离开文章就读不懂的句子。",
+    `5. 最多 ${Math.max(1, Math.min(8, max))} 句，宁缺毋滥，按金句感从强到弱排序。`,
+    "只输出合法 JSON，不要解释、不要 markdown 代码块：",
+    '{ "punchlines": ["金句1", "金句2", "金句3"] }'
+  ].join("\n");
+  const content = await requestPlainChat(
+    settings,
+    [
+      { role: "system", content: sys },
+      { role: "user", content: text.slice(0, 8000) }
+    ],
+    { temperature: 0.8, context: "金句提炼接口" }
+  );
+  const parsed = extractJson(content) || {};
+  const raw = Array.isArray(parsed.punchlines) ? parsed.punchlines : [];
+  const seen = new Set();
+  const out = [];
+  for (const item of raw) {
+    const s = String(item || "").trim().replace(/^[「"'']+|[」"'']+$/g, "").trim();
+    if (!s || s.length < 4) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s.slice(0, 40));
+    if (out.length >= Math.max(1, Math.min(8, max))) break;
+  }
+  return out;
+}
+
+/**
  * 深度去 AI 味重写：拿评审 findings 当「靶子」，让模型整体重写正文去掉这些 AI 痕迹，
  * 保留事实/结构/篇幅。返回正文 HTML（调用方 sanitize 后写回）。
  */

@@ -39,6 +39,7 @@ const VALID_ROUTES = new Set([
   "layout",
   "capture",
   "publish",
+  "cards",
   "hot",
   "member",
 ]);
@@ -48,6 +49,7 @@ const VIEW_META = {
   layout: { title: "编辑排版", sub: "草稿包 + 标题 + 正文，AI 改写在工具条" },
   capture: { title: "抓取", sub: "把网页内容拽进编辑台" },
   publish: { title: "推草稿 / 发布", sub: "封面 + 预览 + 推送到公众号" },
+  cards: { title: "金句卡片", sub: "AI 提炼金句 · 一键出公众号 / 小红书贴图" },
   hot: { title: "热点", sub: "今日热榜 + AI 智能选题" },
   member: { title: "会员中心", sub: "套餐 / 到期 / 续费" },
 };

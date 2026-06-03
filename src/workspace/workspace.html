@@ -116,6 +116,13 @@
             </span>
             <span class="ui-nav-item-label">发布</span>
           </button>
+          <button class="ui-nav-item" type="button" data-route="cards">
+            <span class="ui-nav-item-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M4 5h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm2 4v2h8V9H6Zm0 4v2h6v-2H6Zm14-6h2v12a2 2 0 0 1-2 2H8v-2h12V7Z"/></svg>
+            </span>
+            <span class="ui-nav-item-label">金句卡片</span>
+            <span class="ui-nav-badge">PRO</span>
+          </button>
         </div>
 
         <div class="ui-nav-section">
@@ -844,6 +851,61 @@
                 <textarea id="markdownOutput" readonly></textarea>
               </div>
             </section>
+          </section>
+
+          <!-- ============ 金句卡片（采集去味 → 金句提炼 → 贴图） ============ -->
+          <section class="workspace-view" data-view="cards" aria-label="金句卡片">
+            <div class="cards-view-layout">
+              <section class="panel">
+                <div class="section-header">
+                  <div>
+                    <p class="section-kicker">涨粉 · 传播</p>
+                    <h2>金句卡片</h2>
+                  </div>
+                  <span class="ui-nav-badge">PRO</span>
+                </div>
+                <p class="field-hint">
+                  从当前编辑台正文里 AI 提炼 3-5 句金句，排版成公众号 / 小红书可直接用的贴图。
+                  生成后可下载 PNG 上传素材库，或一键插入正文当配图。
+                </p>
+
+                <div class="cards-controls">
+                  <label class="cards-control">
+                    <span>卡片主题</span>
+                    <select id="cardThemeSelect">
+                      <option value="ink">墨韵书香 · 宣纸朱红</option>
+                      <option value="forest">新叶专栏 · 深绿薄荷</option>
+                      <option value="mint">清新知识卡 · 白底翠绿</option>
+                    </select>
+                  </label>
+                  <label class="cards-control">
+                    <span>卡片尺寸</span>
+                    <select id="cardSizeSelect">
+                      <option value="square">公众号 1080×1080（方图）</option>
+                      <option value="portrait">小红书 1080×1440（竖图）</option>
+                    </select>
+                  </label>
+                  <label class="cards-control">
+                    <span>落款（账号名）</span>
+                    <input id="cardAccountInput" type="text" maxlength="24" placeholder="如 @你的公众号名" autocomplete="off" />
+                  </label>
+                </div>
+
+                <div class="cards-actions">
+                  <button id="generateCardsButton" class="primary" type="button">✨ AI 提炼金句并生成卡片</button>
+                  <button id="downloadAllCardsButton" class="ghost" type="button" hidden>⬇️ 全部下载</button>
+                  <button id="insertAllCardsButton" class="ghost" type="button" hidden>↩️ 全部插入正文</button>
+                </div>
+
+                <p id="cardsStatus" class="cards-status" aria-live="polite"></p>
+
+                <div id="cardsEmpty" class="cards-empty">
+                  <p>还没有金句卡片。先去「编辑排版」改写或粘贴一篇正文，再回来一键生成。</p>
+                </div>
+
+                <ul id="cardsGrid" class="cards-grid" role="list" aria-label="金句卡片预览"></ul>
+              </section>
+            </div>
           </section>
 
           <!-- ============ 热点（Phase C 把 hot-topics 内容搬进来） ============ -->

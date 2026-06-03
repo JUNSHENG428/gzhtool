@@ -120,6 +120,11 @@ export const PAID_FEATURES = Object.freeze({
     plans: PLANS_PAID,
     hint: "Pro 启用 turnitin-humanizer 风格的二次润色，更难被 AI 检测。"
   },
+  "ai.quoteCards": {
+    name: "金句卡片",
+    plans: PLANS_PAID,
+    hint: "Pro 可把文章一键提炼成 3-5 张金句卡片（公众号方图 / 小红书竖图），直接下载或插入正文涨粉。"
+  },
   // AI 选题规划：把热点候选池跑完「硬过滤 + 8 维评分 + 多样性筛选」之后，
   // 再让用户配置的 LLM 当「选题总监」给出推荐角度 + 提纲 + 标题 + 风险提示。
   // Free：每天 1 次试用，且只能看 1 条推荐（用来体验流程，证明值得升 Pro）。
@@ -832,6 +837,23 @@ export async function checkDeAiBoostAccess() {
     ok: false,
     plan: "free",
     hint: PAID_FEATURES["ai.deAiBoost"].hint
+  };
+}
+
+/**
+ * 「金句卡片」闸门（ai.quoteCards）。Pro 专享功能：
+ *  - Pro：放行
+ *  - 免费版：拒绝，UI 弹升级窗（与去 AI 味增强一致）
+ */
+export async function checkQuoteCardsAccess() {
+  const state = await getLicenseState({ refresh: false });
+  if (isPaidPlan(state.effectivePlan)) {
+    return { ok: true, plan: state.effectivePlan, hint: "" };
+  }
+  return {
+    ok: false,
+    plan: "free",
+    hint: PAID_FEATURES["ai.quoteCards"].hint
   };
 }
 
