@@ -15,6 +15,7 @@ import {
 } from "../shared/storage.js";
 import { WECHAT_WEB_EDITOR_URL, STORAGE_KEYS } from "../shared/defaults.js";
 import { classifyError } from "../shared/errors.js";
+import { getAuthRecord, saveAuthRecord, getApiBase } from "../shared/license.js";
 import {
   collectPublishRemoteUrls,
   listUserTags,
@@ -202,6 +203,62 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   }
 });
 
+const DOCUEARN_ORIGIN_RE = /^https:\/\/([a-z0-9-]+\.)*docuearn\.com$/i;
+
+/**
+ * 处理官网 content script 桥接来的登录态同步。
+ * 安全：① 只接受本扩展自己的 content script（sender.id 匹配）；
+ *       ② sender.url 的 origin 必须是 docuearn.com；
+ *       ③ token 先调 /api/me 验真，确认有效才落库（不存垃圾 token）。
+ * 只「同步进来」，从不因网站登出而清掉插件登录态。
+ */
+async function handleDocuearnAuthHandoff(message, sender) {
+  try {
+    if (sender?.id && sender.id !== chrome.runtime.id) {
+      return { ok: false, error: "sender mismatch" };
+    }
+    let origin = "";
+    try {
+      origin = new URL(sender?.url || "").origin;
+    } catch {
+      /* ignore */
+    }
+    if (!DOCUEARN_ORIGIN_RE.test(origin)) {
+      return { ok: false, error: "origin not allowed" };
+    }
+    const token = String(message?.token || "").trim();
+    if (!token) return { ok: false, error: "empty token" };
+
+    // 去重：与现有登录态相同则跳过（避免每次打开官网都复验）
+    const existing = await getAuthRecord();
+    if (existing?.token === token) {
+      return { ok: true, skipped: "same" };
+    }
+
+    // 验真：用该 token 调 /api/me，确认有效再落库
+    const base = await getApiBase();
+    let resp;
+    try {
+      resp = await fetch(`${base}/api/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (netErr) {
+      return { ok: false, error: `network: ${netErr?.message || "unknown"}` };
+    }
+    if (!resp.ok) {
+      return { ok: false, error: `verify failed (HTTP ${resp.status})` };
+    }
+    const data = await resp.json().catch(() => null);
+    const user = data?.user || data?.account || null;
+
+    await saveAuthRecord({ token, user, issuedAt: Date.now() });
+    console.log("[auth-bridge] 已从 docuearn.com 同步登录态", user?.email || "");
+    return { ok: true, synced: true, email: user?.email || "" };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     switch (message.type) {
@@ -223,6 +280,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "GET_CONTEXT": {
         const session = await getSession();
         sendResponse({ ok: true, data: session });
+        break;
+      }
+      case "DOCUEARN_AUTH_HANDOFF": {
+        // 官网 content script 桥接来的登录态同步（详见 content-scripts/docuearn-auth-bridge.js）
+        const result = await handleDocuearnAuthHandoff(message, sender);
+        sendResponse(result);
         break;
       }
       case "SCRAPE_BACKGROUND_AND_IMPORT": {
@@ -1744,7 +1807,7 @@ async function runFloatingBallPull(mpTabId, extraPayload = {}) {
       await new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
           pendingFloatingBallReady.delete(workspaceTabId);
-          const err = new Error("后台 workspace 初始化超过 5 秒，请打开扩展工作台重试。");
+          const err = new Error("工作台启动超时，请手动打开润笔工作台后重试。");
           err.code = "FLOATING_BALL_WORKSPACE_BOOT_TIMEOUT";
           reject(err);
         }, 5000);
@@ -1769,7 +1832,7 @@ async function runFloatingBallPull(mpTabId, extraPayload = {}) {
     });
   } catch (error) {
     if (isTransientTab) chrome.tabs.remove(workspaceTabId).catch(() => {});
-    const err = new Error(`润笔工作台未响应：${error?.message || "未知错误"}。请刷新工作台后重试。`);
+    const err = new Error(`工作台未响应，请刷新润笔工作台后重试。`);
     err.code = "FLOATING_BALL_WORKSPACE_TIMEOUT";
     throw err;
   }
@@ -1780,7 +1843,7 @@ async function runFloatingBallPull(mpTabId, extraPayload = {}) {
   }
 
   if (!buildResp?.ok) {
-    const err = new Error(buildResp?.error || "润笔工作台没能拼出可用的草稿 payload。");
+    const err = new Error(buildResp?.error || "没有找到可同步的文章，请回到工作台重新选择草稿后再试。");
     err.code = buildResp?.errorCode || "FLOATING_BALL_BUILD_FAILED";
     throw err;
   }
@@ -1799,7 +1862,7 @@ async function runFloatingBallPull(mpTabId, extraPayload = {}) {
       payload: enrichedPayload
     });
   } catch (error) {
-    const err = new Error(`mp 编辑页未响应：${error?.message || "未知错误"}。请刷新页面后重试。`);
+    const err = new Error(`公众号编辑器页面没有响应，请刷新公众号编辑页后重试。`);
     err.code = "FLOATING_BALL_MP_TIMEOUT";
     throw err;
   }

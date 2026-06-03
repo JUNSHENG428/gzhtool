@@ -48,6 +48,11 @@
         "src/content-scripts/floating-ball.bundle.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://docuearn.com/*", "https://*.docuearn.com/*"],
+      "js": ["src/content-scripts/docuearn-auth-bridge.js"],
+      "run_at": "document_idle"
     }
   ],
   "action": {

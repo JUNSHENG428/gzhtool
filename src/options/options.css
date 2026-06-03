@@ -2387,6 +2387,20 @@ body[data-novice-mode="on"] [data-advanced="true"] {
   color: var(--ink-muted, #8a8f86);
 }
 
+.license-auth-note {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--ink-muted, #6f756c);
+  background: var(--surface-subtle, #f5f6f2);
+  border: 1px solid var(--line, #e3e6df);
+  border-radius: 10px;
+}
+.license-auth-note strong {
+  color: var(--ink, #2c302a);
+}
+
 .license-feedback[data-tone="success"] {
   color: var(--accent-green, #2d8a4a);
 }
@@ -2743,7 +2757,11 @@ body[data-novice-mode="on"] [data-advanced="true"] {
 .settings-quicknav {
   position: fixed;
   top: 24px;
-  left: 24px;
+  /* 贴着居中正文列（max 1120px）的左侧空白处，而不是死贴视口左 24px。
+     正文居中后左侧留白 = (100vw - 1120) / 2；导航贴在留白里、右缘留 20px 间距，
+     不够宽时下面的 media query 会整块隐藏，避免压住正文（旧 bug：1281–1560px
+     区间导航浮在表单上面挡住标题/输入框）。 */
+  left: max(20px, calc((100vw - 1120px) / 2 - 196px - 20px));
   width: 196px;
   max-height: calc(100vh - 48px);
   z-index: 30;
@@ -2856,8 +2874,11 @@ body[data-novice-mode="on"] .settings-quicknav-item[data-section-target="prompt"
   100% { box-shadow: 0 0 0 0 rgba(31, 67, 41, 0); }
 }
 
-/* 窄屏：左边塞不下导航就隐藏，避免遮挡内容 */
-@media (max-width: 1280px) {
+/* 左侧空白塞不下浮动导航就整块隐藏，避免压住正文。
+   正文列 1120px 居中，需要单侧留白 ≥ 196+20+20 ≈ 236px 才放得下导航，
+   对应视口 ≥ 1120 + 236*2 ≈ 1592px；取 1600px 留点安全余量。
+   小于此宽度（含浏览器放大）时导航隐藏，分区靠正文滚动定位，不再遮挡表单。 */
+@media (max-width: 1600px) {
   .settings-quicknav {
     display: none;
   }
