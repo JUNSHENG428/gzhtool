@@ -8,7 +8,7 @@
 
 ---
 
-## 主反例约定（编号 1-35，progress.md 显式编号）
+## 主反例约定（编号 1-37，progress.md 显式编号）
 
 | # | 一句话规避 | 关键词 | 首次沉淀 | 强化次数 |
 |---|---|---|---|---|
@@ -48,6 +48,7 @@
 | 34 | **新增 `PAID_FEATURES` 付费功能 key 必须同步 `server/worker.js` `PAID_FEATURE_KEYS`**——否则「PAID_FEATURE 前后端对齐」smoke 单测 FAIL（客户端 plans 闸门是软的，server 的 key 列表是 SSOT）。同理改任何「N 处对齐清单」项要 grep 全套 | PAID_FEATURES / ai.quoteCards / 前后端对齐 | 2026-05-31 42nd | (关联 #14/#18) |
 | 35 | **写第三方 contenteditable 编辑器的 fallback 判定要看「新内容是否写进去」，不能看「编辑器是否为空」**——`setEditorHtml` 旧逻辑用 `innerHTML.length<20`（≈编辑器空）才触发 execCommand/innerHTML 兜底；第一篇导入后编辑器非空，第二篇起合成 paste 被 ProseMirror 忽略（非 isTrusted）而兜底被跳过→永远停在第一篇，必须关 tab 重开才行。改判定为「期望内容的文本指纹是否已出现在编辑器里」+ selectAll 强制整篇替换 | setEditorHtml / mp 连续导入 | 2026-06-03 42nd | (修正 #32 的「长度判定") |
 | 36 | **多 mode 共用的 UI 控件（按钮/输入）做校验时必须按当前 mode 分流，不能只走默认 mode 路径**——「测试连接」按钮在平台/BYOK 两面板**之外**共用，旧逻辑无脑走 BYOK 三件套校验，平台模式下 apiKey 为空被 `请先填写 API Key` 拦死，让免费用户误以为平台 AI 用不了。修法：点击时读当前 `aiSourceMode` 传给后台，`testAiConnection` 顶部 `if(mode==="platform")` 分流到 JWT 鉴权的 `/api/llm/usage` 测试。判定原则：加/改任何「被多入口或多状态复用」的控件逻辑时，先列出它服务的所有 mode/状态，逐一确认分支，别让默认分支吃掉其它 mode。**06-10 补强实证（同 bug 两轮才修干净）**：06-04 只修了测试连接 1 处，用户再报「还是要填 Key」——又揪出 4 处「只认 apiKey」入口：`hasUsableAiConfig` 改写前置闸门（真正拦截器）/ workspace aiPill / popup AI 卡 / modal 文案。**修 mode 相关校验时第一动作就是 `grep apiKey`（或对应判定字段）全仓列清单**，不要修一处交差 | options.js testAiConnection + workspace-rewrite hasUsableAiConfig / 平台 vs BYOK | 2026-06-04 42nd + 2026-06-10 43rd | (关联 #14 同语义入口清单) |
+| 37 | **HTML 里加表单控件必须同步接 hydrate/save 链，且「留空=不下发」字段要做空串保全**——options.html 里 `topP`/`frequencyPenalty`/`presencePenalty`/`humanizeEnabled`/`humanizeIntensity` 5 个控件存在了多个 session 但从未进 options.js `fields` 字典：用户改了不报错也不生效（defaults 兜底值一直在用），是最难被发现的"幽灵设置"。接入时还有第二坑：saveForm 通用循环对 `type=number` 做 `Number(field.value)`，空串变 0——把「留空=用服务端默认」语义变成「显式下发 0」（top_p=0 会彻底改变采样行为）。修法：保存末尾对这类字段空值改回 `""`（下游 `numberOrNull` 跳过空串）。判定原则：加控件的 PR 必须三件套齐活——HTML 控件 + fields/hydrate 接线 + 保存语义检查（特别是「空=不发」类）；review 时 grep 控件 id 在 JS 里出现次数，0 次 = 幽灵设置 | options fields 字典 / topP 空串保全 / 幽灵设置 | 2026-06-10 43rd 续 | — |
 
 ---
 

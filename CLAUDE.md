@@ -11,19 +11,19 @@
 1. **四段式架构**：`src/`（扩展）+ `server/`（Worker）+ `site/`（官网）+ `desktop/`（桌面助手）— 详见 [memory-bank/systemPatterns.md](memory-bank/systemPatterns.md) §总体架构
 2. **当前版本 0.3.2**（manifest.json 是版本号唯一真源；`npm run version:sync` 同步到 package.json）
 3. **License 反向 gating 模型**：Free 1 设备 / Monthly 3 设备 / Yearly 10 设备 + 🔓 自定义 API Key 仅年费独享（详细配额见下方表）
-4. **Worker 已在 production**：`https://api.docuearn.com` · 最新 Version `d443df79`（2026-05-04）
+4. **Worker 已在 production**：`https://api.docuearn.com` · 最新 Version `7c1263e0`（2026-06-10）
 5. **不要碰**：用户 AI key / wechat AppSecret / License key 永远不写 memory-bank、commit msg、log 输出
 
 ---
 
-## 当前焦点（更新于 2026-06-10 · 43rd session）
+## 当前焦点（更新于 2026-06-10 · 43rd session 续）
 
-**免费用户用不了平台 AI 额度——「只认 apiKey」入口全量分流 + 默认 aiSourceMode 改 platform**。已 commit `624ff0e`（7 文件，含 06-04 测试连接修复），**待 push**。反例约定增至 **36 条**（#36 两轮补强：修 mode 相关校验第一动作 grep 判定字段全仓列清单）。详见 [activeContext.md](memory-bank/activeContext.md) 顶部 43rd + [progress.md](memory-bank/progress.md) 顶部。
+**设置页重塑与年费闸门——四批次全部落地 + push**（5 commits `6c49164`→`b0f925f`，Worker `7c1263e0`）。B1 闸门：multiAccount/drission 改年费、**新增 `ai.voiceMimic`**（文风模拟年费独享，运行时闸在 SW voiceSample 唯一注入点）、多账号收口 `MULTI_ACCOUNT_LIMITS {1,1,5}`；B2 原位锁定 UI（金色年费标 + 价值预览）+ **修 5 个「有控件没接保存链」字段**（topP 三参需空串保全防 `Number("")→0`）；B3 全页去术语 + **`docs/COPY_GLOSSARY.md` 术语 SSOT**（DrissionPage→本地增强抓取）；B4 营销页同步（月费定位「大额度 AI 写作」，公众号仍 1 个）。详见 [activeContext.md](memory-bank/activeContext.md) 顶部 + [progress.md](memory-bank/progress.md) 顶部。
 
-本 session 落地：真正拦截器是 `workspace-rewrite.js hasUsableAiConfig()` 改写前置闸门（只查 apiKey → 平台模式被 modal 拦死）；对齐全部 5 处同语义入口（闸门放行 / workspace aiPill / popup AI 卡 / modal 文案 / BYOK 报错指路）+ `defaults.js aiSourceMode` 默认 `"byok"→"platform"`（用户确认未上架无老用户包袱，新装登录即用免费 30 次/月）。⚠️ 旧测试 profile storage 已持久化 "byok"，验证需重装或手动切一次。
+同日早段：免费用户用不了平台 AI——「只认 apiKey」5 入口全量分流 + 默认 aiSourceMode 改 platform（`624ff0e`）。⚠️ 旧测试 profile storage 已持久化 "byok"，验证需重装或手动切一次。
 
 待办候选（无优先级）：
-- **push origin/main**（42nd 起多个 commit 积压）+ 真机端到端（登录 Pro+配 AI / 干净 profile 验证平台默认）
+- 真机端到端：免费账号验证锁定弹窗 / 年费账号验证文风注入 + 5 账号上限 / 干净 profile 验证平台默认
 - 金句手动编辑/增删（当前纯 AI 提炼）
 - **上架收尾**：重打包 zip（`npm run release:cws`）+ 出商店 PNG + 实测 + $5 注册（详见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md) §5）
 - **本地排版结构 lint** / **基础配图能力** / Phase 6 设备反伪造 / admin dashboard / activeContext.md archive 切分
@@ -39,7 +39,9 @@
 | 平台 AI · 旗舰档（GPT-4o） | ❌ | ❌ | 20M token/月 |
 | 自定义 API Key（BYOK） | ❌ | ❌ | ✅ 独享 |
 | 设备同时激活上限 | 1 | 3 | 10 |
-| 多公众号绑定 | 1 | 5 | 5 |
+| 多公众号绑定 | 1 | 1 | 5 |
+| 文风模拟（ai.voiceMimic）/ 本地增强抓取（scrape.drission） | ❌ | ❌ | ✅ 独享 |
+| 去 AI 味二次润色（ai.deAiBoost） | ❌ | ✓ | ✓ |
 
 调阈值时记得同步**这 14 处**：扩展端 5（`license.js` PAID_FEATURES.plans / `providers.js` platform / `ai.js` requestRewriteViaPlatform / `options.html` radio + tier / `popup.html`）+ 后端 4（`router.js` MODEL_TIERS+PLAN_QUOTA / `worker.js` derivePlanForLlm + DEVICE_LIMITS / `upstream.js` callUpstreamWithFallback / `003_llm_usage.sql`）+ 网站 5（pricing 三卡 / privacy §2-§4 / dashboard 用量卡 / index hero / faq+terms+changelog+docs）。
 
@@ -144,3 +146,4 @@ cd desktop && python build.py   # 桌面助手打包（需 python.org Python，�
 - 2026-05-29 41st session：当前焦点更新为合规检测 + 去 AI 味深化 + mp 注入/悬浮球优化；反例约定 30→33 条
 - 2026-06-04 42nd session 续²：修复平台 AI「测试连接」误报「请先填写 API Key」；反例约定 35→36 条；纠正「npm run dev」实为不存在脚本（main src/ 无打包步骤）
 - 2026-06-10 43rd session：同 bug 第二轮——「只认 apiKey」入口全量分流（hasUsableAiConfig 改写闸门是真拦截器）+ aiSourceMode 默认改 platform；#36 补强；commit `624ff0e`
+- 2026-06-10 43rd session 续：设置页重塑与年费闸门四批次落地（新增 ai.voiceMimic / 多账号 1/1/5 / 原位锁定 UI / 保存链修复 5 字段 / 去术语 + COPY_GLOSSARY.md SSOT / 营销页同步）；SKU 配额表更新（多公众号月费 5→1，加文风/抓取/去味行）；Worker `7c1263e0`
