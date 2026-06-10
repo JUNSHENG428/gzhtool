@@ -16,16 +16,16 @@
 
 ---
 
-## 当前焦点（更新于 2026-05-31 · 42nd session）
+## 当前焦点（更新于 2026-06-10 · 43rd session）
 
-**AI 改写图片保全 + 官网主题文案 + 金句卡片新功能（Pro）**。① 图片保全 + 官网文案已 commit+push `dc58dd2`；② **金句卡片全新功能已落地 + smoke 46/check:ext 40-0-0/0 lint，待 commit**（8 文件）。反例约定增至 **34 条**（新增第 34 条：PAID_FEATURES 前后端对齐）。详见 [activeContext.md](memory-bank/activeContext.md) 顶部 42nd + [progress.md](memory-bank/progress.md) 顶部。
+**免费用户用不了平台 AI 额度——「只认 apiKey」入口全量分流 + 默认 aiSourceMode 改 platform**。已 commit `624ff0e`（7 文件，含 06-04 测试连接修复），**待 push**。反例约定增至 **36 条**（#36 两轮补强：修 mode 相关校验第一动作 grep 判定字段全仓列清单）。详见 [activeContext.md](memory-bank/activeContext.md) 顶部 43rd + [progress.md](memory-bank/progress.md) 顶部。
 
-本 session 落地：① **AI 改写图片保全**——主改写本有漏图兜底，缺口在合规/深度去味两条直吐 HTML 路径，加 `preserveImagesInRewrittenHtml`；② **官网 5 处主题文案** Vogue/Kinfolk→墨韵书香/清新知识卡；③ **金句卡片**——`quote-cards.js`（3 主题×2 尺寸 SVG→PNG）+ `requestPunchlines`（复用平台 LLM/BYOK）+ `PAID_FEATURES["ai.quoteCards"]`（含 worker.js 对齐）+ workspace 独立「金句卡片」视图（`workspace-cards.js`：提炼→预览→下载/插入正文）。**金句卡片改动待 commit；扩展端上架前需 `npm run release:cws` 重打包。**
+本 session 落地：真正拦截器是 `workspace-rewrite.js hasUsableAiConfig()` 改写前置闸门（只查 apiKey → 平台模式被 modal 拦死）；对齐全部 5 处同语义入口（闸门放行 / workspace aiPill / popup AI 卡 / modal 文案 / BYOK 报错指路）+ `defaults.js aiSourceMode` 默认 `"byok"→"platform"`（用户确认未上架无老用户包袱，新装登录即用免费 30 次/月）。⚠️ 旧测试 profile storage 已持久化 "byok"，验证需重装或手动切一次。
 
 待办候选（无优先级）：
-- **commit 金句卡片改动**（quote-cards/workspace-cards/ai/license/worker/workspace.html/router/css 8 文件）+ 真机端到端（登录 Pro+配 AI）
+- **push origin/main**（42nd 起多个 commit 积压）+ 真机端到端（登录 Pro+配 AI / 干净 profile 验证平台默认）
 - 金句手动编辑/增删（当前纯 AI 提炼）
-- **上架收尾**：重打包 zip + 出商店 PNG + 实测 + $5 注册（详见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md) §5）
+- **上架收尾**：重打包 zip（`npm run release:cws`）+ 出商店 PNG + 实测 + $5 注册（详见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md) §5）
 - **本地排版结构 lint** / **基础配图能力** / Phase 6 设备反伪造 / admin dashboard / activeContext.md archive 切分
 
 ---
@@ -123,7 +123,9 @@ wrangler secret put OPENAI_API_KEY                                  # 注入私�
 ## 常用命令速查
 
 ```sh
-npm run dev                     # 扩展开发模式（watch + 自动 reload）
+# ⚠️ 无 `npm run dev`：main src/ 是 Chrome 直接加载的 ES module，无打包步骤，
+#    改完去 chrome://extensions 点扩展的刷新(↻)即可生效。仅悬浮球需打包：
+npm run dev:floating-ball       # 悬浮球 content script watch 重建（唯一需要构建的部分）
 npm run check:js                # JS/MJS 语法检查
 npm run check:ext               # UI / 路由检查（40 件）
 npm run test:smoke              # 46 case 冒烟
@@ -140,3 +142,5 @@ cd desktop && python build.py   # 桌面助手打包（需 python.org Python，�
 - 2026-05-07 初版（39th session 收尾后建立，sediment 反例约定 21 条 + 14 处对齐清单 + 验证 SOP 三件套）
 - 2026-05-29 40th session：当前焦点更新为安全 review 16 项修复；反例约定 21→30 条；新增 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)（竞品分析 + 上架就绪度）
 - 2026-05-29 41st session：当前焦点更新为合规检测 + 去 AI 味深化 + mp 注入/悬浮球优化；反例约定 30→33 条
+- 2026-06-04 42nd session 续²：修复平台 AI「测试连接」误报「请先填写 API Key」；反例约定 35→36 条；纠正「npm run dev」实为不存在脚本（main src/ 无打包步骤）
+- 2026-06-10 43rd session：同 bug 第二轮——「只认 apiKey」入口全量分流（hasUsableAiConfig 改写闸门是真拦截器）+ aiSourceMode 默认改 platform；#36 补强；commit `624ff0e`

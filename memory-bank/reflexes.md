@@ -47,6 +47,7 @@
 | 33 | **后台"找一个同类扩展 tab 干活"不能盲取 `tabs.query()[0]`**（最老 tab，状态陈旧）——按 `lastAccessed` 取最近聚焦 tab，否则多开 tab 时状态串篇（"同步的是上一篇"） | runFloatingBallPull / 多 tab | 2026-05-29 41st | — |
 | 34 | **新增 `PAID_FEATURES` 付费功能 key 必须同步 `server/worker.js` `PAID_FEATURE_KEYS`**——否则「PAID_FEATURE 前后端对齐」smoke 单测 FAIL（客户端 plans 闸门是软的，server 的 key 列表是 SSOT）。同理改任何「N 处对齐清单」项要 grep 全套 | PAID_FEATURES / ai.quoteCards / 前后端对齐 | 2026-05-31 42nd | (关联 #14/#18) |
 | 35 | **写第三方 contenteditable 编辑器的 fallback 判定要看「新内容是否写进去」，不能看「编辑器是否为空」**——`setEditorHtml` 旧逻辑用 `innerHTML.length<20`（≈编辑器空）才触发 execCommand/innerHTML 兜底；第一篇导入后编辑器非空，第二篇起合成 paste 被 ProseMirror 忽略（非 isTrusted）而兜底被跳过→永远停在第一篇，必须关 tab 重开才行。改判定为「期望内容的文本指纹是否已出现在编辑器里」+ selectAll 强制整篇替换 | setEditorHtml / mp 连续导入 | 2026-06-03 42nd | (修正 #32 的「长度判定") |
+| 36 | **多 mode 共用的 UI 控件（按钮/输入）做校验时必须按当前 mode 分流，不能只走默认 mode 路径**——「测试连接」按钮在平台/BYOK 两面板**之外**共用，旧逻辑无脑走 BYOK 三件套校验，平台模式下 apiKey 为空被 `请先填写 API Key` 拦死，让免费用户误以为平台 AI 用不了。修法：点击时读当前 `aiSourceMode` 传给后台，`testAiConnection` 顶部 `if(mode==="platform")` 分流到 JWT 鉴权的 `/api/llm/usage` 测试。判定原则：加/改任何「被多入口或多状态复用」的控件逻辑时，先列出它服务的所有 mode/状态，逐一确认分支，别让默认分支吃掉其它 mode。**06-10 补强实证（同 bug 两轮才修干净）**：06-04 只修了测试连接 1 处，用户再报「还是要填 Key」——又揪出 4 处「只认 apiKey」入口：`hasUsableAiConfig` 改写前置闸门（真正拦截器）/ workspace aiPill / popup AI 卡 / modal 文案。**修 mode 相关校验时第一动作就是 `grep apiKey`（或对应判定字段）全仓列清单**，不要修一处交差 | options.js testAiConnection + workspace-rewrite hasUsableAiConfig / 平台 vs BYOK | 2026-06-04 42nd + 2026-06-10 43rd | (关联 #14 同语义入口清单) |
 
 ---
 
@@ -141,3 +142,5 @@
 - 2026-05-29 41st session：新增第 31-33 条（替换字典反噬 / mp ProseMirror paste 注入 / 多 tab 委托取最近聚焦 tab）
 - 2026-05-31 42nd session：新增第 34 条（新增 PAID_FEATURES key 必须同步 worker.js PAID_FEATURE_KEYS，前后端对齐 smoke 强制）
 - 2026-06-03 42nd session 续：新增第 35 条（contenteditable 写入 fallback 判定看「新内容是否写进去」而非「编辑器是否为空」，修正 #32；连续导入第二篇读旧内容根因）
+- 2026-06-04 42nd session 续²：新增第 36 条（多 mode 共用 UI 控件校验必须按当前 mode 分流——平台 AI「测试连接」误报「请先填写 API Key」根因）
+- 2026-06-10 43rd session：第 36 条补强实证——同 bug 两轮才修干净，又揪出 4 处「只认 apiKey」入口（hasUsableAiConfig 改写闸门 / aiPill / popup 卡 / modal 文案）；判定原则升级为「修 mode 相关校验第一动作 grep 判定字段全仓列清单」。另：defaults.js aiSourceMode 默认 byok→platform（未上架无老用户包袱）
