@@ -16,14 +16,15 @@
 
 ---
 
-## 当前焦点（更新于 2026-06-10 · 43rd session 续）
+## 当前焦点（更新于 2026-06-10 · 44th session）
 
-**设置页重塑与年费闸门——四批次全部落地 + push**（5 commits `6c49164`→`b0f925f`，Worker `7c1263e0`）。B1 闸门：multiAccount/drission 改年费、**新增 `ai.voiceMimic`**（文风模拟年费独享，运行时闸在 SW voiceSample 唯一注入点）、多账号收口 `MULTI_ACCOUNT_LIMITS {1,1,5}`；B2 原位锁定 UI（金色年费标 + 价值预览）+ **修 5 个「有控件没接保存链」字段**（topP 三参需空串保全防 `Number("")→0`）；B3 全页去术语 + **`docs/COPY_GLOSSARY.md` 术语 SSOT**（DrissionPage→本地增强抓取）；B4 营销页同步（月费定位「大额度 AI 写作」，公众号仍 1 个）。详见 [activeContext.md](memory-bank/activeContext.md) 顶部 + [progress.md](memory-bank/progress.md) 顶部。
+**核心三链路（采集/改写/发布）审计 + 6 项修复**（`187d712` 已 push）：① 平台模式「去 AI 味二次润色」永远静默跳过（P0，humanize-pass 入口硬要 apiKey，修成 mode-aware + 平台分支走 requestPlainChat）；② 429/JSON 解析失败防三倍扣平台额度（NON_RETRYABLE + AI_PARSE_FAILED 限重试 1 次）；③ temperature 空串保全；④ 抓取「只抓选中/原样」按钮实际全走 readable；⑤ task-center 抓取双次 apply 出重复副篇 + 切稿误写（requestId 去重）；⑥ 发布/同步无 in-flight 锁（`_sendOutInFlight` 互斥）。**审计 backlog 10 项**见 [progress.md](memory-bank/progress.md) 顶部 44th 段（取消改写不 abort 主 pass、sourceImages 刷新丢图、task pending 假队列、发布孤儿草稿、轮询账号串号等）。
 
-同日早段：免费用户用不了平台 AI——「只认 apiKey」5 入口全量分流 + 默认 aiSourceMode 改 platform（`624ff0e`）。⚠️ 旧测试 profile storage 已持久化 "byok"，验证需重装或手动切一次。
+同日 43rd：设置页重塑年费闸门四批次（`f8f3586`→`b0f925f`）+ 二审修复（`59caa5f`：功能清单 plans 口径 + 2 幽灵按钮）。multiAccount/drission/voiceMimic 年费独享、`MULTI_ACCOUNT_LIMITS {1,1,5}`、`docs/COPY_GLOSSARY.md` 文案 SSOT、营销页同步。
 
 待办候选（无优先级）：
-- 真机端到端：免费账号验证锁定弹窗 / 年费账号验证文风注入 + 5 账号上限 / 干净 profile 验证平台默认
+- **审计 backlog 10 项**（progress.md 44th 段，下次优先）
+- 真机端到端：免费账号锁定弹窗 / 年费文风注入 + 5 账号上限 / 平台模式 S2 二次润色实测
 - 金句手动编辑/增删（当前纯 AI 提炼）
 - **上架收尾**：重打包 zip（`npm run release:cws`）+ 出商店 PNG + 实测 + $5 注册（详见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md) §5）
 - **本地排版结构 lint** / **基础配图能力** / Phase 6 设备反伪造 / admin dashboard / activeContext.md archive 切分
