@@ -16,15 +16,15 @@
 
 ---
 
-## 当前焦点（更新于 2026-06-10 · 44th session）
+## 当前焦点（更新于 2026-06-10 · 44th session 续²）
 
-**核心三链路（采集/改写/发布）审计 + 6 项修复**（`187d712` 已 push）：① 平台模式「去 AI 味二次润色」永远静默跳过（P0，humanize-pass 入口硬要 apiKey，修成 mode-aware + 平台分支走 requestPlainChat）；② 429/JSON 解析失败防三倍扣平台额度（NON_RETRYABLE + AI_PARSE_FAILED 限重试 1 次）；③ temperature 空串保全；④ 抓取「只抓选中/原样」按钮实际全走 readable；⑤ task-center 抓取双次 apply 出重复副篇 + 切稿误写（requestId 去重）；⑥ 发布/同步无 in-flight 锁（`_sendOutInFlight` 互斥）。**审计 backlog 10 项**见 [progress.md](memory-bank/progress.md) 顶部 44th 段（取消改写不 abort 主 pass、sourceImages 刷新丢图、task pending 假队列、发布孤儿草稿、轮询账号串号等）。
+**核心三链路审计 → 三波修复全部落地，backlog 清零**（`187d712` → `a8f8fe5` → `5ae0e70` 全 push）：① 6 项高置信修复（平台模式 S2 静默跳过 / 429+AI_PARSE_FAILED 防多扣 / temperature 空串 / 抓取模式按钮 / 抓取双 apply / 发布无锁）；② P0 信任三件套（取消真 abort 主 pass + sourceImages 持久化防刷新丢图 + classifyError 错误码白名单透传）；③ backlog 7 项（task pending **真排队** waitUntilRunnable / 发布去 withRetry+孤儿草稿 orphanDraftMediaId 透传 / 轮询带 profileIndex 防串号 / rewriteArticle catch+同篇互斥 / browser 通道发布不再走 prepareHtml+tokenize（反例 #16 第三入口）/ 抓取等 tab complete+resolveSourceTab 取 active→lastAccessed / popup capture 双计）。详见 [progress.md](memory-bank/progress.md) 顶部三段。**剩余 backlog 仅 2 小项**：Push 同步 mp 账号比对（Pull 有）；UX 遗留建议（改写成果卡/额度 80% 提醒/免登录试用）。
 
 同日 43rd：设置页重塑年费闸门四批次（`f8f3586`→`b0f925f`）+ 二审修复（`59caa5f`：功能清单 plans 口径 + 2 幽灵按钮）。multiAccount/drission/voiceMimic 年费独享、`MULTI_ACCOUNT_LIMITS {1,1,5}`、`docs/COPY_GLOSSARY.md` 文案 SSOT、营销页同步。
 
 待办候选（无优先级）：
-- **审计 backlog 10 项**（progress.md 44th 段，下次优先）
-- 真机端到端：免费账号锁定弹窗 / 年费文风注入 + 5 账号上限 / 平台模式 S2 二次润色实测
+- 真机端到端：免费账号锁定弹窗 / 年费文风注入 + 5 账号上限 / 平台模式 S2 二次润色实测 / 多账号发布轮询实测
+- Push 同步 mp 登录账号比对（Pull 有，Push 没有）；UX 遗留：改写成果卡 / 额度 80% 提醒 / 免登录试用
 - 金句手动编辑/增删（当前纯 AI 提炼）
 - **上架收尾**：重打包 zip（`npm run release:cws`）+ 出商店 PNG + 实测 + $5 注册（详见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md) §5）
 - **本地排版结构 lint** / **基础配图能力** / Phase 6 设备反伪造 / admin dashboard / activeContext.md archive 切分
