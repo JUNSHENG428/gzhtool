@@ -31,6 +31,14 @@ const PERSIST_DEBOUNCE_MS = 200;
 const tasks = new Map();
 /** @type {Map<string, AbortController>} */
 const controllers = new Map();
+/**
+ * 44th · pending 真排队：taskId → resolve(boolean)。
+ * 此前 addTask 标了 pending 但 SW handler 拿到 taskId 后照跑不误——「2 并发」
+ * 是个假闸门。现在 SW 端对 started=false 的 task 必须 await waitUntilRunnable，
+ * promotePendingTask 晋升时 resolve(true)，排队中被取消则 resolve(false)。
+ * @type {Map<string, (runnable: boolean) => void>}
+ */
+const runnableWaiters = new Map();
 
 let persistTimer = null;
 let notifyTimer = null;
@@ -122,6 +130,7 @@ export function completeTask(taskId, { status, error, result } = {}) {
   if (error !== undefined) task.error = String(error);
   if (result !== undefined) task.result = result;
   controllers.delete(taskId);
+  releaseWaiter(taskId);
 
   // 修剪 done/failed/cancelled 历史，最多保留 RECENT_DONE_LIMIT 条
   trimDoneTasks();
@@ -151,6 +160,7 @@ export function cancelTask(taskId) {
   task.status = "cancelled";
   task.finishedAt = Date.now();
   controllers.delete(taskId);
+  releaseWaiter(taskId);
   trimDoneTasks();
   promotePendingTask(task.type);
   schedulePersistAndNotify();
@@ -244,6 +254,35 @@ function promotePendingTask(type) {
   if (earliest) {
     earliest.status = "running";
     earliest.phase = "starting";
+    const waiter = runnableWaiters.get(earliest.id);
+    if (waiter) {
+      runnableWaiters.delete(earliest.id);
+      waiter(true);
+    }
+  }
+}
+
+/**
+ * 44th · SW handler 对 started=false 的 task 必须 await 这个 Promise 再开跑。
+ * resolve(true)  → 晋升 running，可以执行
+ * resolve(false) → 排队期间被取消 / task 已不存在，handler 应直接回 CANCELLED
+ */
+export function waitUntilRunnable(taskId) {
+  const task = tasks.get(taskId);
+  if (!task) return Promise.resolve(false);
+  if (task.status === "running") return Promise.resolve(true);
+  if (task.status !== "pending") return Promise.resolve(false);
+  return new Promise((resolve) => {
+    runnableWaiters.set(taskId, resolve);
+  });
+}
+
+/** pending 排队中的 task 进入终态（取消等）时，唤醒 waiter 并告知不可执行。 */
+function releaseWaiter(taskId) {
+  const waiter = runnableWaiters.get(taskId);
+  if (waiter) {
+    runnableWaiters.delete(taskId);
+    waiter(false);
   }
 }
 

@@ -1918,7 +1918,7 @@ console.log("\n运行 封面救济链路 单测 …");
     "publish 必须调用 ensureFallbackCoverImage 给没封面的文章自动补图"
   );
   assert(
-    publishJs.includes("await _buildWechatPublishPayload(mode)"),
+    publishJs.includes("await _buildWechatPublishPayload(mode"),
     "_buildWechatPublishPayload 必须 await，因为里面要 await 封面生成"
   );
 

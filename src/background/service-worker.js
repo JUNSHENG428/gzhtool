@@ -72,7 +72,8 @@ import {
   findTaskByRequestId as findTaskByReqId,
   getTaskListSnapshot as snapshotTaskList,
   getTaskResult as getRegistryTaskResult,
-  restoreAndCleanStale as restoreTaskRegistry
+  restoreAndCleanStale as restoreTaskRegistry,
+  waitUntilRunnable as waitTaskRunnable
 } from "./task-registry.js";
 
 const MAX_RETRIES = 2;
@@ -268,12 +269,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "PREPARE_SOURCE_AND_OPEN_WORKSPACE": {
+        // 44th · 这里不 bumpUsage("capture")：本 handler 只记 tab + 开 workspace，
+        // 真正的抓取由 workspace autoCapture 触发 SCRAPE_LAST_SOURCE_TAB，在那边
+        // 计数。此前两边都计 → popup 入口的抓取用量双计。
         const tab = await getCurrentActiveTab();
         if (tab?.id) {
           await rememberTab(tab.id);
         }
         await openWorkspace(true, message.captureMode || "");
-        void bumpUsage("capture");
         sendResponse({ ok: true });
         break;
       }
@@ -324,6 +327,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           requestId: captureRequestId
         });
         const captureTaskId = captureTaskHandle.taskId;
+
+        // 44th · pending 真排队：并发槽满时（同类 running ≥ 2）真正等晋升再开跑。
+        // 此前 registerTask 标了 pending 但这里照跑——「2 并发」是假闸门。
+        if (!captureTaskHandle.started) {
+          const runnable = await waitTaskRunnable(captureTaskId);
+          if (!runnable) {
+            sendResponse({
+              ok: false,
+              error: { code: "CANCELLED", message: "任务在排队时被取消。", retryable: false }
+            });
+            break;
+          }
+        }
         updateRegistryTask(captureTaskId, { phase: "capture:fetching" });
 
         try {
@@ -379,6 +395,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           requestId
         });
         const taskId = taskHandle.taskId;
+
+        // 44th · pending 真排队（同 capture 路径）：并发槽满时等晋升，排队中被取消则直接返回。
+        if (!taskHandle.started) {
+          const runnable = await waitTaskRunnable(taskId);
+          if (!runnable) {
+            sendResponse({
+              ok: false,
+              error: { code: "CANCELLED", message: "任务在排队时被取消。", retryable: false }
+            });
+            break;
+          }
+        }
 
         try {
 
@@ -817,11 +845,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           [effectiveSettings.wechatApiBase, ...collectPublishRemoteUrls(message.payload)],
           `公众号发布（${accountLabel}）`
         );
-        const result = await withRetry(
-          () => publishToWechat(effectiveSettings, message.payload),
-          MAX_RETRIES,
-          `公众号发布（${accountLabel}）`
-        );
+        // 44th · 发布链路（建草稿→群发/发布）是**非幂等**操作：自动重试会把整条链
+        // 重跑一遍 → 重复草稿、群发场景甚至双发。这里不再套 withRetry，失败直接
+        // 抛给前端（错误里带 orphanDraftMediaId 时 UI 会提示「草稿已建好，去 mp
+        // 后台手动发布，不要整单重试」）。
+        const result = await publishToWechat(effectiveSettings, message.payload);
         void bumpUsage("publish");
         // P1.2 · 群发全员（is_to_all=true）有「每月最多 4 次」硬上限。
         // 微信侧没有"查询本月已用次数"的接口，只能在扩展端自维护一个估算计数器。
@@ -836,8 +864,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       case "GET_WECHAT_PUBLISH_STATUS": {
         const settings = await getSettings();
-        await ensureOptionalHostPermission(settings.wechatApiBase, "查询公众号发布状态");
-        const result = await queryPublishStatus(settings, message.payload.publishId);
+        // 44th · publish_id 是账号维度的：必须用发布时同一账号的凭证查询。
+        // 此前恒用默认账号 → 多账号发布后 access_token 对不上，误报「查询失败」。
+        const profileIndex = Number(message.payload?.profileIndex ?? -1);
+        const profiles = Array.isArray(settings.wechatProfiles) ? settings.wechatProfiles : [];
+        const profile =
+          profileIndex >= 0 && profiles[profileIndex] && profiles[profileIndex].mode !== "browser"
+            ? profiles[profileIndex]
+            : null;
+        const effectiveSettings = profile
+          ? {
+              ...settings,
+              wechatAppId: String(profile.appId || "").trim() || settings.wechatAppId,
+              wechatAppSecret: String(profile.appSecret || "").trim() || settings.wechatAppSecret
+            }
+          : settings;
+        await ensureOptionalHostPermission(effectiveSettings.wechatApiBase, "查询公众号发布状态");
+        const result = await queryPublishStatus(effectiveSettings, message.payload.publishId);
         sendResponse({ ok: true, data: result });
         break;
       }
@@ -1011,6 +1054,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // 不必再从 message 字符串里 regex 二次解析。
     const detectedMediaIdHint = classified.detectedMediaIdHint || error?.detectedMediaIdHint;
     if (detectedMediaIdHint) errorPayload.detectedMediaIdHint = detectedMediaIdHint;
+    // 44th · 孤儿草稿：建草稿成功但群发/发布提交失败。把 media_id 透到前端并强制
+    // retryable=false——整单重试会再建一份重复草稿。
+    if (error?.orphanDraftMediaId) {
+      errorPayload.orphanDraftMediaId = String(error.orphanDraftMediaId);
+      errorPayload.retryable = false;
+    }
     sendResponse({ ok: false, error: errorPayload });
   });
 
@@ -1247,6 +1296,13 @@ async function scrapeLastSourceTab(captureMode = "readable") {
     throw new Error("没有找到可抓取的普通网页标签页。");
   }
 
+  // 44th · SPA / 慢站点：tab 还在 loading 时就注入抓取脚本会抓到半渲染 DOM
+  // （blocks 为空或只有骨架屏文本）。等 status=complete 再抓；超时不抛错，
+  // 按当前状态继续（readable 模式抓空还有 raw fallback 兜底）。
+  if (sourceTab.status !== "complete") {
+    await waitForTabComplete(sourceTab.id, 15000).catch(() => {});
+  }
+
   const safeMode = normalizeCaptureMode(captureMode);
 
   // 如果开启了 DrissionPage 且不是 selection 模式，优先走本地 helper 抓取（更能绕过反爬）。
@@ -1342,13 +1398,20 @@ async function resolveSourceTab() {
     }
   }
 
-  const tabs = await chrome.tabs.query({ currentWindow: true });
-  const candidate = tabs.find((tab) => isScrapableUrl(tab.url));
-  if (candidate) {
-    return candidate;
+  // 44th · 兜底策略修正：旧逻辑取「窗口里第一个可抓取 tab」，用户开多个网页时
+  // 常抓到最左边那个而不是正在看的。改成：① 当前激活 tab（popup 触发场景）
+  // ② 按 lastAccessed 降序取最近浏览过的可抓取 tab（workspace 触发场景——
+  // 激活 tab 是扩展页自己，最近看过的那个网页几乎总是用户想抓的）。
+  const [activeTab] = await chrome.tabs.query({ currentWindow: true, active: true });
+  if (activeTab && isScrapableUrl(activeTab.url)) {
+    return activeTab;
   }
 
-  return null;
+  const tabs = await chrome.tabs.query({ currentWindow: true });
+  const candidates = tabs
+    .filter((tab) => isScrapableUrl(tab.url))
+    .sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+  return candidates[0] || null;
 }
 
 function isScrapableUrl(url = "") {

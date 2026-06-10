@@ -225,13 +225,21 @@ export function init(ctx) {
     if (term && replace) applyComplianceReplace(term, replace);
   });
 
-  // AI 合规改写（付费）：把命中违规表达整体改写成合规说法
+  // AI 合规改写（付费）：把命中违规表达整体改写成合规说法。
+  // 44th · 防抖放 click handler（反例 #13）：这两个按钮各消耗 1-2 次 AI 调用，
+  // 连点会并发双跑 + 双扣额度，此前完全没有 guard。
   document.querySelector("#aiComplianceRewriteBtn")?.addEventListener("click", () => {
+    const now = Date.now();
+    if (now - _lastComplianceClickAt < REWRITE_CLICK_DEBOUNCE_MS) return;
+    _lastComplianceClickAt = now;
     void runAiComplianceRewrite();
   });
 
   // 「深度去 AI 味」按钮（付费 · 第二模型评审 + 整体重写）
   document.querySelector("#deepHumanizeBtn")?.addEventListener("click", () => {
+    const now = Date.now();
+    if (now - _lastDeepHumanizeClickAt < REWRITE_CLICK_DEBOUNCE_MS) return;
+    _lastDeepHumanizeClickAt = now;
     void runDeepHumanize();
   });
 
@@ -405,6 +413,27 @@ const _sourceImagesByRequestId = new Map();
  */
 const REWRITE_CLICK_DEBOUNCE_MS = 1000;
 let _lastRewriteClickAt = 0;
+let _lastComplianceClickAt = 0;
+let _lastDeepHumanizeClickAt = 0;
+
+/**
+ * 44th · 同一篇文章已有 in-flight 改写任务时拒绝再排一单。
+ * 这不是防抖（那个在 click handler，反例 #13），而是语义互斥：双单会双扣额度，
+ * 且两个结果先后写回同一篇会互相覆盖。所有入口（按钮/快捷键/自动链/重试）都该被拦。
+ */
+async function _articleHasInFlightRewrite(articleId) {
+  if (!articleId) return false;
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: "LIST_TASKS" });
+    const running = resp?.data?.running || [];
+    const pending = resp?.data?.pending || [];
+    return [...running, ...pending].some(
+      (t) => t?.type === "rewrite" && t?.articleId === articleId
+    );
+  } catch {
+    return false;
+  }
+}
 
 export async function rewriteArticle() {
   const {
@@ -445,6 +474,15 @@ export async function rewriteArticle() {
   const settingsForAiCheck = await getSettings();
   if (!hasUsableAiConfig(settingsForAiCheck)) {
     _openNeedAiConfigModal();
+    return;
+  }
+
+  // 44th · 同篇互斥：该 article 已有 in-flight 改写任务 → 拒绝双单（双扣额度 + 结果互相覆盖）
+  if (await _articleHasInFlightRewrite(current.id)) {
+    setStatus(
+      "这篇文章已经在改写队列里了，请等当前改写完成（看右下角任务中心）再发起新的。",
+      "warning"
+    );
     return;
   }
 
@@ -578,6 +616,19 @@ export async function rewriteArticle() {
     // 老 modal 模式：直接 apply 到当前 article（向后兼容 useTaskCenter=false）
     await _applyRewriteResultToCurrentArticle(response, sourceForRewrite?.images || []);
     resetRetryCount();
+  } catch (error) {
+    // 44th · sendMessage 本身抛异常（SW 被回收 / message port closed / 扩展刚更新）
+    // 此前没有 catch：异常静默吞掉，loading 收掉后用户对着没动静的界面干瞪眼。
+    _sourceImagesByRequestId.delete(requestId);
+    setErrorStatus(
+      {
+        code: "RUNTIME_MESSAGE_FAILED",
+        message: `改写请求没有送达后台（${error?.message || "扩展后台无响应"}）。请重试一次；若反复出现，请刷新本页或重新加载扩展。`,
+        retryable: true
+      },
+      "改写失败。",
+      () => rewriteArticle()
+    );
   } finally {
     _currentRewriteRequestId = "";
     setSkipButtonVisible(false);

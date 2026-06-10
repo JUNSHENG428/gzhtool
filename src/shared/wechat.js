@@ -303,6 +303,16 @@ export async function publishToWechat(settings, payload) {
 
   const draftMediaId = await createDraft(settings, accessToken, preparedArticles);
 
+  // 44th · 草稿成功后的提交阶段失败 = 「孤儿草稿」：把 draftMediaId 挂到 error 上，
+  // 让 UI 能告诉用户「草稿其实已经建好了，去 mp 后台手动发，不要重试整个发布」
+  // （重试会再建一份重复草稿，群发场景甚至可能双发）。
+  const tagOrphanDraft = (err) => {
+    if (err && typeof err === "object") {
+      err.orphanDraftMediaId = draftMediaId;
+    }
+    return err;
+  };
+
   if (payload.publishMode === "publish") {
     // 群发策略（P1.2）：
     //   - sendStrategy === "all" 或 "tag" → 走 mass/sendall（让认证服务号文章进列表）
@@ -318,11 +328,16 @@ export async function publishToWechat(settings, payload) {
           : settings.wechatSendIgnoreReprint
       );
 
-      const massResult = await massSendArticle(settings, accessToken, draftMediaId, {
-        strategy: sendStrategy,
-        tagId: sendTagId,
-        ignoreReprintCheck
-      });
+      let massResult;
+      try {
+        massResult = await massSendArticle(settings, accessToken, draftMediaId, {
+          strategy: sendStrategy,
+          tagId: sendTagId,
+          ignoreReprintCheck
+        });
+      } catch (err) {
+        throw tagOrphanDraft(err);
+      }
       return {
         draftMediaId,
         publishId: "",
@@ -337,7 +352,12 @@ export async function publishToWechat(settings, payload) {
       };
     }
 
-    const publishId = await submitPublish(settings, accessToken, draftMediaId);
+    let publishId;
+    try {
+      publishId = await submitPublish(settings, accessToken, draftMediaId);
+    } catch (err) {
+      throw tagOrphanDraft(err);
+    }
     return {
       draftMediaId,
       publishId,
