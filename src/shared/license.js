@@ -43,7 +43,15 @@ const DEFAULT_API_BASE = "https://api.docuearn.com";
 const VERIFY_INTERVAL_MS = 24 * 60 * 60 * 1000;       // 24h 主动复验
 const STALE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;        // 7 天宽限期
 const FREE_DAILY_REWRITE_QUOTA = 5;                    // 与 worker FREE_DAILY_AI_QUOTA 对齐
-const FREE_MULTI_ACCOUNT_LIMIT = 2;                    // 免费版多账号上限
+// 43rd session · 多公众号配额收口：免费/月费 1 个、年费 5 个。
+// 此前代码 free=2 / 付费无限，与 pricing 页（free=1 / 付费=5）漂移——以本表为 SSOT，
+// 营销页同步见 site/pricing.html 三卡。pro 是历史 SKU，按年费对待。
+const MULTI_ACCOUNT_LIMITS = Object.freeze({ free: 1, monthly: 1, yearly: 5, pro: 5 });
+
+/** 按 effectivePlan 取多公众号绑定上限（未知 plan 按 free 保守处理） */
+export function getMultiAccountLimit(plan) {
+  return MULTI_ACCOUNT_LIMITS[plan] ?? MULTI_ACCOUNT_LIMITS.free;
+}
 // 进入「即将到期」窗口阈值：剩余 ≤ 7 天但未过期。effectivePlan 仍为 pro，
 // 不影响功能；仅用于 UI 在 hero / dashboard / pricing 顶部展示倒计时 + 续费 CTA。
 const EXPIRING_SOON_MS = 7 * 24 * 60 * 60 * 1000;
@@ -73,14 +81,14 @@ export const PAID_FEATURES = Object.freeze({
   // ---- 已实装闸门（4 项核心，与本期需求对齐）----
   "wechat.multiAccount": {
     name: "多公众号管理",
-    plans: PLANS_PAID,
-    softLimit: { free: FREE_MULTI_ACCOUNT_LIMIT, pro: -1 },
-    hint: `免费版最多绑定 ${FREE_MULTI_ACCOUNT_LIMIT} 个公众号；升级 Pro 可无限切换矩阵账号。`
+    plans: ["yearly", "pro"],
+    softLimit: MULTI_ACCOUNT_LIMITS,
+    hint: "免费版 / 月费版可绑定 1 个公众号；年费会员可绑 5 个，矩阵号一处管理、一键切换。"
   },
   "scrape.drission": {
-    name: "DrissionPage 增强抓取",
-    plans: PLANS_PAID,
-    hint: "免费版仅支持内置抓取；Pro 可启用 DrissionPage helper 走真实 Chromium，绕过反爬与懒加载。"
+    name: "本地增强抓取",
+    plans: ["yearly", "pro"],
+    hint: "年费会员可启用本地增强抓取：用你电脑上真实的浏览器登录态直抓，付费墙/懒加载页面成功率更高。"
   },
   "ai.advancedTemplates": {
     name: "高级改写模板",
@@ -118,7 +126,14 @@ export const PAID_FEATURES = Object.freeze({
   "ai.deAiBoost": {
     name: "去 AI 味增强",
     plans: PLANS_PAID,
-    hint: "Pro 启用 turnitin-humanizer 风格的二次润色，更难被 AI 检测。"
+    hint: "会员启用二次润色，让文章更难被 AI 检测出来。"
+  },
+  // 43rd session · 文风模拟（voice samples）此前完全没有闸门，本期收口为年费独享。
+  // 运行时闸在 service-worker 文风样本注入点：非年费静默跳过注入（不阻断改写主流程）。
+  "ai.voiceMimic": {
+    name: "文风模拟",
+    plans: ["yearly", "pro"],
+    hint: "年费会员可保存自己的代表作为文风样本，AI 改写时自动模仿你的用词、句式和节奏，写出来更像你本人。"
   },
   "ai.quoteCards": {
     name: "金句卡片",
@@ -790,26 +805,30 @@ export async function checkDailyQuota(kind = "rewrite", opts = {}) {
 /**
  * 检查"多账号绑定上限"。currentCount 是当前已绑定数量，要再加一个时调用。
  * 返回 { ok, current, limit, hint }
+ *
+ * 43rd session 收口：不再「付费即无限」——按 plan 查 MULTI_ACCOUNT_LIMITS
+ * （免费/月费 1 个、年费 5 个），年费撞顶也会拦（上限明确可预期，方便未来出更高档 SKU）。
  */
 export async function checkAccountLimit(currentCount = 0) {
   const state = await getLicenseState({ refresh: false });
-  if (isPaidPlan(state.effectivePlan)) {
-    return { ok: true, current: currentCount, limit: -1, hint: "" };
-  }
-  const limit = FREE_MULTI_ACCOUNT_LIMIT;
+  const plan = state.effectivePlan || "free";
+  const limit = getMultiAccountLimit(plan);
   if (currentCount >= limit) {
     return {
       ok: false,
       current: currentCount,
       limit,
-      hint: PAID_FEATURES["wechat.multiAccount"].hint
+      hint:
+        plan === "yearly" || plan === "pro"
+          ? `年费会员最多绑定 ${limit} 个公众号，已达上限。`
+          : PAID_FEATURES["wechat.multiAccount"].hint
     };
   }
   return {
     ok: true,
     current: currentCount,
     limit,
-    hint: `免费版可绑定 ${limit} 个公众号，当前已绑 ${currentCount} 个`
+    hint: `当前套餐可绑定 ${limit} 个公众号，已绑 ${currentCount} 个`
   };
 }
 
@@ -965,7 +984,7 @@ function sanitizeFeatures(features, plan) {
 // 暴露常量给 UI 用
 export const LICENSE_CONSTANTS = Object.freeze({
   FREE_DAILY_REWRITE_QUOTA,
-  FREE_MULTI_ACCOUNT_LIMIT,
+  MULTI_ACCOUNT_LIMITS,
   VERIFY_INTERVAL_MS,
   STALE_GRACE_MS,
   EXPIRING_SOON_MS,

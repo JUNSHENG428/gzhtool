@@ -31,8 +31,9 @@ import { getUsageSnapshot } from "../shared/usage-stats.js";
 
 const FREE_DAILY_REWRITE_QUOTA =
   LICENSE_CONSTANTS?.FREE_DAILY_REWRITE_QUOTA || 5;
-const FREE_MULTI_ACCOUNT_LIMIT =
-  LICENSE_CONSTANTS?.FREE_MULTI_ACCOUNT_LIMIT || 2;
+// 43rd session · 多账号配额收口：免费/月费 1、年费 5（不再「付费即无限」）
+const MULTI_ACCOUNT_LIMITS =
+  LICENSE_CONSTANTS?.MULTI_ACCOUNT_LIMITS || { free: 1, monthly: 1, yearly: 5, pro: 5 };
 
 const FALLBACK_PRICING_URL = "https://docuearn.com/pricing";
 const FALLBACK_HELP_URL = "https://docuearn.com";
@@ -306,32 +307,23 @@ async function readAccountInfo() {
 
 function renderQuotaAccount(state, accountInfo) {
   const used = Number(accountInfo?.count) || 0;
-  const isPro = isPaidPlan(state?.plan);
+  const plan = state?.plan || "free";
+  const isYearly = plan === "yearly" || plan === "pro";
 
-  let cap;
-  let capLabel;
-  let pct;
+  const cap = MULTI_ACCOUNT_LIMITS[plan] ?? MULTI_ACCOUNT_LIMITS.free;
+  const capLabel = ` / ${cap}`;
+  const pct = Math.min(100, Math.round((used / cap) * 100));
+
   let hint;
-
-  if (isPro) {
-    cap = -1;
-    capLabel = " / ∞";
-    pct = Math.min(100, used * 8);
+  if (isYearly) {
     hint =
-      used === 0
-        ? "Pro 会员支持无限公众号绑定，去「设置」绑定第一个公众号"
-        : `已绑定 ${used} 个，Pro 会员无上限`;
+      used >= cap
+        ? `年费会员上限 ${cap} 个已满`
+        : `年费会员可绑 ${cap} 个，还可再绑 ${cap - used} 个`;
+  } else if (used === 0) {
+    hint = `当前套餐可绑定 ${cap} 个公众号；当前 0 个，去「设置」开始`;
   } else {
-    cap = FREE_MULTI_ACCOUNT_LIMIT;
-    capLabel = ` / ${cap}`;
-    pct = Math.min(100, Math.round((used / cap) * 100));
-    if (used === 0) {
-      hint = `免费版可绑定 ${cap} 个公众号；当前 0 个，去「设置」开始`;
-    } else if (used >= cap) {
-      hint = `免费版上限 ${cap} 个已满；开通 Pro 会员解锁多公众号矩阵`;
-    } else {
-      hint = `免费版还可再绑 ${cap - used} 个；升级 Pro 后无限`;
-    }
+    hint = `当前套餐上限 ${cap} 个已满；年费会员可绑 5 个，矩阵号一处管理`;
   }
 
   setText("memberQuotaAccountUsed", String(used));
@@ -341,11 +333,12 @@ function renderQuotaAccount(state, accountInfo) {
   const bar = document.getElementById("memberQuotaAccountBar");
   if (bar) {
     bar.style.width = `${pct}%`;
+    // 年费也有上限（5 个），撞顶同样给 danger 提示，不再「付费即 pro 蓝条」
     bar.dataset.tone =
-      isPro ? "pro" : pct >= 100 ? "danger" : pct >= 75 ? "warning" : "normal";
+      pct >= 100 ? "danger" : pct >= 75 ? "warning" : isYearly ? "pro" : "normal";
   }
   const card = document.getElementById("memberQuotaAccount");
-  if (card) card.dataset.tone = isPro ? "pro" : pct >= 100 ? "danger" : "normal";
+  if (card) card.dataset.tone = pct >= 100 ? "danger" : isYearly ? "pro" : "normal";
 }
 
 // =============================================================

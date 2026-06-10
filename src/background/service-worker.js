@@ -420,9 +420,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // 「我的文风」样本：从 storage 读已激活的 + 已提取过指纹的样本。
         // 没设置 / fingerprint 缺失时返回 null，下游 ai.js / humanize-pass.js 各自有兜底。
         // try/catch 是为了避免 voice-samples 模块的任何异常阻塞主改写。
+        // 43rd session · 文风模拟年费闸门（ai.voiceMimic）：非年费静默跳过注入，
+        // 主改写流程不阻断不报错（与 deAiBoost「加强功能不挡主流程」同一设计）。
+        // 此处是 voiceSample 唯一注入点，主 pass 与二次润色 pass 同时被闸住。
         let voiceSample = null;
         try {
-          voiceSample = await getActiveVoiceSample();
+          const voiceAccess = await checkLicense("ai.voiceMimic");
+          if (voiceAccess.ok) {
+            voiceSample = await getActiveVoiceSample();
+          }
         } catch (err) {
           console.warn("[voice-samples] 读取激活样本失败，跳过文风注入：", err);
         }

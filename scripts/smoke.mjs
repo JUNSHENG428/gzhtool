@@ -364,9 +364,11 @@ const DEMO_KEY = "GZHT-ABCD-EFGH-JKLM";
     LICENSE_CONSTANTS.FREE_DAILY_REWRITE_QUOTA === 5,
     `FREE_DAILY_REWRITE_QUOTA 应为 5，实际 ${LICENSE_CONSTANTS.FREE_DAILY_REWRITE_QUOTA}`
   );
+  // 43rd session · 多账号配额收口：免费/月费 1、年费 5
+  const mal = LICENSE_CONSTANTS.MULTI_ACCOUNT_LIMITS;
   assert(
-    LICENSE_CONSTANTS.FREE_MULTI_ACCOUNT_LIMIT === 2,
-    `FREE_MULTI_ACCOUNT_LIMIT 应为 2，实际 ${LICENSE_CONSTANTS.FREE_MULTI_ACCOUNT_LIMIT}`
+    mal && mal.free === 1 && mal.monthly === 1 && mal.yearly === 5 && mal.pro === 5,
+    `MULTI_ACCOUNT_LIMITS 应为 {free:1,monthly:1,yearly:5,pro:5}，实际 ${JSON.stringify(mal)}`
   );
 }
 
