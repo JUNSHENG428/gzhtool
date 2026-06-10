@@ -630,7 +630,11 @@ async function requestRewriteViaPlatform(settings, source, preferences, template
     template && template.temperature != null && template.temperature !== ""
       ? template.temperature
       : settings.temperature;
-  const temperature = Number(temperatureSource ?? 0.8);
+  // 44th · 空串/NaN 保全：Number("")→0 会把「没填」变成显式 temperature=0（反例 #37 同族）
+  const temperature =
+    temperatureSource === "" || temperatureSource == null || Number.isNaN(Number(temperatureSource))
+      ? 0.8
+      : Number(temperatureSource);
 
   const body = { tier, temperature, messages };
 
@@ -757,7 +761,11 @@ async function requestRewriteViaPlatformStreaming(settings, source, preferences,
     template && template.temperature != null && template.temperature !== ""
       ? template.temperature
       : settings.temperature;
-  const temperature = Number(temperatureSource ?? 0.8);
+  // 44th · 空串/NaN 保全：Number("")→0 会把「没填」变成显式 temperature=0（反例 #37 同族）
+  const temperature =
+    temperatureSource === "" || temperatureSource == null || Number.isNaN(Number(temperatureSource))
+      ? 0.8
+      : Number(temperatureSource);
   const body = { tier, temperature, messages };
   const topPSource =
     template && template.topP != null && template.topP !== ""
@@ -923,7 +931,11 @@ export async function requestRewrite(settings, source, preferences, template, vo
     template && template.temperature != null && template.temperature !== ""
       ? template.temperature
       : settings.temperature;
-  const temperature = Number(temperatureSource ?? 0.8);
+  // 44th · 空串/NaN 保全：Number("")→0 会把「没填」变成显式 temperature=0（反例 #37 同族）
+  const temperature =
+    temperatureSource === "" || temperatureSource == null || Number.isNaN(Number(temperatureSource))
+      ? 0.8
+      : Number(temperatureSource);
 
   const body = {
     model,
@@ -1625,11 +1637,21 @@ export function extractJson(rawText) {
   const firstBrace = text.indexOf("{");
   const lastBrace = text.lastIndexOf("}");
   if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    throw new Error("AI 返回中没有找到可解析的 JSON。");
+    const err = new Error("AI 返回中没有找到可解析的 JSON。");
+    err.code = "AI_PARSE_FAILED";
+    throw err;
   }
 
   const candidate = text.slice(firstBrace, lastBrace + 1);
-  return JSON.parse(candidate);
+  try {
+    return JSON.parse(candidate);
+  } catch (parseErr) {
+    // 44th session · 打 code 防 withRetry 整链重跑：模型格式坏掉时重试大概率
+    // 还是坏的，平台模式下每次重试都是一次全额计费。
+    const err = new Error(`AI 返回的 JSON 无法解析：${parseErr?.message || "格式错误"}`);
+    err.code = "AI_PARSE_FAILED";
+    throw err;
+  }
 }
 
 function normalizeArticle(data, source, preferences) {

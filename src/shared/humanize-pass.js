@@ -57,7 +57,7 @@ import {
   getTopRuleCards,
   AI_VOCAB_REPLACEMENTS
 } from "./humanize-rules.js";
-import { extractChatContent, postChatCompletionWithReasoningFallback } from "./ai.js";
+import { extractChatContent, postChatCompletionWithReasoningFallback, requestPlainChat } from "./ai.js";
 import { ensureOptionalHostPermission } from "./host-permissions.js";
 
 // ---------------------------------------------------------------------
@@ -96,7 +96,11 @@ export async function runHumanizePass({
   if (!article || typeof article !== "object") {
     return { article, applied: false, sectionCount: 0, intensity: "off", aborted: false, errors };
   }
-  if (!settings?.apiKey || !settings?.apiBaseUrl) {
+  // 44th session · mode-aware 校验（反例 #36 同款修复）：
+  // 平台模式走 JWT（requestPlainChat 内部自带登录校验），只有 BYOK 才要求 apiKey/apiBaseUrl。
+  // 此前这里硬要求 apiKey，导致默认 platform 模式下付费 deAiBoost 的 S2 永远静默跳过。
+  const isPlatform = settings?.aiSourceMode === "platform";
+  if (!isPlatform && (!settings?.apiKey || !settings?.apiBaseUrl)) {
     errors.push("API 未配置，跳过二次润色。");
     return { article, applied: false, sectionCount: 0, intensity: "off", aborted: false, errors };
   }
@@ -199,10 +203,11 @@ export async function runHumanizePass({
 
   reportProgress(onProgress, { phase: "pass2:start", current: 0, total });
 
+  // 平台模式走 worker 代理，限频比直连上游严——并发收口到 2，避免 S2 多段并发触发 429。
   const maxConcurrency = clamp(
-    Number(settings.humanizeMaxConcurrency) || DEFAULT_MAX_CONCURRENCY,
+    Number(settings.humanizeMaxConcurrency) || (isPlatform ? 2 : DEFAULT_MAX_CONCURRENCY),
     1,
-    12
+    isPlatform ? 2 : 12
   );
 
   let applied = 0;
@@ -418,7 +423,13 @@ async function rewriteSnippet({
   // 防止"换皮还是同一套套话"。
   const body = {
     model,
-    temperature: clamp(Number(settings.temperature ?? 0.85) + 0.05, 0.5, 1.2),
+    temperature: clamp(
+      (settings.temperature === "" || settings.temperature == null || Number.isNaN(Number(settings.temperature))
+        ? 0.85
+        : Number(settings.temperature)) + 0.05,
+      0.5,
+      1.2
+    ),
     top_p: numberOrSkip(settings.topP) ?? 0.92,
     frequency_penalty: numberOrSkip(settings.frequencyPenalty) ?? 0.6,
     presence_penalty: numberOrSkip(settings.presencePenalty) ?? 0.4,
@@ -427,6 +438,21 @@ async function rewriteSnippet({
       { role: "user", content: user }
     ]
   };
+
+  // 44th session · 平台模式分支：走 worker /api/llm/chat（JWT 鉴权，与主 pass 同一额度池）。
+  // 平台 chat 接口只接受 temperature，采样三参与 abortSignal 暂不透传（abort 仍在任务
+  // 调度层之间生效，单段请求体量小，可接受）。
+  if (settings?.aiSourceMode === "platform") {
+    if (abortSignal?.aborted) throw new Error("已取消");
+    const out = String(
+      (await requestPlainChat(settings, body.messages, {
+        temperature: body.temperature,
+        context: "去 AI 味二次润色"
+      })) || ""
+    ).trim();
+    if (!out) throw new Error("LLM 返回空内容");
+    return stripCodeFences(out);
+  }
 
   const apiUrl = settings.apiBaseUrl.trim();
   await ensureOptionalHostPermission(apiUrl, "去 AI 味二次润色接口");

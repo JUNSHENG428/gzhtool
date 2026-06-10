@@ -47,11 +47,17 @@ export function init(ctx) {
   // captureSource 也被代码内部调用（错误条 [重试] 按钮 / 任务中心 retry / autoRewrite 引导），
   // 这些调用不该被"按钮防抖"误拦——之前 _lastCaptureClickAt < 1s 时连"用户点重试"都被
   // 阻挡，表现为"抓取功能失灵"（用户实测报障 38th session 续）。
-  document.querySelector("#captureButton").addEventListener("click", () => {
+  document.querySelector("#captureButton").addEventListener("click", (event) => {
     const now = Date.now();
     if (now - _lastCaptureClickAt < CAPTURE_CLICK_DEBOUNCE_MS) return;
     _lastCaptureClickAt = now;
-    captureSource();
+    // 44th session · 抓取视图的「只抓选中/原样抓取」快捷按钮通过 dataset.captureMode
+    // 传模式（见 workspace-router bindCaptureShortcuts）——此前这里从不读取，
+    // 三个按钮实际全走 readable，UI 承诺与行为不符。读完即清，避免残留影响下次直点。
+    const btn = event.currentTarget;
+    const mode = btn?.dataset?.captureMode || "";
+    if (btn?.dataset) delete btn.dataset.captureMode;
+    captureSource(mode || undefined);
   });
 }
 
@@ -71,6 +77,26 @@ const CAPTURE_MODE_LABELS = {
  */
 const CAPTURE_CLICK_DEBOUNCE_MS = 1000;
 let _lastCaptureClickAt = 0;
+
+/**
+ * 44th session · 抓取结果 apply 去重：
+ * task-center 模式下同一次抓取有两条 apply 路径——captureSource 同步 sendResponse 后
+ * 立即 apply（用户停在原稿的即时反馈）+ onTaskDone → applyCaptureTaskResult（用户切走
+ * 后跳回的场景）。此前两条路径**都会无条件执行**：第二次 apply 时当前稿已有内容，
+ * `_hasMeaningfulArticle` 命中 → 又 addSubArticle 一篇，用户看到重复副篇。
+ * 用 requestId 标记「已 apply」，先到先得，后到跳过。
+ */
+const _appliedCaptureRequestIds = new Set();
+function _markCaptureApplied(requestId) {
+  if (!requestId) return true; // 没有 requestId 的老路径不做去重
+  if (_appliedCaptureRequestIds.has(requestId)) return false;
+  _appliedCaptureRequestIds.add(requestId);
+  if (_appliedCaptureRequestIds.size > 50) {
+    const first = _appliedCaptureRequestIds.values().next().value;
+    _appliedCaptureRequestIds.delete(first);
+  }
+  return true;
+}
 
 export async function captureSource(captureMode) {
   const {
@@ -131,12 +157,15 @@ export async function captureSource(captureMode) {
     }
 
     if (useTaskCenter) {
-      // task-center 模式：apply 由 onTaskDone 触发（按 articleId 路由）。
-      // 但 capture 还有个特殊语义——抓取**当前**触发的页面，绝大多数场景用户就停在该 article，
-      // 所以为了"用户体验立刻反馈"在当前 article 也直接写一遍。task-center.onTaskDone 后续
-      // 触发 applyCaptureTaskResult 时会基于 articleId 二次确认（同 article 不会双重 apply，
-      // 已有 source 的话 autoFill 是幂等的）。
-      _applyCaptureSourceToCurrentArticle(response.data);
+      // task-center 模式：用户停在触发抓取的 article 时同步 apply（即时反馈）；
+      // 抓取期间切走了就跳过，交给 onTaskDone → applyCaptureTaskResult 按 articleId
+      // 路由（否则会把结果写进用户正在编辑的**另一篇**稿件）。requestId 去重防双 apply。
+      const currentNow = getCurrentArticle();
+      const stillOnSameArticle =
+        !currentForRequest?.id || currentNow?.id === currentForRequest.id;
+      if (stillOnSameArticle && _markCaptureApplied(requestId)) {
+        _applyCaptureSourceToCurrentArticle(response.data);
+      }
       resetRetryCount();
       return;
     }
@@ -250,6 +279,9 @@ export async function applyCaptureTaskResult(task) {
   } = _ctx;
   const result = task?.result;
   if (!result?.source) return;
+
+  // 同一次抓取已在 captureSource 同步路径 apply 过 → 跳过，防重复建副篇
+  if (!_markCaptureApplied(task.requestId)) return;
 
   const articleId = task.articleId || result.articleId || "";
   // 用户切回了发起抓取的 article 才 apply（task-center.goToArticle 触发）

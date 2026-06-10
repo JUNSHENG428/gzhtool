@@ -1014,6 +1014,7 @@ const NON_RETRYABLE_ERROR_CODES = new Set([
   "AUTH_REQUIRED",
   "AUTH_EXPIRED",
   "PLATFORM_QUOTA_EXCEEDED",
+  "PLATFORM_RATE_LIMITED", // 44th · 429 后 1.5s 重试大概率还是 429，且 worker 侧每次尝试都计费
   "PLATFORM_UNCONFIGURED",
   "LICENSE_BYOK_LOCKED",
   "LICENSE_TEMPLATE_LOCKED",
@@ -1029,6 +1030,11 @@ async function withRetry(fn, maxRetries, operationName) {
       lastError = error;
       // 不可重试错误立即抛出，不浪费 sleep + 不二次扣平台配额
       if (error && NON_RETRYABLE_ERROR_CODES.has(error.code)) {
+        throw error;
+      }
+      // 44th · JSON 解析失败最多重试 1 次：模型偶发格式错误重试有救，
+      // 但连坏两次基本是模型/prompt 问题，继续跑只是反复全额扣平台额度。
+      if (error?.code === "AI_PARSE_FAILED" && attempt >= 2) {
         throw error;
       }
       if (attempt <= maxRetries) {

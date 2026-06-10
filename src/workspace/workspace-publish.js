@@ -399,6 +399,12 @@ async function _copyCurrentArticleHtmlForPaste() {
 
 // ── 发布 / 草稿 ──
 
+// 44th session · 发布/同步 in-flight 互斥（反例 #15：所有 send-out 入口必须先查 in-flight）。
+// 此前只拦 rewrite in-flight，发布自身无锁：确认弹窗有 380ms 过渡，快速双击可触发
+// 两次 publishBundle → 两份草稿甚至两次群发（群发配额被多扣且无法撤回）。
+// 放函数体而非 click handler：错误条 [重试]、未来新增入口同样不该并发发布。
+let _sendOutInFlight = false;
+
 export async function publishBundle(mode) {
   const {
     state,
@@ -413,6 +419,12 @@ export async function publishBundle(mode) {
     buildExportHtmlForArticle,
     resetRetryCount
   } = _ctx;
+
+  if (_sendOutInFlight) {
+    setStatus("上一次发布/同步还在进行中，请等它结束后再操作。", "warning");
+    return;
+  }
+  _sendOutInFlight = true;
 
   // 提到 try 外，catch 块才能在错误信息里带上当前账号名
   let accountLabel = "默认账号";
@@ -624,6 +636,7 @@ export async function publishBundle(mode) {
       () => publishBundle(mode)
     );
   } finally {
+    _sendOutInFlight = false;
     hideLoading();
   }
 }
@@ -957,6 +970,12 @@ export async function syncCurrentToWebEditor() {
     resetRetryCount
   } = _ctx;
 
+  if (_sendOutInFlight) {
+    setStatus("上一次发布/同步还在进行中，请等它结束后再操作。", "warning");
+    return;
+  }
+  _sendOutInFlight = true;
+
   try {
     syncCurrentArticleFromControls();
     const current = getCurrentArticle();
@@ -966,6 +985,15 @@ export async function syncCurrentToWebEditor() {
         "当前文章正在 AI 改写中，请等改写完成（看右下角任务中心）再同步，避免同步出旧版本。",
         "warning"
       );
+      return;
+    }
+
+    // 44th · 浏览器同步前的最低限度校验：空标题+空正文稿写进 mp 编辑器，
+    // 用户往往保存后才发现（mp 不会拦编辑态的空草稿）。
+    const hasTitle = Boolean(String(current?.meta?.title || "").trim());
+    const hasBody = Boolean(String(current?.bodyHtml || "").trim());
+    if (!hasTitle && !hasBody) {
+      setStatus("当前稿件还没有标题和正文，请先填写内容再同步。", "warning");
       return;
     }
     showLoading(
@@ -1022,6 +1050,7 @@ export async function syncCurrentToWebEditor() {
       () => syncCurrentToWebEditor()
     );
   } finally {
+    _sendOutInFlight = false;
     hideLoading();
   }
 }
