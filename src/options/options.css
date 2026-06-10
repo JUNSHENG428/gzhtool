@@ -2689,6 +2689,13 @@ body[data-novice-mode="on"] [data-advanced="true"] {
   color: #fff;
 }
 
+/* 43rd 续 · 年费独享金标（未解锁态也保持金色辨识） */
+.license-feature .license-feature-tag[data-tier="yearly"] {
+  background: linear-gradient(135deg, rgba(212, 168, 83, 0.22), rgba(184, 134, 48, 0.3));
+  color: #7a5314;
+  border: 1px solid rgba(184, 134, 48, 0.35);
+}
+
 .license-status-box[data-status="stale"] {
   border-color: rgba(183, 134, 64, 0.5);
   background: rgba(183, 134, 64, 0.06);

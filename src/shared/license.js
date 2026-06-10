@@ -17,7 +17,7 @@
  * 4. 闸门：
  *    - checkLicense(featureKey) 同步返回 { ok, plan, reason, hint }。
  *    - 配额类（如 ai.unlimitedDaily）走 checkDailyQuota("rewrite")，与 usage-stats 联动。
- *    - 多账号上限走 checkAccountLimit(currentCount)，免费 2 个、pro 无限。
+ *    - 多账号上限走 checkAccountLimit(currentCount)，按 MULTI_ACCOUNT_LIMITS（免费/月费 1、年费 5）。
  * 5. 没有联网时：服务端是唯一 source of truth；插件本地仅承担"在签发的有效期内放行"职责，
  *    无法伪造 plan。
  *
@@ -738,6 +738,28 @@ function mapEffectivePlanToLlmPlan(state) {
   if (p === "monthly" || p === "yearly") return p;
   if (p === "pro") return "yearly";
   return "free";
+}
+
+/**
+ * 43rd session 续 · 供「付费功能清单」类 UI 用的纯展示判定：
+ * 按 meta.plans 数组判断某 feature 在当前 plan 下是否解锁（与 checkLicense 同口径，
+ * 但不触发远端 refresh，调用方自己拿好 state）。
+ *
+ * 背景：workspace-member / options 两处功能清单此前用老 tier 字段 +「付费即解锁」
+ * 渲染——multiAccount/drission/voiceMimic 改年费后，月费用户会被错误显示为已解锁。
+ */
+export function isFeaturePlanEnabled(meta, state) {
+  if (!meta) return true;
+  if (!Array.isArray(meta.plans) || meta.plans.length === 0) return true;
+  return meta.plans.includes(mapEffectivePlanToLlmPlan(state));
+}
+
+/** 功能清单标签：免费可用 → "free"；年费独享 → "yearly"；其余付费 → "pro"（显示「会员」） */
+export function getFeaturePlanTag(meta) {
+  const plans = Array.isArray(meta?.plans) ? meta.plans : [];
+  if (plans.includes("free")) return "free";
+  if (!plans.includes("monthly")) return "yearly";
+  return "pro";
 }
 
 /**

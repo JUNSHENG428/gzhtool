@@ -3720,6 +3720,13 @@ button[hidden] {
   color: var(--brand, #1f4329);
 }
 
+/* 43rd 续 · 年费独享金标（与 options .section-tag.yearly 同色系） */
+.member-feature-tier[data-tier="yearly"] {
+  background: linear-gradient(135deg, rgba(212, 168, 83, 0.22), rgba(184, 134, 48, 0.3));
+  color: #7a5314;
+  border: 1px solid rgba(184, 134, 48, 0.35);
+}
+
 .member-feature-hint {
   margin: 0;
   font-size: 12.5px;

@@ -28,6 +28,8 @@ import {
   PAID_FEATURES,
   checkAccountLimit,
   checkLicense,
+  isFeaturePlanEnabled,
+  getFeaturePlanTag,
   clearAuthRecord,
   clearLicenseRecord,
   deactivateDevice,
@@ -538,6 +540,23 @@ fields.humanizeEnabled?.addEventListener("change", async (event) => {
   });
 });
 
+// 43rd 续 · 高级生成参数的两个快捷按钮——二次审核发现是「幽灵按钮」（HTML 有、
+// JS 从未接线，点了没反应，反例 #37 同款）。推荐档位与卡片文案保持一致：
+// top_p 0.92 / frequency_penalty 0.5 / presence_penalty 0.3 + temperature 0.85。
+document.querySelector("#advancedParamsRecommendBtn")?.addEventListener("click", () => {
+  if (fields.topP) fields.topP.value = "0.92";
+  if (fields.frequencyPenalty) fields.frequencyPenalty.value = "0.5";
+  if (fields.presencePenalty) fields.presencePenalty.value = "0.3";
+  if (fields.temperature) fields.temperature.value = "0.85";
+  setStatus("已填入「去 AI 味」推荐档位，记得点底部「保存设置」。");
+});
+document.querySelector("#advancedParamsClearBtn")?.addEventListener("click", () => {
+  if (fields.topP) fields.topP.value = "";
+  if (fields.frequencyPenalty) fields.frequencyPenalty.value = "";
+  if (fields.presencePenalty) fields.presencePenalty.value = "";
+  setStatus("已清空高级生成参数（保存后改写时不再下发，由服务端用默认值）。");
+});
+
 // 注意：所有 init 入口集中放到文件末尾的 bootstrapOptionsPage()，
 // 否则某些 init 函数访问的 module-level const 此时还在 TDZ，
 // 会抛 ReferenceError 并中断后面的初始化。
@@ -572,6 +591,21 @@ async function hydrateForm() {
   currentProfiles = Array.isArray(settings.wechatProfiles) ? settings.wechatProfiles : [];
   renderProfiles();
   renderHealthSummary(settings.lastTestResult || {});
+
+  // 43rd 续 · humanizeEnabled 默认 true 是给会员的——免费用户若按默认值显示「已勾选」，
+  // 又会回到「开了没反应」的假象（运行时被静默跳过）。这里按 plans 口径校正显示态；
+  // 用户重新勾选会触发 change 闸门弹升级框，行为闭环。
+  try {
+    const licState = await getLicenseState({ refresh: false });
+    if (
+      fields.humanizeEnabled?.checked &&
+      !isFeaturePlanEnabled(PAID_FEATURES["ai.deAiBoost"], licState)
+    ) {
+      fields.humanizeEnabled.checked = false;
+    }
+  } catch {
+    /* license 读取失败不阻塞设置页渲染 */
+  }
 }
 
 /**
@@ -2184,16 +2218,19 @@ async function renderFeaturesList() {
   const list = licenseEls.featuresList;
   if (!list) return;
   const state = await getLicenseState({ refresh: false });
-  const isPro = isPaidPlan(state.effectivePlan);
+  // 43rd 续 · 解锁判定改 plans 数组口径（与 checkLicense 一致）——
+  // 旧「付费即解锁」会把年费独享项错误显示给月费用户为 ✓。
   const items = Object.entries(PAID_FEATURES).map(([key, meta]) => {
-    const enabled = meta.tier === "free" || isPro;
+    const enabled = isFeaturePlanEnabled(meta, state);
+    const planTag = getFeaturePlanTag(meta);
+    const tagLabel = planTag === "yearly" ? "年费" : planTag === "pro" ? "会员" : "免费";
     return `<li class="license-feature ${enabled ? "is-on" : "is-off"}">
       <span class="license-feature-icon" aria-hidden="true">${enabled ? "✓" : "○"}</span>
       <span class="license-feature-meta">
         <strong>${escapeHtml(meta.name)}</strong>
         <span>${escapeHtml(meta.hint)}</span>
       </span>
-      <span class="license-feature-tag">${meta.tier === "free" ? "FREE" : "PRO"}</span>
+      <span class="license-feature-tag" data-tier="${planTag}">${tagLabel}</span>
     </li>`;
   });
   list.innerHTML = items.join("");

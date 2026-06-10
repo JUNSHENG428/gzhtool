@@ -25,7 +25,9 @@ import {
   subscribeLicenseChanges,
   LICENSE_CONSTANTS,
   getLicenseSummaryText,
-  isPaidPlan
+  isPaidPlan,
+  isFeaturePlanEnabled,
+  getFeaturePlanTag
 } from "../shared/license.js";
 import { getUsageSnapshot } from "../shared/usage-stats.js";
 
@@ -349,24 +351,25 @@ function renderFeatureList(state) {
   const list = document.getElementById("memberFeatureList");
   if (!list) return;
 
-  const isPro = isPaidPlan(state?.plan);
   const features = state?.features || {};
 
-  // 排序规则：先解锁的，再 Pro 限定的；同组内固定按 PAID_FEATURES 顺序
+  // 43rd 续 · 解锁判定改 plans 数组口径（与 checkLicense 一致）——
+  // 旧「付费即解锁」会把年费独享项（多账号/文风/本地增强抓取）错误显示给月费用户。
+  // features[key]===false 保留 server 侧 kill-switch 语义。
   const entries = Object.entries(PAID_FEATURES);
   const unlocked = [];
   const locked = [];
   entries.forEach(([key, meta]) => {
-    const enabled =
-      meta.tier === "free" ? true : !!(isPro && features[key] !== false);
+    const enabled = isFeaturePlanEnabled(meta, state) && features[key] !== false;
     (enabled ? unlocked : locked).push({ key, meta, enabled });
   });
 
   list.innerHTML = "";
   [...unlocked, ...locked].forEach(({ key, meta, enabled }) => {
+    const planTag = getFeaturePlanTag(meta);
     const li = document.createElement("li");
     li.className = "member-feature-item";
-    li.dataset.tier = meta.tier;
+    li.dataset.tier = planTag;
     li.dataset.enabled = enabled ? "true" : "false";
 
     const icon = document.createElement("span");
@@ -388,8 +391,9 @@ function renderFeatureList(state) {
 
     const tier = document.createElement("span");
     tier.className = "member-feature-tier";
-    tier.dataset.tier = meta.tier;
-    tier.textContent = meta.tier === "pro" ? "Pro" : "免费";
+    tier.dataset.tier = planTag;
+    tier.textContent =
+      planTag === "yearly" ? "年费" : planTag === "pro" ? "会员" : "免费";
 
     head.append(name, tier);
 
