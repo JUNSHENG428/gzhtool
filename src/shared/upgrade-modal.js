@@ -7,8 +7,8 @@
  *   import { showUpgradeModal } from "../shared/upgrade-modal.js";
  *   showUpgradeModal({
  *     featureName: "多公众号管理",
- *     hint: "免费版最多绑定 2 个公众号，升级 Pro 可无限切换矩阵账号。",
- *     primaryAction: { label: "查看 Pro 套餐", url: "https://..." }
+ *     hint: "免费版可绑定 1 个公众号；年费会员可绑 5 个。",
+ *     primaryAction: { label: "查看年费会员", url: "https://..." }
  *   });
  *
  * 设计原则：

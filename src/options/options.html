@@ -27,7 +27,7 @@
           <a href="#opt-anchor-profiles" class="settings-quicknav-item" data-section-target="profiles">多账号管理</a>
 
           <p class="settings-quicknav-group">抓取增强（可选）</p>
-          <a href="#drissionSettings" class="settings-quicknav-item" data-section-target="drission">DrissionPage</a>
+          <a href="#drissionSettings" class="settings-quicknav-item" data-section-target="drission">本地增强抓取</a>
           <a href="#opt-anchor-hot" class="settings-quicknav-item" data-section-target="hot">热点接口</a>
 
           <p class="settings-quicknav-group">数据</p>
@@ -106,7 +106,7 @@
       <section class="card license-card" id="licenseSection" data-section-key="license">
         <div class="section-heading">
           <h2><span class="section-step-pill license-step-pill">会员</span>会员激活</h2>
-          <p id="licenseHeroHint">免费版包含全部基础功能。如需多账号、DrissionPage、高级模板与无限改写，请登录账号绑定 Pro License。</p>
+          <p id="licenseHeroHint">免费版包含全部基础功能。登录后自动同步会员权益；年费会员可解锁多公众号、文风模拟、本地增强抓取与自定义 API Key。</p>
         </div>
 
         <div class="license-status-box" id="licenseStatusBox" data-status="free">
@@ -182,7 +182,7 @@
           </div>
           <p id="licenseFeedback" class="license-feedback" data-tone="muted">
             还没开通会员？查看
-            <a id="licensePricingLink" href="#" target="_blank" rel="noopener">Pro 会员套餐与定价</a>。
+            <a id="licensePricingLink" href="#" target="_blank" rel="noopener">会员套餐与定价</a>。
           </p>
         </details>
 
@@ -225,11 +225,11 @@
 
         <!-- 39th session · AI 来源 radio（platform 代理 vs BYOK 直连）-->
         <fieldset class="ai-source-toggle">
-          <legend>AI 服务来源 <small class="field-meta">aiSourceMode</small></legend>
+          <legend>AI 服务来源</legend>
           <div class="ai-source-options">
             <label class="checkbox-row">
               <input id="aiSourceModePlatform" type="radio" name="aiSourceMode" value="platform" />
-              <span>使用润笔平台 AI <small class="field-meta">推荐 · 月度托管 · JWT 鉴权</small></span>
+              <span>使用润笔平台 AI <small class="field-meta">推荐 · 免费可用 · 无需自己申请 Key</small></span>
             </label>
             <label class="checkbox-row">
               <input id="aiSourceModeByok" type="radio" name="aiSourceMode" value="byok" />
@@ -237,7 +237,7 @@
             </label>
           </div>
           <small class="field-hint">
-            <strong>平台 AI</strong>：由润笔托管 OpenAI / DeepSeek 等服务商，按月度 token 配额计费。Free 30 次/月、月费 5M token/月、年费 20M token/月。<br/>
+            <strong>平台 AI</strong>：由润笔代你接入 OpenAI / DeepSeek 等服务商，按月配额使用。免费版 30 次/月、月费 5M token/月、年费 20M token/月。<br/>
             <strong>自定义 API Key</strong>：用你自己注册的 OpenAI / DeepSeek / Kimi 等服务商账号，文章正文直接发送到你绑定的服务商，<strong>不经过润笔服务器</strong>。仅年费会员可解锁。
           </small>
         </fieldset>
@@ -245,24 +245,24 @@
         <!-- 39th session · 平台模式专属面板（aiSourceMode=platform 时显示）-->
         <div class="ai-source-panel" data-source="platform" hidden>
           <label>
-            <span>模型档位 <small class="field-meta">platformTier</small></span>
+            <span>模型档位</span>
             <select id="platformTier">
               <option value="economy">经济档（DeepSeek V4 Flash · 全员可用 · 中文好性价比高）</option>
               <option value="standard">标准档（DeepSeek V4 Pro · 月费起 · 推理能力更强）</option>
               <option value="flagship">旗舰档（GPT-4o · 年费独享 · 标杆质量）</option>
             </select>
             <small class="field-hint">
-              <strong>什么时候改</strong>：想用更强的模型时升档（占 token 也更多）；不知道选哪个就保留经济档，绝大多数公众号写作场景已够用。<strong>越权选档会怎样</strong>：免费用户选标准/旗舰、月费用户选旗舰，请求时会被 worker 自动降级到你能用的最高档（响应头 `X-Platform-Tier-Downgraded` 标记），不报错。
+              <strong>什么时候改</strong>：想用更强的模型时升档（消耗额度也更快）；不知道选哪个就保留经济档，绝大多数公众号写作场景已够用。<strong>选了超出套餐的档位会怎样</strong>：自动按你的套餐使用可用的最高档，不会报错。
             </small>
           </label>
 
           <!-- 39th 续 · Phase 3 · 流式响应开关 -->
           <label class="checkbox-row" style="margin-top:8px;">
             <input id="platformStreaming" type="checkbox" />
-            <span>启用流式响应 <small class="field-meta">SSE · 边收边渲染</small></span>
+            <span>启用流式响应 <small class="field-meta">实时看到生成进度</small></span>
           </label>
           <small class="field-hint" style="margin-left:24px;display:block;margin-top:-4px;">
-            <strong>什么时候开</strong>：想要"AI 生成时实时看到进度"而不是"等 30 秒才出整篇"——开启后任务卡会实时显示「已生成 N 字」。<strong>什么时候关</strong>：网络代理不稳定（流式连接更易断）或想要简化错误处理。<strong>开启的代价</strong>：占用一条长连接到我们 worker，与非流式同费率。
+            <strong>什么时候开</strong>：想要"AI 生成时实时看到进度"而不是"等 30 秒才出整篇"——开启后任务卡会实时显示「已生成 N 字」。<strong>什么时候关</strong>：网络环境不稳定时（实时连接更容易断）。费用与关闭时完全一样。
           </small>
 
           <!-- 用量卡片：未登录显示 CTA；登录后 fetch /api/llm/usage 渲染进度条 -->
@@ -378,7 +378,7 @@
             </span>
           </label>
           <small class="field-hint" style="margin-left:24px;">
-            开启后 AI 改写和抓取**不再阻塞编辑台**——任务挪到右下角浮窗后台跑，等待期间你可以切到别的草稿、抓下一个网页或看 dashboard。任务完成会弹 toast 提醒并能跳到对应文章。
+            开启后 AI 改写和抓取<strong>不再阻塞编辑台</strong>——任务挪到右下角浮窗后台跑，等待期间你可以切到别的草稿、抓下一个网页或看总览。任务完成会弹出提醒并能跳到对应文章。
             <strong>什么时候关</strong>：习惯看到"全屏 loading 等结果"才安心；或并发跑多个改写时担心服务商速率限额。
             <strong>关掉的后果</strong>：回到老的全屏 loading modal 模式，等待期间不能做其他操作。可以随时打开。
           </small>
@@ -389,7 +389,7 @@
         <div class="section-heading split-full">
           <h2>去 AI 味强化<span class="section-tag">会员功能</span></h2>
           <p>
-            开启后，AI 改写完成的文章会再过一道"去 AI 味"专项润色，<strong>句长、用词、节奏会被重写到更接近真人写作</strong>。这一步会触发额外的 LLM 调用（按章节数计 N 次），改写时间和 token 用量会有 30%–80% 的增加。
+            开启后，AI 改写完成的文章会再过一道"去 AI 味"专项润色，<strong>句长、用词、节奏会被重写到更接近真人写作</strong>。这一步会多花一些改写时间和 AI 额度（大约多 30%–80%）。
           </p>
         </div>
 
@@ -402,23 +402,23 @@
         </label>
 
         <label>
-          <span>润色强度 <small class="field-meta">humanize_intensity</small></span>
+          <span>润色强度</span>
           <select id="humanizeIntensity">
-            <option value="light">轻 · 仅修 lint 命中权重最高的 1 段（最省 token）</option>
-            <option value="medium">中 · 仅重写 lint 命中段 + lead（推荐档位 · 默认）</option>
-            <option value="strong">重 · 全文重写 + lead + 注入个人文风样本</option>
+            <option value="light">轻 · 只润色 AI 痕迹最重的 1 段（最省额度）</option>
+            <option value="medium">中 · 润色被检测出风险的段落 + 开头（推荐 · 默认）</option>
+            <option value="strong">重 · 全文重写 + 模仿你的文风（效果最强）</option>
           </select>
           <small class="field-hint">
-            轻档位只跑权重最高的 1 段；中档位只跑被 lint 命中风险点的章节 + lead，零命中时退化到全段兜底；重档位强制重写全部 H2 + lead 并注入"我的文风"指纹。强度越高越像真人，但也越烧 token、越慢。
+            强度越高越像真人，但花的额度越多、改写越慢。拿不准就用默认的「中」：只重写被 AI 痕迹检测点名的段落和开头，不动其余部分。
           </small>
         </label>
 
         <p class="humanize-cost-hint split-full">
-          <strong>token 估算</strong>：一篇 1500 字稿件，主 pass 大约 ~2.5k token；中档位通常只重写 1–3 段（~1.5k–3k token），重档位按章节数（典型 4–6 章）总计 ~3k–5k token。lint 分数 ≥ 85 时整篇会跳过二次润色，直接用主 pass 结果。
+          <strong>额度参考</strong>：一篇 1500 字的文章，「中」档通常只重写 1–3 段，额外消耗约为基础改写的一半；「重」档全文重写，约等于再改写一遍。文章本身 AI 痕迹检测得分已经很高（≥ 85 分）时会自动跳过这一步，不浪费额度。
         </p>
 
         <label class="split-full">
-          <span>合规检测 · 自定义敏感词 <small class="field-meta">compliance_custom_words</small></span>
+          <span>合规检测 · 自定义敏感词</span>
           <textarea id="complianceCustomWords" rows="3" placeholder="一行一个，或用逗号 / 顿号分隔。例如：竞品名、内部代号、你想规避的词"></textarea>
           <small class="field-hint">
             <strong>什么时候改</strong>：你的号有行业特有的敏感词 / 想规避的竞品名 / 历史踩过雷的词。
@@ -432,9 +432,9 @@
         <div class="section-heading split-full">
           <h2>我的文风<span class="section-tag yearly">年费专享</span><span class="section-tag soft">让 AI 模仿你的语气</span></h2>
           <p>
-            把你以前写过的几篇代表作粘进来，AI 会先离线提取一份"风格指纹"（常用语气词、句长偏好、忌讳词），
+            把你以前写过的几篇代表作粘进来，AI 会先在本地提取一份"风格指纹"（常用语气词、句长偏好、忌讳词），
             之后所有 AI 改写 + 二次"去 AI 味"润色都会向这份指纹靠拢。
-            <strong>样本只存在你本机浏览器</strong>，不会上传到我们的服务器；但每次改写时会随 prompt 发给你配置的 LLM API 提供方。
+            <strong>样本只存在你本机浏览器</strong>，不会上传到我们的服务器；改写时风格信息会发给你所选的 AI 服务商。
           </p>
         </div>
 
@@ -456,7 +456,7 @@
             <h2 id="voiceSampleHistoryTitle">从历史草稿导入风格样本</h2>
           </header>
           <div class="modal-body">
-            <p>选 1-3 篇你写过的代表作 → 系统会把它们的正文拼成 rawText 填进文风样本编辑器，然后你点"保存并提取指纹"即可。</p>
+            <p>选 1-3 篇你写过的代表作 → 正文会自动填进文风样本编辑器，然后你点"保存并提取指纹"即可。</p>
             <p class="muted">列表来自工作台「历史草稿」，已按时间倒序排列，每条预览前 200 字。</p>
             <ul id="voiceSampleHistoryList" class="voice-sample-history-list" aria-label="历史草稿列表"></ul>
             <p id="voiceSampleHistoryEmpty" class="muted" hidden>还没有任何历史草稿。先去工作台抓一篇 + 改写 → 推送 / 保存后会出现在这里。</p>
@@ -615,7 +615,7 @@
                     <input id="templateModel" type="text" placeholder="例如 gpt-4.1-mini" />
                   </label>
                   <label>
-                    <span>「我的文风」注入策略 <small class="field-meta">useVoiceSample</small></span>
+                    <span>「我的文风」注入策略</span>
                     <select id="templateUseVoiceSample">
                       <option value="auto">自动 · 若用户启用了样本则注入（默认）</option>
                       <option value="force-on">强制开启 · 即便用户没启用也尝试注入</option>
@@ -624,12 +624,12 @@
                     <small class="field-hint">控制本模板要不要把用户保存的文风指纹放进 prompt。强制关闭可避免正式稿件被个人语气干扰。</small>
                   </label>
                   <label>
-                    <span>允许「去 AI 味」二次润色 <small class="field-meta">humanizePassAllowed</small></span>
+                    <span>允许「去 AI 味」二次润色</span>
                     <select id="templateHumanizePassAllowed">
                       <option value="true">允许（推荐 · 大部分模板都该开）</option>
                       <option value="false">禁止 · 例如「教程拆解」需要保留代码 / 步骤精确度</option>
                     </select>
-                    <small class="field-hint">禁用后即使用户开启了「去 AI 味」开关，使用本模板时也不会触发二次 LLM 调用。</small>
+                    <small class="field-hint">禁用后即使用户开启了「去 AI 味」开关，使用本模板时也不会做二次润色。</small>
                   </label>
                 </div>
               </details>
@@ -737,14 +737,14 @@
           <label class="checkbox-row">
             <input id="floatingBallEnabled" type="checkbox" />
             <span>
-              公众号编辑页悬浮助手 <small class="field-meta">Floating Helper · 浏览器登录模式专用</small>
+              公众号编辑页悬浮助手 <small class="field-meta">浏览器登录模式专用</small>
             </span>
           </label>
           <small class="field-hint" style="margin-left:24px;">
-            打开后，<code>mp.weixin.qq.com</code> 编辑页右下角会出现一个圆形浮球，点开能从润笔工作台
-            一键拉当前激活草稿到 mp 编辑器（反向 push 入口）。
-            <strong>什么时候改</strong>：常先打开 mp 后台 / 切账号 / 再想拉润笔草稿过来时打开。
-            <strong>关掉的后果</strong>：mp 编辑页不显示浮球，发布走 workspace「推送到公众号草稿箱」按钮。
+            打开后，公众号后台编辑页右下角会出现一个圆形浮球，点开能把润笔编辑台里正在写的草稿
+            一键填进公众号编辑器。
+            <strong>什么时候开</strong>：习惯先打开公众号后台、再把润笔草稿拉过来时。
+            <strong>关掉的后果</strong>：公众号编辑页不显示浮球，发布走编辑台的「推送到公众号草稿箱」按钮。
             浮球只在 <code>mp.weixin.qq.com</code> 编辑页注入，不影响其他网页；可拖拽，可在浮球上右键永久隐藏。
           </small>
         </div>
@@ -754,12 +754,12 @@
           <label class="checkbox-row">
             <input id="useReactFloatingBall" type="checkbox" />
             <span>
-              使用新版浮球 <small class="field-meta">React + Shadow DOM · 试用版</small>
+              使用新版浮球 <small class="field-meta">试用版</small>
             </span>
           </label>
           <small class="field-hint" style="margin-left:24px;">
-            新版用 React + Shadow DOM 重写，视觉与老版完全一致但**贴边隐藏**等微交互更精致。
-            <strong>什么时候改</strong>：想试试更精致的浮球时打开。开关切换后下次刷新 mp 编辑页生效。
+            新版浮球视觉与老版完全一致，但<strong>贴边隐藏</strong>等微交互更精致。
+            <strong>什么时候开</strong>：想试试更精致的浮球时。开关切换后下次刷新公众号编辑页生效。
             <strong>关掉的后果</strong>：自动回到老版（vanilla strip），所有数据通用。两版功能一致，可一键切回。
             遇到任何异常请关掉新版并把现象告诉作者。
           </small>
@@ -919,12 +919,13 @@
         <div class="section-heading">
           <h2>本地增强抓取<span class="section-tag yearly">年费专享</span></h2>
           <p>
-            遇到反爬严重、需要登录的页面时，可以在本机起一个
-            <a href="https://github.com/g1879/DrissionPage" target="_blank" rel="noreferrer">DrissionPage</a>
-            helper 服务（依赖你电脑上已装的 Chrome），扩展会优先把抓取请求转给它；helper 不可达或抓不到内容时会自动回退到内置抓取，不会让你卡死。
+            遇到反爬严重、需要登录的页面时，可以在本机运行「润笔桌面助手」——它会用你电脑上真实的
+            Chrome 浏览器去抓取（基于开源的
+            <a href="https://github.com/g1879/DrissionPage" target="_blank" rel="noreferrer">DrissionPage</a>），
+            扩展会优先把抓取请求转给它；助手没在运行或抓不到内容时会自动回退到内置抓取，不会让你卡死。
           </p>
           <p class="muted">
-            选区抓取（在网页上选中文字 → 抓取）永远走扩展内置脚本，不经过 DrissionPage。
+            选区抓取（在网页上选中文字 → 抓取）永远走扩展内置方式，不经过桌面助手。
           </p>
 
           <div class="helper-download-banner">
@@ -1037,7 +1038,7 @@
 
       <p class="advanced-toast" id="advancedToast" role="note">
         <span aria-hidden="true">💡</span>
-        还有「热点接口 / 改写 Prompt 模板 / DrissionPage 增强」等进阶配置已收起。
+        还有「热点接口 / 改写 Prompt 模板 / 本地增强抓取」等进阶配置已收起。
         <button type="button" class="link-button" data-mode="expert">切到高级模式查看</button>
       </p>
     </main>
@@ -1052,7 +1053,7 @@
               <button id="resetAiButton" type="button" class="ghost">仅重置 AI 接口</button>
               <button id="resetWechatButton" type="button" class="ghost">仅重置公众号凭证</button>
               <button id="resetPreferencesButton" type="button" class="ghost">仅重置改写偏好</button>
-              <p class="reset-note muted">分区重置不会影响其它分区的配置；多账号列表 (wechatProfiles) 永远不会被一键清空。</p>
+              <p class="reset-note muted">分区重置不会影响其它分区的配置；多账号列表永远不会被一键清空。</p>
             </div>
           </details>
           <button id="saveButton" class="primary save-bar-primary">保存设置</button>
