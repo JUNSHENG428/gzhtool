@@ -112,7 +112,16 @@ const fields = {
   // 39th 续 · Phase 3 · 平台 AI 流式响应开关（checkbox，saveForm 通用循环识别 type=checkbox）
   platformStreaming: document.querySelector("#platformStreaming"),
   // 40th 续 · 合规检测自定义敏感词（textarea，saveForm 通用循环读 .value 持久化）
-  complianceCustomWords: document.querySelector("#complianceCustomWords")
+  complianceCustomWords: document.querySelector("#complianceCustomWords"),
+  // 43rd session · 修复「界面有控件但从未接保存链」：这 5 个字段此前只是摆设，
+  // 用户改了也不落 storage（defaults.js 兜底值一直生效）。
+  // topP/frequencyPenalty/presencePenalty 留空 = 不下发（saveForm 末尾有空串保全，
+  // 防止通用循环 Number("") → 0 被真的发给 API）。
+  topP: document.querySelector("#topP"),
+  frequencyPenalty: document.querySelector("#frequencyPenalty"),
+  presencePenalty: document.querySelector("#presencePenalty"),
+  humanizeEnabled: document.querySelector("#humanizeEnabled"),
+  humanizeIntensity: document.querySelector("#humanizeIntensity")
 };
 
 const statusElement = document.querySelector("#status");
@@ -491,7 +500,7 @@ function formatPlatformUsage(n) {
   return String(num);
 }
 
-// 闸门：DrissionPage 是 Pro 功能，免费用户尝试勾选时拦截并弹升级框
+// 闸门：本地增强抓取（DrissionPage）年费专享，非年费用户尝试勾选时拦截并弹升级框
 fields.drissionEnabled?.addEventListener("change", async (event) => {
   if (!event.target.checked) return;
   const access = await checkLicense("scrape.drission");
@@ -501,11 +510,31 @@ fields.drissionEnabled?.addEventListener("change", async (event) => {
     featureName: PAID_FEATURES["scrape.drission"].name,
     hint: access.hint || PAID_FEATURES["scrape.drission"].hint,
     bullets: [
-      "走真实 Chromium，绕过反爬与懒加载",
-      "对动态加载内容（如电商详情页）友好",
+      "用你电脑上真实的浏览器抓取，需登录、反爬严的页面也能抓",
+      "对懒加载 / 动态渲染内容（如电商详情页）友好",
       "失败时自动回退到内置抓取，不会卡死"
     ],
-    primaryAction: { label: "查看 Pro 会员", url: pricingUrl() }
+    primaryAction: { label: "查看年费会员", url: pricingUrl() }
+  });
+});
+
+// 闸门：「去 AI 味」二次润色是会员功能（月费/年费），免费用户勾选时拦截。
+// 43rd session · Batch2：此前开关完全没闸门——免费用户开了也只是在 service-worker
+// 被静默跳过，体验上是「开了没反应」；现在改为原位拦截 + 价值预览，行为可预期。
+fields.humanizeEnabled?.addEventListener("change", async (event) => {
+  if (!event.target.checked) return;
+  const access = await checkLicense("ai.deAiBoost");
+  if (access.ok) return;
+  event.target.checked = false;
+  showUpgradeModal({
+    featureName: PAID_FEATURES["ai.deAiBoost"].name,
+    hint: access.hint || PAID_FEATURES["ai.deAiBoost"].hint,
+    bullets: [
+      "AI 改写后自动再过一道「去 AI 味」专项润色",
+      "句长、用词、节奏被重写到更接近真人写作",
+      "搭配本地 AI 痕迹检测打分，效果看得见"
+    ],
+    primaryAction: { label: "查看会员方案", url: pricingUrl() }
   });
 });
 
@@ -830,6 +859,12 @@ async function saveForm() {
     }
   }
 
+  // 采样三参语义是「留空 = 不下发，让 API 用默认」——通用循环把空串 Number() 成 0
+  // 会变成"显式下发 0"，彻底改变模型行为；这里改回空串（ai.js numberOrNull 会跳过）。
+  for (const key of ["topP", "frequencyPenalty", "presencePenalty"]) {
+    if (fields[key] && fields[key].value.trim() === "") patch[key] = "";
+  }
+
   // helper URL 在保存前再拆一次，避免用户手敲后没触发 blur 就直接点保存
   if (typeof patch.drissionHelperUrl === "string" && patch.drissionHelperUrl) {
     const parsed = parseDrissionHelperInput(patch.drissionHelperUrl);
@@ -847,7 +882,7 @@ async function saveForm() {
 }
 
 const SECTION_KEYS = {
-  ai: ["apiBaseUrl", "apiKey", "model", "temperature"],
+  ai: ["apiBaseUrl", "apiKey", "model", "temperature", "topP", "frequencyPenalty", "presencePenalty"],
   wechat: [
     "wechatAppId",
     "wechatAppSecret",
@@ -1553,18 +1588,18 @@ async function addProfile() {
     return;
   }
 
-  // 闸门：多账号超过免费版上限时弹升级框
+  // 闸门：多账号超过当前套餐上限时弹升级框（免费/月费 1 个、年费 5 个）
   const limit = await checkAccountLimit(currentProfiles.length);
   if (!limit.ok) {
     showUpgradeModal({
       featureName: PAID_FEATURES["wechat.multiAccount"].name,
       hint: limit.hint,
       bullets: [
-        "Pro 会员不限公众号绑定数量，自由切换矩阵",
-        "支持每个绑定的公众号独立设置默认作者、发布模式",
+        "年费会员可绑 5 个公众号，矩阵号一处管理、一键切换",
+        "每个公众号独立设置默认作者、发布模式",
         "测试连接、发布日志按公众号区分"
       ],
-      primaryAction: { label: "查看 Pro 会员", url: pricingUrl() }
+      primaryAction: { label: "查看年费会员", url: pricingUrl() }
     });
     return;
   }
@@ -2331,11 +2366,36 @@ async function initVoiceSamples() {
 
   await renderVoiceSampleList();
 
-  addBtn?.addEventListener("click", () => openEditor(null));
+  // 43rd session · Batch2 · 文风模拟年费闸门（ai.voiceMimic）：
+  // 入口级拦截（添加/导入/启用），样本管理（编辑/删除/停用）不拦——
+  // 用户掉级后仍能管理自己的数据，只是不再被注入（运行时闸在 service-worker）。
+  async function guardVoiceMimic() {
+    const access = await checkLicense("ai.voiceMimic");
+    if (access.ok) return true;
+    showUpgradeModal({
+      featureName: PAID_FEATURES["ai.voiceMimic"].name,
+      hint: access.hint || PAID_FEATURES["ai.voiceMimic"].hint,
+      bullets: [
+        "保存你的代表作，AI 离线提取「风格指纹」",
+        "改写时自动模仿你的用词、句式和节奏",
+        "样本只存本机，不上传服务器"
+      ],
+      primaryAction: { label: "查看年费会员", url: pricingUrl() }
+    });
+    return false;
+  }
+
+  addBtn?.addEventListener("click", async () => {
+    if (await guardVoiceMimic()) openEditor(null);
+  });
   cancelBtn?.addEventListener("click", () => closeEditor());
   saveBtn?.addEventListener("click", () => void saveCurrent());
-  importHistoryBtn?.addEventListener("click", () => void openHistoryModal());
-  importUrlBtn?.addEventListener("click", () => void openUrlImport());
+  importHistoryBtn?.addEventListener("click", async () => {
+    if (await guardVoiceMimic()) void openHistoryModal();
+  });
+  importUrlBtn?.addEventListener("click", async () => {
+    if (await guardVoiceMimic()) void openUrlImport();
+  });
 
   // 列表项里的 启用/编辑/删除 用事件委托，避免每次 render 重绑
   list.addEventListener("click", async (event) => {
@@ -2346,6 +2406,7 @@ async function initVoiceSamples() {
     if (!id || !action) return;
 
     if (action === "activate") {
+      if (!(await guardVoiceMimic())) return;
       await setActiveVoiceSampleId(id);
       await renderVoiceSampleList();
       setStatus("已启用此文风样本，下次 AI 改写会注入。");

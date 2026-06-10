@@ -387,7 +387,7 @@
 
       <section class="card split-grid" data-section-key="humanize" id="opt-anchor-humanize">
         <div class="section-heading split-full">
-          <h2>去 AI 味强化<span class="section-tag soft">PRO · 默认开</span></h2>
+          <h2>去 AI 味强化<span class="section-tag">会员功能</span></h2>
           <p>
             开启后，AI 改写完成的文章会再过一道"去 AI 味"专项润色，<strong>句长、用词、节奏会被重写到更接近真人写作</strong>。这一步会触发额外的 LLM 调用（按章节数计 N 次），改写时间和 token 用量会有 30%–80% 的增加。
           </p>
@@ -397,7 +397,7 @@
           <input id="humanizeEnabled" type="checkbox" />
           <div class="humanize-toggle-text">
             <strong>启用「去 AI 味」二次润色</strong>
-            <small>免费版仍可看到主 pass + 本地 lint 检测；二次润色仅 Pro 启用。即便开了开关，免费用户也不会被实际收费，只是不会触发二次调用。</small>
+            <small>免费版可以使用基础改写和本地 AI 痕迹检测；二次润色是会员功能。</small>
           </div>
         </label>
 
@@ -430,7 +430,7 @@
 
       <section class="card split-grid" data-section-key="voice" id="opt-anchor-voice">
         <div class="section-heading split-full">
-          <h2>我的文风<span class="section-tag soft">可选 · 让 AI 模仿你的语气</span></h2>
+          <h2>我的文风<span class="section-tag yearly">年费专享</span><span class="section-tag soft">让 AI 模仿你的语气</span></h2>
           <p>
             把你以前写过的几篇代表作粘进来，AI 会先离线提取一份"风格指纹"（常用语气词、句长偏好、忌讳词），
             之后所有 AI 改写 + 二次"去 AI 味"润色都会向这份指纹靠拢。
@@ -861,9 +861,9 @@
 
       <section class="card" data-section-key="profiles" id="opt-anchor-profiles">
         <div class="section-heading split-full">
-          <h2>多账号管理<span class="section-tag soft">推荐 · 浏览器登录免 AppSecret</span></h2>
+          <h2>多账号管理<span class="section-tag soft">推荐 · 浏览器登录免 AppSecret</span><span class="section-tag yearly">多号绑定 · 年费</span></h2>
           <p>
-            如果你有一个或多个公众号，在这里加好账号后就能在编辑台一键发布。
+            如果你有一个或多个公众号，在这里加好账号后就能在编辑台一键发布。免费版可绑 1 个公众号；年费会员可绑 5 个。
           </p>
           <p class="muted" style="margin-top:6px;">
             发布通道有两种：<strong>浏览器登录模式</strong>（推荐 C 端，不需要 appId/AppSecret，复用浏览器登录态）与
@@ -917,7 +917,7 @@
 
       <section class="card" data-advanced="true" id="drissionSettings" data-section-key="drission">
         <div class="section-heading">
-          <h2>DrissionPage 增强抓取<span class="section-tag soft">可选 / 进阶</span></h2>
+          <h2>本地增强抓取<span class="section-tag yearly">年费专享</span></h2>
           <p>
             遇到反爬严重、需要登录的页面时，可以在本机起一个
             <a href="https://github.com/g1879/DrissionPage" target="_blank" rel="noreferrer">DrissionPage</a>
@@ -941,7 +941,7 @@
 
         <label class="checkbox-row">
           <input id="drissionEnabled" type="checkbox" />
-          <span>真实浏览器抓取 <small class="field-meta">DrissionPage · Pro</small></span>
+          <span>真实浏览器抓取 <small class="field-meta">年费专享</small></span>
         </label>
         <small class="field-hint" style="margin-top:-4px;display:block;">
           <strong>什么时候开</strong>：反爬严的网站抓不到时（要登录、有 Cloudflare 拦截等）。<strong>填错的后果</strong>：没装桌面助手会失败回退到内置抓取，不会卡死。

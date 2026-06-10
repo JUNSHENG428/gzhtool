@@ -1934,6 +1934,13 @@ button.ghost {
   color: var(--soft-ink);
 }
 
+/* 43rd session · Batch2 · 年费专享金标（原位锁定 + 价值预览，不隐藏功能区） */
+.section-tag.yearly {
+  background: linear-gradient(135deg, rgba(212, 168, 83, 0.22), rgba(184, 134, 48, 0.3));
+  color: #7a5314;
+  border: 1px solid rgba(184, 134, 48, 0.35);
+}
+
 /* 字段下方小提示 */
 .field-meta {
   margin-left: 6px;
