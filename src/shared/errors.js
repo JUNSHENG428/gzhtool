@@ -90,10 +90,42 @@ const USER_MESSAGES = {
  * @param {string} [context] - 上下文提示："ai" | "wechat" | "scrape" | "image" | 其他
  * @returns {{ code: string, message: string, retryable: boolean }}
  */
+// 44th session · 自描述错误码白名单：ai.js / license.js 抛出的结构化错误自带
+// 精准中文文案与语义 code（含 err.data.resets_at 等附加信息入口）。
+// classifyError 此前只做关键词匹配，会把「本月平台额度已用完」吞成泛化的
+// API_RATE_LIMITED 固定文案——前端拿不到真实 code，无法弹登录/升级引导。
+const SELF_DESCRIBING_CODES = Object.freeze(
+  new Set([
+    "AUTH_REQUIRED",
+    "AUTH_EXPIRED",
+    "PLATFORM_QUOTA_EXCEEDED",
+    "PLATFORM_RATE_LIMITED",
+    "PLATFORM_UNCONFIGURED",
+    "LICENSE_BYOK_LOCKED",
+    "LICENSE_TEMPLATE_LOCKED",
+    "AI_PARSE_FAILED",
+    "CANCELLED",
+    "NETWORK"
+  ])
+);
+const SELF_DESCRIBING_RETRYABLE = Object.freeze(
+  new Set(["NETWORK", "PLATFORM_RATE_LIMITED", "AI_PARSE_FAILED"])
+);
+
 export function classifyError(error, context) {
   const rawMessage = String(error?.message || "").trim();
   const msg = rawMessage.toLowerCase();
   const name = String(error?.name || "");
+
+  // err.code 优先透传，保留原始中文文案与语义码
+  const selfCode = String(error?.code || "");
+  if (selfCode && SELF_DESCRIBING_CODES.has(selfCode)) {
+    return {
+      code: selfCode,
+      message: rawMessage || USER_MESSAGES[ErrorCode.UNKNOWN],
+      retryable: SELF_DESCRIBING_RETRYABLE.has(selfCode)
+    };
+  }
 
   // ── 浏览器登录模式（mode === "browser"）专属错误码 ──
   // wechat-browser-bridge.js throw 的 Error 上挂 browserModeCode 字段，

@@ -503,7 +503,38 @@ export async function rewriteArticle() {
 
     if (!response?.ok) {
       // 闸门错误：弹升级框，不当作普通失败
-      const code = response?.errorCode;
+      // 44th · code 也可能在 response.error.code（SW outer catch 经 classifyError
+      // 透传 ai.js 的结构化错误码——此前被关键词匹配吞成泛化文案，这里拿不到）
+      const code = response?.errorCode || response?.error?.code;
+      if (code === "CANCELLED") {
+        // 用户自己点的取消，不是错误——安静确认即可，不给红条不给重试按钮
+        setStatus("已取消改写。", "info");
+        _sourceImagesByRequestId.delete(requestId);
+        return;
+      }
+      if (code === "PLATFORM_QUOTA_EXCEEDED") {
+        showUpgradeModal({
+          featureName: "平台 AI 额度",
+          hint: response?.error?.message || response?.error || "本月平台 AI 额度已用完。",
+          bullets: [
+            "月费会员：每月 5M token 标准档额度，够写 100+ 篇",
+            "年费会员：旗舰档 20M token + 可改用自己的 API Key 不限量"
+          ]
+        });
+        setStatus("本月平台 AI 额度已用完，升级会员或等下月 1 日重置。", "warning");
+        _sourceImagesByRequestId.delete(requestId);
+        return;
+      }
+      if (code === "AUTH_REQUIRED" || code === "AUTH_EXPIRED") {
+        setStatus(
+          code === "AUTH_EXPIRED"
+            ? "润笔账户登录已过期，请到设置页 → 我的会员 重新登录后再改写。"
+            : "使用平台 AI 需要先登录润笔账户（免费版即可用）：设置页 → 我的会员 → 登录。",
+          "warning"
+        );
+        _sourceImagesByRequestId.delete(requestId);
+        return;
+      }
       if (code === "LICENSE_QUOTA_EXCEEDED") {
         const meta = PAID_FEATURES["ai.unlimitedDaily"];
         showUpgradeModal({
@@ -588,7 +619,13 @@ export async function applyRewriteTaskResult(task) {
     return;
   }
 
-  const sourceImages = _sourceImagesByRequestId.get(task.requestId) || [];
+  // 44th · 优先用 SW task.result 里持久化的 sourceImages（改写期间刷新页面 /
+  // 新开 tab 时内存 Map 已空，旧逻辑会把正文 imageRefs 全渲染成空 → 配图全丢）。
+  // Map 仅作老任务（result 里还没有 sourceImages 字段）的兼容兜底。
+  const sourceImages =
+    (Array.isArray(result.sourceImages) && result.sourceImages.length > 0
+      ? result.sourceImages
+      : _sourceImagesByRequestId.get(task.requestId)) || [];
   const draftState = createArticleDraftState(result.article, sourceImages);
   const target = state.articleBundle[idx];
 
@@ -970,10 +1007,22 @@ function renderHumanizeBadge(lint, humanizePass) {
   const labelEl = badge.querySelector(".humanize-badge-label");
   const scoreEl = badge.querySelector(".humanize-badge-score");
   if (labelEl) {
-    const passNote =
-      humanizePass?.applied
-        ? `（已二次润色 · ${humanizePass.sectionCount || 0} 段）`
-        : "";
+    // 44th · 二次润色没跑时把原因亮出来——此前 skippedReason/errors 只埋在 meta 里，
+    // 用户开了「去 AI 味」却看不出它有没有干活（「开了没反应」假象的最后一块）
+    let passNote = "";
+    if (humanizePass?.applied) {
+      passNote = `（已二次润色 · ${humanizePass.sectionCount || 0} 段）`;
+    } else if (humanizePass?.skippedReason === "high-score") {
+      passNote = "（原稿已达标，跳过二次润色）";
+    } else if (humanizePass?.skippedReason === "license-required") {
+      passNote = "（二次润色需会员，未执行）";
+    } else if (humanizePass?.skippedReason === "user-disabled") {
+      passNote = "（二次润色已关闭）";
+    } else if (humanizePass?.aborted) {
+      passNote = "（二次润色已跳过）";
+    } else if (Array.isArray(humanizePass?.errors) && humanizePass.errors.length > 0) {
+      passNote = "（二次润色未完成，详情见下方面板）";
+    }
     labelEl.textContent = `AI 味检测 ${passNote}`;
   }
   if (scoreEl) scoreEl.textContent = `${score} 分 · ${issues.length} 处可优化`;
@@ -994,6 +1043,20 @@ function renderHumanizeBadge(lint, humanizePass) {
   const list = panel.querySelector(".humanize-panel-issues");
   if (list) {
     list.innerHTML = "";
+    // 44th · 二次润色执行异常置顶展示（如平台登录过期、单段重写失败回退原文）
+    if (!humanizePass?.applied && Array.isArray(humanizePass?.errors) && humanizePass.errors.length > 0) {
+      const li = document.createElement("li");
+      li.dataset.severity = "warn";
+      const tag = document.createElement("span");
+      tag.className = "humanize-issue-tag";
+      tag.textContent = "润色";
+      const text = document.createElement("span");
+      text.className = "humanize-issue-text";
+      text.textContent = `二次润色未完成：${String(humanizePass.errors[0] || "").slice(0, 80)}`;
+      li.appendChild(tag);
+      li.appendChild(text);
+      list.appendChild(li);
+    }
     if (!issues.length) {
       const li = document.createElement("li");
       li.dataset.severity = "hint";

@@ -606,7 +606,7 @@ function isPlatformMode(settings) {
 //   PLATFORM_RATE_LIMITED          · 429（附 err.retryAfterMs）
 //   PLATFORM_UNCONFIGURED          · 503（worker 缺 *_API_KEY secret 或上游不可用）
 //   NETWORK / 普通 Error           · fetch 抛错或 4xx/5xx 通用情况
-async function requestRewriteViaPlatform(settings, source, preferences, template, voiceSample) {
+async function requestRewriteViaPlatform(settings, source, preferences, template, voiceSample, options = {}) {
   // 1. 取 JWT
   const authRecord = await getAuthRecord();
   const jwt = authRecord?.token;
@@ -672,9 +672,17 @@ async function requestRewriteViaPlatform(settings, source, preferences, template
         "Content-Type": "application/json",
         Authorization: `Bearer ${jwt}`
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: options.abortSignal || undefined
     });
   } catch (netErr) {
+    // 44th · 用户主动取消（CANCEL_TASK abort）不能伪装成网络错误——
+    // 否则 withRetry 会重试 2 次，额度照扣
+    if (netErr?.name === "AbortError") {
+      const err = new Error("已取消改写");
+      err.code = "CANCELLED";
+      throw err;
+    }
     const err = new Error(`平台 AI 网络错误：${netErr?.message || "未知"}`);
     err.code = "NETWORK";
     throw err;
@@ -798,9 +806,15 @@ async function requestRewriteViaPlatformStreaming(settings, source, preferences,
         "Content-Type": "application/json",
         Authorization: `Bearer ${jwt}`
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: options.abortSignal || undefined
     });
   } catch (netErr) {
+    if (netErr?.name === "AbortError") {
+      const err = new Error("已取消改写");
+      err.code = "CANCELLED";
+      throw err;
+    }
     const err = new Error(`平台 AI 网络错误：${netErr?.message || "未知"}`);
     err.code = "NETWORK";
     throw err;
@@ -871,7 +885,20 @@ async function requestRewriteViaPlatformStreaming(settings, source, preferences,
   };
 
   while (true) {
-    const { value, done } = await reader.read();
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch (readErr) {
+      // 44th · CANCEL_TASK abort：fetch signal 触发后 read() 以 AbortError reject，
+      // 转成 CANCELLED 防 withRetry 重跑（流式半途重试还会撞反例 #21）
+      if (readErr?.name === "AbortError") {
+        const err = new Error("已取消改写");
+        err.code = "CANCELLED";
+        throw err;
+      }
+      throw readErr;
+    }
+    const { value, done } = chunk;
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const events = buffer.split("\n\n");
@@ -894,7 +921,7 @@ export async function requestRewrite(settings, source, preferences, template, vo
     if (settings?.platformStreaming) {
       return requestRewriteViaPlatformStreaming(settings, source, preferences, template, voiceSample, options);
     }
-    return requestRewriteViaPlatform(settings, source, preferences, template, voiceSample);
+    return requestRewriteViaPlatform(settings, source, preferences, template, voiceSample, options);
   }
 
   // 39th session · BYOK 闸门：年费独享
@@ -970,11 +997,22 @@ export async function requestRewrite(settings, source, preferences, template, vo
   const apiUrl = settings.apiBaseUrl.trim();
   await ensureOptionalHostPermission(apiUrl, "AI 改写接口");
 
-  const { response, payload } = await postChatCompletionWithReasoningFallback(
-    apiUrl,
-    settings.apiKey,
-    body
-  );
+  let response, payload;
+  try {
+    ({ response, payload } = await postChatCompletionWithReasoningFallback(
+      apiUrl,
+      settings.apiKey,
+      body,
+      options.abortSignal ? { signal: options.abortSignal } : {}
+    ));
+  } catch (fetchErr) {
+    if (fetchErr?.name === "AbortError") {
+      const err = new Error("已取消改写");
+      err.code = "CANCELLED";
+      throw err;
+    }
+    throw fetchErr;
+  }
 
   if (!response.ok) {
     const errorMessage =

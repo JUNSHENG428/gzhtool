@@ -435,6 +435,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         broadcastRewriteProgress(requestId, { phase: "pass1:start", current: 0, total: 1 });
 
+        // 44th session · 主 pass 可取消：AbortController 挂到 task-registry，
+        // CANCEL_TASK / 抓取联动 cancelTask 内部会 abort 它 → in-flight LLM fetch 立刻
+        // reject（code=CANCELLED，不重试不扣后续额度）。此前取消只 abort pass2，
+        // pass1 的 LLM 照跑照计费、saveSession 照写，「取消」对用户是假的。
+        const pass1Controller = new AbortController();
+        attachTaskAbortController(taskId, pass1Controller);
+
         // 主 pass —— 一次正常的 AI 改写
         // 39th 续 · Phase 3b · 流式响应进度回调（settings.platformStreaming + aiSourceMode=platform 才触发）
         // ai.js requestRewriteViaPlatformStreaming 每收到一个 SSE delta 调一次 onProgress({chars, tokens})；
@@ -448,6 +455,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               template,
               voiceSample,
               {
+                abortSignal: pass1Controller.signal,
                 onProgress: (info) => {
                   broadcastRewriteProgress(requestId, {
                     phase: "pass1:streaming",
@@ -570,6 +578,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         broadcastRewriteProgress(requestId, { phase: "done", current: 1, total: 1 });
 
+        // 44th · 取消与完成赛跑的兜底：pass1/pass2 已跑完但用户刚点了取消
+        // （task 已标 cancelled）→ 不写 session、不下发结果，尊重用户取消语义。
+        // completeRegistryTask 本身有终态保护（cancelled 不会被 done 覆盖）。
+        const taskAfterRun = findTaskByReqId(requestId);
+        if (taskAfterRun?.status === "cancelled") {
+          sendResponse({ ok: false, errorCode: "CANCELLED", error: "已取消改写。" });
+          break;
+        }
+
         await saveSession({ lastDraft: article });
         void bumpUsage("rewrite");
         const lengthCheck = evaluateArticleLength(
@@ -598,10 +615,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             article,
             meta: { ...baseMeta, requestId, lengthCheck, lint, humanizePass, compliance },
             articleId,
-            articleTitle
+            articleTitle,
+            // 44th · 持久化原文图片列表：article.imageRefs 只存 index，真实 src 在
+            // source.images 里。此前只存在 workspace 页面内存 Map（_sourceImagesByRequestId），
+            // 改写期间刷新 / 从任务中心晚 apply 时 Map 已空 → 正文配图全部渲染成空。
+            sourceImages: Array.isArray(message.payload?.source?.images)
+              ? message.payload.source.images
+              : []
           }
         });
         } catch (rewriteErr) {
+          // 44th · 用户取消（CANCELLED）：task 已被 cancelTask 标 cancelled（终态保护，
+          // 下面的 failed 是 no-op），直接安静回复，不进 outer catch 的错误分类链路。
+          if (rewriteErr?.code === "CANCELLED") {
+            sendResponse({ ok: false, errorCode: "CANCELLED", error: "已取消改写。" });
+            break;
+          }
           // 改写失败：标记 task failed，再让 outer catch 走 sendResponse({ok:false}) 链路
           completeRegistryTask(taskId, {
             status: "failed",
@@ -636,8 +665,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "CANCEL_TASK": {
-        // 用户点 chip 上[取消]：rewrite 任务等同于 SKIP_HUMANIZE_PASS（abort humanize fetch
-        // + 标 task cancelled）；capture 任务等到 Phase 4 加 ABORT_CAPTURE 走另一条路。
+        // 用户点 chip 上[取消]：cancelRegistryTask 内部 abort 挂在 task 上的 controller
+        // （44th 起 rewrite 主 pass 也挂了，in-flight LLM fetch 立刻断、不再扣额度），
+        // 这里再补 abort humanize pass2 的 controller（按 requestId 存的旧路径）。
         const taskId = String(message.payload?.taskId || "").trim();
         const requestId = String(message.payload?.requestId || "").trim();
         const target = taskId
@@ -1018,7 +1048,8 @@ const NON_RETRYABLE_ERROR_CODES = new Set([
   "PLATFORM_UNCONFIGURED",
   "LICENSE_BYOK_LOCKED",
   "LICENSE_TEMPLATE_LOCKED",
-  "RATE_LIMITED"
+  "RATE_LIMITED",
+  "CANCELLED" // 44th · 用户主动取消，重试=违背用户意图 + 继续扣额度
 ]);
 
 async function withRetry(fn, maxRetries, operationName) {
