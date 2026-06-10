@@ -1,26 +1,30 @@
-/* 39th 续³ #18 · HTML5 [hidden] 全局兜底（与 design-tokens.css 同条；popup 独立未 @import）*/
-[hidden] { display: none !important; }
+@import "../pages/fonts.css";
+@import "../pages/design-tokens.css";
+
+/* [hidden] 全局兜底已随 design-tokens.css 引入，无需在此重复 */
 
 :root {
-  color-scheme: light;
-  font-family: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", sans-serif;
-  --bg: #f3ede0;
-  --card: #fbf7ec;
-  --card-border: #e3dccb;
-  --ink: #1f2d24;
-  --ink-soft: #5b6760;
-  --ink-muted: #8a8f86;
-  --primary: #1d4329;
-  --primary-ink: #f7f5ef;
-  --primary-soft: #2d5a3a;
-  --accent-green: #2d8a4a;
-  --accent-soft: #e7f1e0;
-  --warning: #b78640;
-  --warning-soft: #fff2dc;
-  --danger: #a8443a;
-  --danger-soft: #fdebe7;
-  --radius-card: 14px;
-  --radius-button: 12px;
+  /* ── popup 历史别名 → design-tokens 映射层 ──
+     popup 早期自建过一套局部变量（下方 58 处引用），为避免大规模改名引入回归，
+     保留旧变量名、把值指向全局 token——今后调 design-tokens 即全站（含 popup）生效。
+     字体随之从 IBM Plex Sans 统一为 DM Sans（--font-sans，woff2 离线打包）。 */
+  --bg: var(--side-bg);                    /* 暖纸面板底（原 #f3ede0） */
+  --card: var(--surface-elevated);         /* 原 #fbf7ec */
+  --card-border: var(--line);              /* 原 #e3dccb */
+  /* --ink 直接继承 design-tokens（原 #1f2d24，同系墨色） */
+  --ink-soft: var(--soft-ink);
+  --ink-muted: var(--muted);
+  --primary: var(--brand);                 /* 原 #1d4329 → 全站统一墨绿 #173722 */
+  --primary-ink: var(--cream);             /* 原 #f7f5ef，与 --cream 同值 */
+  --primary-soft: var(--brand-hover);
+  --accent-green: var(--state-success);
+  --accent-soft: var(--state-success-soft);
+  --warning: var(--state-warning);
+  --warning-soft: var(--state-warning-soft);
+  --danger: var(--state-danger);
+  --danger-soft: var(--state-danger-soft);
+  --radius-card: var(--radius-md);
+  --radius-button: var(--radius-sm);
 }
 
 * {
@@ -30,6 +34,7 @@
 body {
   width: 360px;
   margin: 0;
+  font-family: var(--font-sans);
   background: var(--bg);
   color: var(--ink);
 }
@@ -486,16 +491,6 @@ h1 {
 .primary-button:disabled {
   cursor: not-allowed;
   background: #9ca59f;
-}
-
-.primary-button--soft {
-  background: linear-gradient(135deg, #4f7cff, #2d56ff);
-  color: #fff;
-}
-
-.primary-button--soft:hover:not(:disabled) {
-  filter: brightness(1.05);
-  background: linear-gradient(135deg, #4f7cff, #2d56ff);
 }
 
 /* ----- 三联浅按钮 ----- */

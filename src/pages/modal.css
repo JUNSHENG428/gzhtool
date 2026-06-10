@@ -1,0 +1,102 @@
+/**
+ * 共享 modal 组件样式 — workspace / options 共用
+ *
+ * 2026-06-10 43rd session 从 workspace.css 抽出：options.html 早就有两个
+ * class="modal" 的对话框（voiceSampleHistoryModal / floatingBallOnboardingModal），
+ * 但 .modal 样式只写在 workspace.css 里 → options 页弹出来是无样式裸 HTML、没有遮罩。
+ * 抽到这里让两页（及未来新页面）@import 同一份，避免再漂移。
+ *
+ * 结构契约（与各页 HTML 对齐）：
+ *   .modal-backdrop（遮罩，独立兄弟节点）
+ *   .modal > .modal-header > h2 / .modal-body / .modal-footer
+ * 显隐统一用 [hidden]（design-tokens.css 有 !important 兜底）。
+ */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(22, 32, 26, 0.46);
+  backdrop-filter: blur(4px);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.modal {
+  position: fixed;
+  z-index: 201;
+  top: 50%;
+  left: 50%;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 60px);
+  overflow: auto;
+  padding: 0;
+  background: var(--surface-elevated, #fffdf8);
+  border-radius: 18px;
+  border: 1px solid #d8d5ca;
+  box-shadow: var(--shadow-lg, 0 20px 60px rgba(38, 44, 33, 0.22));
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+}
+
+.modal[hidden] {
+  display: none;
+}
+
+.modal .modal-header {
+  padding: 18px 22px 8px;
+  border-bottom: 1px solid #efeadd;
+}
+
+.modal .modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--ink, #2a2f24);
+}
+
+.modal .modal-body {
+  padding: 14px 22px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--ink, #2a2f24);
+}
+
+.modal .modal-body code {
+  padding: 1px 6px;
+  background: rgba(38, 44, 33, 0.06);
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+.modal .modal-body ul {
+  padding-left: 20px;
+  margin: 6px 0 12px;
+}
+
+.modal .modal-footer {
+  padding: 12px 22px 18px;
+  border-top: 1px solid #efeadd;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.modal .button-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(38, 44, 33, 0.06);
+  color: var(--ink, #2a2f24);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.modal .button-link:hover {
+  background: rgba(38, 44, 33, 0.12);
+}

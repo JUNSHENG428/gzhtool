@@ -1,5 +1,6 @@
 @import "../pages/fonts.css";
 @import "../pages/design-tokens.css";
+@import "../pages/modal.css";
 
 * {
   box-sizing: border-box;
