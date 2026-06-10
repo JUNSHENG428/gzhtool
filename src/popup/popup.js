@@ -435,6 +435,12 @@ async function hydrateAiStatus() {
     const apiKey = String(settings.apiKey || "").trim();
     const model = String(settings.model || "").trim();
 
+    // 平台模式不需要 API Key（润笔账户 JWT 鉴权），不能按 apiKey 判「未配置」
+    if (settings.aiSourceMode === "platform") {
+      const tierLabels = { economy: "经济档", standard: "标准档", flagship: "旗舰档" };
+      setAiCard("ready", "AI · 润笔平台", tierLabels[settings.platformTier] || "经济档");
+      return;
+    }
     if (!apiKey) {
       setAiCard("missing", "AI 未配置", "请到设置填写 API Key");
       return;

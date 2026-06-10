@@ -98,13 +98,16 @@ function preserveImagesInRewrittenHtml(originalHtml, rewrittenHtml) {
 
 /**
  * 判断 settings 是否有"可用的 AI 配置"。
- * 至少要 apiBaseUrl + apiKey 都非空才能跑 chat completions；model 缺失时
+ * 平台模式（aiSourceMode === "platform"）不需要 API Key——鉴权靠润笔账户 JWT，
+ * 登录态由 ai.js requestRewriteViaPlatform 的 AUTH_REQUIRED 友好报错兜底，这里直接放行。
+ * BYOK 模式至少要 apiBaseUrl + apiKey 都非空才能跑 chat completions；model 缺失时
  * ai.js 会用 settings.model 兜底，但若也空则 requestRewrite 直接抛错。
  * 这里采用"接口地址 + Key 都填了就放行"的最低门槛 —— model 是否合法等
  * 服务端报错由测试连接 / 实际改写时的 fallback 处理。
  */
 function hasUsableAiConfig(settings) {
   if (!settings) return false;
+  if (settings.aiSourceMode === "platform") return true;
   const baseUrl = String(settings.apiBaseUrl || "").trim();
   const apiKey = String(settings.apiKey || "").trim();
   return Boolean(baseUrl && apiKey);

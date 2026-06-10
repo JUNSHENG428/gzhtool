@@ -947,19 +947,26 @@ async function testAiConnection() {
   const baseUrl = fields.apiBaseUrl.value.trim();
   const apiKey = fields.apiKey.value.trim();
   const model = fields.model.value.trim();
+  // 平台模式：测平台端点（JWT 鉴权），不要求 API Key——免费版也能测通
+  const checkedMode = document.querySelector("input[name='aiSourceMode']:checked");
+  const mode = checkedMode?.value === "platform" ? "platform" : "byok";
 
   try {
+    // BYOK 模式才需要为目标 API 域名申请 host 权限；平台端点（api.docuearn.com）
+    // 已在 manifest host_permissions 里，且 JWT 鉴权，不需要用户手势授权。
     // 必须在 click handler 还在用户手势上下文时同步申请 —— 一旦中间 await 了
     // service-worker，浏览器就认为用户手势已结束，再调 permissions.request 会抛
     // "must be called during a user gesture"。
-    const permitted = await ensureHostPermissionFromUserGesture(baseUrl);
-    if (!permitted) {
-      setTestResult(
-        testConnectionResult,
-        "error",
-        "需要授权访问该 API 域名才能测试连接，请在弹窗里点「允许」。"
-      );
-      return;
+    if (mode !== "platform") {
+      const permitted = await ensureHostPermissionFromUserGesture(baseUrl);
+      if (!permitted) {
+        setTestResult(
+          testConnectionResult,
+          "error",
+          "需要授权访问该 API 域名才能测试连接，请在弹窗里点「允许」。"
+        );
+        return;
+      }
     }
 
     const response = await chrome.runtime.sendMessage({
@@ -967,7 +974,8 @@ async function testAiConnection() {
       payload: {
         baseUrl,
         apiKey,
-        model
+        model,
+        mode
       }
     });
 

@@ -572,14 +572,21 @@ async function syncTopStatus() {
       // 兼容历史可能的字段名（以前残留的 openai* / ai*），读到任意一个都算"已配置"
       const apiKey = String(settings.apiKey || settings.openaiApiKey || settings.aiApiKey || "").trim();
       const model = String(settings.model || settings.openaiModel || settings.aiModel || "").trim() || "gpt";
-      if (apiKey) {
+      if (settings.aiSourceMode === "platform") {
+        // 平台模式不需要 API Key（润笔账户 JWT 鉴权），不能按 apiKey 判「未配置」
+        const tierLabels = { economy: "经济档", standard: "标准档", flagship: "旗舰档" };
+        const tierLabel = tierLabels[settings.platformTier] || "经济档";
+        aiPill.dataset.tone = "success";
+        aiPill.textContent = "AI · 润笔平台";
+        aiPill.title = `使用润笔平台 AI · ${tierLabel} · 免费版每月 30 次，无需 API Key`;
+      } else if (apiKey) {
         aiPill.dataset.tone = "success";
         aiPill.textContent = `AI · ${model}`;
         aiPill.title = `AI 接口已配置 · 模型 ${model}`;
       } else {
         aiPill.dataset.tone = "warning";
         aiPill.textContent = "AI · 未配置";
-        aiPill.title = "请到「设置」填写 API Key";
+        aiPill.title = "请到「设置」填写 API Key，或选择免费的润笔平台 AI";
       }
     }
 

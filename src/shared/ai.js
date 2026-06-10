@@ -590,8 +590,8 @@ export async function postChatCompletionWithReasoningFallback(
 }
 
 // 39th session · 平台 LLM 代理 · 是否走 worker 转发路径
-// 触发条件：用户在 options 页主动选 "使用润笔平台 AI"（settings.aiSourceMode = "platform"）
-// 旧用户（aiSourceMode 未设置）默认 false → 走老 BYOK 路径，行为不变
+// 2026-06-10 起 defaults.js 默认 aiSourceMode = "platform"（未上架无老用户包袱），
+// 未显式选 byok 的用户走平台路径；显式选 byok 的走 BYOK（年费闸门见 requestRewrite）
 function isPlatformMode(settings) {
   return settings?.aiSourceMode === "platform";
 }
@@ -890,8 +890,8 @@ export async function requestRewrite(settings, source, preferences, template, vo
   }
 
   // 39th session · BYOK 闸门：年费独享
-  // 仅当用户**主动**选 byok（aiSourceMode === "byok"）才闸；旧用户字段 undefined 不阻断
-  // → 兼容老用户，他们的 apiKey 设置照常工作直到 Phase 2.4 引导切换
+  // 仅当用户**主动**选 byok（aiSourceMode === "byok"）才闸；
+  // 默认已是 platform（见 defaults.js），能走到这里的 byok 都是显式选择
   if (settings?.aiSourceMode === "byok") {
     const access = await checkLicense("ai.bringYourOwnKey");
     if (!access.ok) {
@@ -903,7 +903,7 @@ export async function requestRewrite(settings, source, preferences, template, vo
   }
 
   if (!settings.apiKey?.trim()) {
-    throw new Error("请先在设置页填写 API Key。");
+    throw new Error("请先在设置页填写 API Key，或在「AI 服务来源」选择免费的润笔平台 AI（无需 API Key）。");
   }
 
   if (!settings.apiBaseUrl?.trim()) {
@@ -1242,7 +1242,84 @@ function stripHtmlToPlain(html) {
     .trim();
 }
 
-export async function testAiConnection({ baseUrl, apiKey, model, timeoutMs = 12000 }) {
+/**
+ * 平台 AI 连通性测试（aiSourceMode === "platform"）。
+ *
+ * 平台模式不需要用户填 API Key——鉴权靠润笔账户 JWT。这里打 GET /api/llm/usage：
+ *   - 校验登录态（没 JWT / 401 → 引导登录）
+ *   - 验证 worker 可达
+ *   - 顺带回报当月剩余额度，让用户一眼知道"免费版也能用、还剩多少次"
+ *
+ * 反例修正：测试连接按钮平台/BYOK 共用，旧逻辑一律走 BYOK 校验，导致平台模式
+ * 也提示"请先填写 API Key"，让免费用户误以为不充 Key 就用不了平台 AI。
+ */
+export async function testPlatformAiConnection() {
+  const startedAt = Date.now();
+  const authRecord = await getAuthRecord();
+  const jwt = authRecord?.token;
+  if (!jwt) {
+    return createAiTestFailure(
+      "请先登录润笔账户才能使用平台 AI（设置页 → 我的会员 → 登录）。免费版即可使用经济档，无需填写 API Key。",
+      "平台 AI"
+    );
+  }
+
+  const apiBase = String(await getApiBase()).replace(/\/+$/, "");
+  try {
+    await ensureOptionalHostPermission(apiBase, "润笔平台 AI 接口");
+    const response = await fetch(`${apiBase}/api/llm/usage`, {
+      headers: { Authorization: `Bearer ${jwt}` }
+    });
+    const latencyMs = Date.now() - startedAt;
+
+    if (response.status === 401) {
+      return createAiTestFailure(
+        "润笔账户登录已过期，请到「我的会员」重新登录。",
+        "平台 AI",
+        latencyMs
+      );
+    }
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data?.ok) {
+      return createAiTestFailure(
+        data?.error || `平台 AI 暂不可用（状态码 ${response.status}）。`,
+        "平台 AI",
+        latencyMs
+      );
+    }
+
+    const plan = data.plan || "free";
+    const planLabel = plan === "yearly" ? "年费版" : plan === "monthly" ? "月费版" : "免费版";
+    const remaining = data.remaining || {};
+    let quotaText = "";
+    if (remaining.call_count != null) {
+      quotaText = `，本月还剩 ${remaining.call_count} 次`;
+    } else if (remaining.total_tokens != null) {
+      quotaText = `，本月还剩约 ${(Number(remaining.total_tokens) / 10000).toFixed(0)} 万 token`;
+    }
+
+    return {
+      ok: true,
+      latencyMs,
+      model: `平台 AI · ${planLabel}${quotaText}`,
+      error: ""
+    };
+  } catch (error) {
+    return createAiTestFailure(
+      mapAiConnectionRuntimeError(error),
+      "平台 AI",
+      Date.now() - startedAt
+    );
+  }
+}
+
+export async function testAiConnection({ baseUrl, apiKey, model, mode, timeoutMs = 12000 }) {
+  // 平台模式：走 JWT 鉴权的平台端点，不要求 API Key（免费版也能测通）
+  if (mode === "platform") {
+    return testPlatformAiConnection();
+  }
+
   const targetUrl = String(baseUrl || "").trim();
   const token = String(apiKey || "").trim();
   const targetModel = String(model || "").trim();

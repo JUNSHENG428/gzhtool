@@ -246,11 +246,12 @@ export const DEFAULT_SETTINGS = {
   useTaskCenter: true,
 
   // 39th session · 平台 LLM 代理 / BYOK 反向 gating
-  //   "byok"     → 用 settings.apiKey + apiBaseUrl + model 直连用户自配服务商（老用户默认行为）
+  //   "byok"     → 用 settings.apiKey + apiBaseUrl + model 直连用户自配服务商
   //   "platform" → 走 worker /api/llm/chat，由润笔托管，按月度 token 配额计费
-  // 默认 "byok" 是为了**完全不破坏老用户**——他们之前的 apiKey 配置照常工作。
-  // Phase 2.4 起 options UI 会引导用户主动切到 platform。
-  aiSourceMode: "byok",
+  // 2026-06-10 默认 "byok" → "platform"：扩展尚未上架、不存在需要兼容的老用户，
+  // 默认平台 AI 让新装用户登录后开箱即用免费额度（30 次/月经济档），无需填 API Key。
+  // 显式选过 byok 的（storage 已持久化）不受默认值影响。
+  aiSourceMode: "platform",
   // 平台模式选哪个档位（economy / standard / flagship）。worker 端会按用户 plan
   // 自动越权降级（resolveTierForUser），所以选高了不会报错只会降级到能用的最高档。
   platformTier: "economy",
