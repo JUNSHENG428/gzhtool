@@ -45,7 +45,8 @@ import {
 import {
   extractChatContent,
   extractJson,
-  postChatCompletionWithReasoningFallback
+  postChatCompletionWithReasoningFallback,
+  requestPlainChat
 } from "./ai.js";
 import { ensureOptionalHostPermission } from "./host-permissions.js";
 
@@ -215,9 +216,16 @@ export async function extractFingerprintFromText(rawText, settings) {
     excerpts: []
   };
 
-  if (settings?.apiKey && settings?.apiBaseUrl) {
+  // 44th 续³ · 反例 #36 同款修复：此前只认 apiKey/apiBaseUrl（BYOK），默认
+  // aiSourceMode=platform 的用户 LLM 主观维度（语气词/语气标签/忌讳词/截选）
+  // 永远是空数组且 UI 无任何提示——文风模拟实质只剩句长统计。平台模式走
+  // requestPlainChat（JWT，/api/llm/chat，与主改写同额度池）。
+  const platformMode = settings?.aiSourceMode === "platform";
+  let llmEnriched = false;
+  if (platformMode || (settings?.apiKey && settings?.apiBaseUrl)) {
     try {
       llmPart = await requestFingerprintFromLLM(text, settings);
+      llmEnriched = true;
     } catch (err) {
       // 不抛出：让用户至少先拿到 deterministic 部分，UI 上给一个"重新生成"按钮即可。
       console.warn("[voice-samples] LLM 提取指纹失败，使用本地指纹兜底：", err);
@@ -234,7 +242,10 @@ export async function extractFingerprintFromText(rawText, settings) {
       exclamPer100: round2(stats.exclamPer100)
     },
     forbidden: dedupStrings(llmPart.forbidden, 8),
-    excerpts: pickExcerpts(text, llmPart.excerpts)
+    excerpts: pickExcerpts(text, llmPart.excerpts),
+    // 44th 续³ · LLM 主观维度（语气词/标签/忌讳词/截选）是否成功提取。
+    // false = 只有本地句长统计——此前静默降级，用户以为指纹是完整的。
+    llmEnriched
   };
 }
 
@@ -257,34 +268,29 @@ function computeLocalStats(text) {
 
 /**
  * 让 LLM 输出主观风格判断。强制 JSON，错就回兜底空值。
+ * 平台模式走 requestPlainChat（JWT）；BYOK 保留原路径（45s 超时 + 推理模型剥参 fallback）。
  */
 async function requestFingerprintFromLLM(text, settings) {
+  const { systemPrompt, userPrompt } = buildFingerprintPrompts(text);
+
+  if (settings?.aiSourceMode === "platform") {
+    const content = await requestPlainChat(
+      settings,
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      { temperature: 0.3, context: "文风指纹提取" }
+    );
+    return parseFingerprintContent(content);
+  }
+
   const apiKey = String(settings.apiKey || "").trim();
   const baseUrl = String(settings.apiBaseUrl || "").trim();
   const model = String(settings.model || "gpt-4.1-mini").trim() || "gpt-4.1-mini";
   if (!apiKey || !baseUrl) {
     throw new Error("缺少 API Key 或 Base URL");
   }
-
-  const systemPrompt = `你是中文公众号编辑顾问。下面会给你一段作者历史文章，请从中抽取该作者的"风格指纹"，输出为合法 JSON。
-
-输出 schema：
-{
-  "signaturePhrases": string[],   // 6-8 个该作者的"口头禅 / 高频语气词 / 标志性短语"，例如「说实话」「回过头看」
-  "toneTags": string[],           // 3-5 个语气标签，例如「口语化」「略带反思」「克制分析」
-  "forbidden": string[],          // 6-8 个该作者从不使用的"AI 套话词"，例如「综上所述」「赋能」「一方面…另一方面…」
-  "excerpts": string[]            // 从原文里挑 2 段最能代表作者语气的连续段落，每段不超过 600 字，原样保留
-}
-
-约束：
-- 只输出 JSON，不要附加解释、markdown 代码块。
-- signaturePhrases 必须从原文里能直接找到例子，不要捏造。
-- excerpts 必须是原文的连续片段，不要改写。
-- 如果某个字段判断不出，可以返回空数组。`;
-
-  const userPrompt = `作者历史文章（已截断到 ${text.length} 字）：
-
-${text}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FINGERPRINT_TIMEOUT_MS);
@@ -315,18 +321,47 @@ ${text}`;
     }
     const content = extractChatContent(payload);
     if (!content) throw new Error("指纹接口返回内容为空");
-    const parsed = extractJson(content);
-    return {
-      signaturePhrases: Array.isArray(parsed.signaturePhrases)
-        ? parsed.signaturePhrases.map(String)
-        : [],
-      toneTags: Array.isArray(parsed.toneTags) ? parsed.toneTags.map(String) : [],
-      forbidden: Array.isArray(parsed.forbidden) ? parsed.forbidden.map(String) : [],
-      excerpts: Array.isArray(parsed.excerpts) ? parsed.excerpts.map(String) : []
-    };
+    return parseFingerprintContent(content);
   } finally {
     clearTimeout(timer);
   }
+}
+
+function buildFingerprintPrompts(text) {
+  const systemPrompt = `你是中文公众号编辑顾问。下面会给你一段作者历史文章，请从中抽取该作者的"风格指纹"，输出为合法 JSON。
+
+输出 schema：
+{
+  "signaturePhrases": string[],   // 6-8 个该作者的"口头禅 / 高频语气词 / 标志性短语"，例如「说实话」「回过头看」
+  "toneTags": string[],           // 3-5 个语气标签，例如「口语化」「略带反思」「克制分析」
+  "forbidden": string[],          // 6-8 个该作者从不使用的"AI 套话词"，例如「综上所述」「赋能」「一方面…另一方面…」
+  "excerpts": string[]            // 从原文里挑 2 段最能代表作者语气的连续段落，每段不超过 600 字，原样保留
+}
+
+约束：
+- 只输出 JSON，不要附加解释、markdown 代码块。
+- signaturePhrases 必须从原文里能直接找到例子，不要捏造。
+- excerpts 必须是原文的连续片段，不要改写。
+- 如果某个字段判断不出，可以返回空数组。`;
+
+  const userPrompt = `作者历史文章（已截断到 ${text.length} 字）：
+
+${text}`;
+
+  return { systemPrompt, userPrompt };
+}
+
+/** LLM 返回的 JSON → 指纹主观维度四字段（容错：缺字段回空数组）。 */
+function parseFingerprintContent(content) {
+  const parsed = extractJson(content);
+  return {
+    signaturePhrases: Array.isArray(parsed.signaturePhrases)
+      ? parsed.signaturePhrases.map(String)
+      : [],
+    toneTags: Array.isArray(parsed.toneTags) ? parsed.toneTags.map(String) : [],
+    forbidden: Array.isArray(parsed.forbidden) ? parsed.forbidden.map(String) : [],
+    excerpts: Array.isArray(parsed.excerpts) ? parsed.excerpts.map(String) : []
+  };
 }
 
 // ────────────────────────────────────────────────────────────

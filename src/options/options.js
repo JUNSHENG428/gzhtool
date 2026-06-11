@@ -2570,14 +2570,19 @@ async function initVoiceSamples() {
       let fingerprint = null;
       try {
         // ensureHostPermissionFromGesture 在用户手势上下文里 grant，避免 SW 端
-        // 调 chrome.permissions.request 撞 user gesture 错（已沉淀的 MV3 反例）
-        const granted = await ensureHostPermissionFromGesture(
-          settings.apiBaseUrl,
-          "提取文风指纹"
-        );
-        if (!granted) {
-          setEditorStatus("已保存原文。指纹提取需要授权 AI 接口域名（已跳过），下次可点击「编辑」重新提取。", "error");
-          return;
+        // 调 chrome.permissions.request 撞 user gesture 错（已沉淀的 MV3 反例）。
+        // 44th 续³ · 反例 #36：平台模式不需要 BYOK 域名授权（api.docuearn.com
+        // 已在 manifest 必需 host_permissions），此前 apiBaseUrl 为空 → granted=false
+        // → 平台用户的指纹提取被拦死在这里。
+        if (settings.aiSourceMode !== "platform") {
+          const granted = await ensureHostPermissionFromGesture(
+            settings.apiBaseUrl,
+            "提取文风指纹"
+          );
+          if (!granted) {
+            setEditorStatus("已保存原文。指纹提取需要授权 AI 接口域名（已跳过），下次可点击「编辑」重新提取。", "error");
+            return;
+          }
         }
         fingerprint = await extractFingerprintFromText(raw, settings);
       } catch (err) {
@@ -2593,9 +2598,17 @@ async function initVoiceSamples() {
         await saveVoiceSample({ id, title, raw, fingerprint });
       }
       await renderVoiceSampleList();
-      setEditorStatus("已保存并提取指纹。可点列表里「启用」让此样本注入下次改写。", "success");
-      // 自动关 editor（成功 1.5s 后）
-      setTimeout(() => closeEditor(), 1500);
+      // 44th 续³ · LLM 维度提取失败不再静默装完整：明确告诉用户拿到的是什么
+      if (fingerprint && fingerprint.llmEnriched === false) {
+        setEditorStatus(
+          "已保存。基础统计（句长/标点习惯）已提取，但 AI 语气分析未完成（语气词/忌讳词维度缺失）——点「编辑」重新保存可重试。",
+          "error"
+        );
+      } else {
+        setEditorStatus("已保存并提取指纹。可点列表里「启用」让此样本注入下次改写。", "success");
+        // 自动关 editor（成功 1.5s 后）
+        setTimeout(() => closeEditor(), 1500);
+      }
     } catch (err) {
       setEditorStatus(`保存失败：${err?.message || "未知错误"}`, "error");
     } finally {
