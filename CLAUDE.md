@@ -20,7 +20,7 @@
 
 **智能排版杂志签名细节层 + 编辑器所见即所得**（commit `309a510`，调用 huashu-design skill）：排版引擎新增可选 `theme.signature` pass（首字下沉 ≥40 字守卫 / 章节序号 padded|cn / 引语大引号 / 文末终止符），6 套杂志母版各配签名细节（NYer/墨韵/Wired/Monocle/清新知识卡/Zine 各有专属符号语言）；编辑器侧用纯 CSS 伪元素近似还原（::first-letter + counter + ::before/::after，不进 DOM 不污染 contenteditable），CSS 生成提取为导出纯函数 `buildEditorThemeCss()`。微信两条发布链白名单（prepareHtmlForWechat + mp sanitizeHtml）已核对放行 span+style+float。详见 [progress.md](memory-bank/progress.md) 顶部 45th 段。
 
-近期（44th 系列，已 push）：核心三链路审计 47 项 → 三波修复清零（`187d712`→`a8f8fe5`→`5ae0e70`）+ 文风指纹提取平台模式修复（`59a6a79`，反例 #36 第三例）。43rd：设置页重塑年费闸门四批次 + `docs/COPY_GLOSSARY.md` 文案 SSOT。
+近期（44th 系列，已 push）：核心三链路审计 47 项 → 三波修复清零（`187d712`→`a8f8fe5`→`5ae0e70`）+ 文风指纹提取平台模式修复（`59a6a79`，反例 #36 第三例）。43rd：设置页重塑年费闸门四批次 + `docs/COPY_GLOSSARY.md` 文案 SSOT。反例约定增至 **38 条**（#38：仓库根=扩展根，`_` 前缀目录让 Chrome 拒载整个扩展，临时工件一律进 `dist/`）。
 
 待办候选（无优先级）：
 - **排版真机端到端**：发草稿到 mp 实测签名细节（Android 衬线回退无衬线但细节不受影响）
