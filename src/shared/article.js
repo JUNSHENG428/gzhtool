@@ -102,7 +102,92 @@ export function decorateHtmlForTheme(rawHtml, themeName) {
   root.querySelectorAll("strong").forEach((element) => applyStyle(element, theme.strong));
   root.querySelectorAll(".cta-box").forEach((element) => applyStyle(element, theme.cta));
 
+  applySignatureDetails(root, doc, theme.signature);
+
   return root.outerHTML;
+}
+
+// ── 杂志签名细节层（2026-06-11）──
+// 真杂志的辨识度来自「不均匀」：首字下沉、章节序号、引语大引号、文末终止符。
+// theme.signature 为可选配置，不带该字段的主题（旧 5 套 + AI 生成模板）此层完全 no-op。
+// 产出全部是带 inline style 的 <span>：已确认 API 通道 prepareHtmlForWechat 白名单
+// （span + style 属性）与 mp contenteditable sanitizeHtml 白名单都放行；float 样式
+// 不在任何剥离名单里。注意：这些细节只出现在导出/预览/发布 HTML，编辑器 contenteditable
+// 视图不渲染（injectEditorThemeStyles 只消费样式 key）。
+const CN_SECTION_NUMBERS = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
+
+function formatSectionNumber(index, format) {
+  if (format === "cn") return CN_SECTION_NUMBERS[index] || String(index + 1);
+  return String(index + 1).padStart(2, "0");
+}
+
+function isDecorativeParagraph(p) {
+  return (
+    p.classList.contains("article-lead") ||
+    p.classList.contains("article-subtitle") ||
+    Boolean(p.closest("blockquote, figure, .cta-box"))
+  );
+}
+
+function applySignatureDetails(root, doc, signature) {
+  if (!signature) return;
+  const body = root.querySelector(".article-body") || root;
+  const makeSpan = (style, text) => {
+    const span = doc.createElement("span");
+    span.setAttribute("style", style);
+    span.textContent = text;
+    return span;
+  };
+
+  // 1) 章节序号：每个 h2 前插序号（"01" 或 "一"），节奏感 + 进度感
+  if (signature.h2Number?.style) {
+    body.querySelectorAll("h2").forEach((h2, index) => {
+      h2.insertBefore(
+        makeSpan(signature.h2Number.style, formatSectionNumber(index, signature.h2Number.format)),
+        h2.firstChild
+      );
+    });
+  }
+
+  // 2) 引语大引号：blockquote 顶部的装饰引号（pull quote 传统）
+  if (signature.blockquoteMark?.style) {
+    body.querySelectorAll("blockquote").forEach((quote) => {
+      quote.insertBefore(
+        makeSpan(signature.blockquoteMark.style, signature.blockquoteMark.char || "\u201c"),
+        quote.firstChild
+      );
+    });
+  }
+
+  // 3) 首字下沉：正文第一段首字包 float span。
+  //    守卫：段落要够长（>= 40 字，太短会让 float 戳出段落底部）、首字符不是标点/引号、
+  //    且第一个子节点必须是纯文本（以 <strong> 开头的段落跳过，不拆元素）。
+  if (signature.dropCap) {
+    const firstP = Array.from(body.querySelectorAll("p")).find(
+      (p) => !isDecorativeParagraph(p) && (p.textContent || "").trim().length >= 40
+    );
+    const textNode = firstP?.firstChild;
+    if (textNode?.nodeType === Node.TEXT_NODE) {
+      const text = textNode.textContent || "";
+      const offset = text.length - text.trimStart().length;
+      const ch = text.charAt(offset);
+      if (ch && !/[\s\u201c\u2018"'「『（(《【\[]/.test(ch)) {
+        textNode.textContent = text.slice(offset + 1);
+        firstP.insertBefore(makeSpan(signature.dropCap, ch), textNode);
+      }
+    }
+  }
+
+  // 4) 文末终止符：正文最后一段末尾的 end mark（◆ / 终 / /END…），「文章到此为止」的仪式感
+  if (signature.endMark?.style) {
+    const paragraphs = Array.from(body.querySelectorAll("p")).filter(
+      (p) => !isDecorativeParagraph(p) && (p.textContent || "").trim()
+    );
+    const lastP = paragraphs[paragraphs.length - 1];
+    if (lastP) {
+      lastP.appendChild(makeSpan(signature.endMark.style, signature.endMark.char || "\u25a0"));
+    }
+  }
 }
 
 export function htmlToMarkdown(rawHtml) {

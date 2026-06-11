@@ -46,10 +46,8 @@ export function fillThemeOptions() {
 // 之前编辑器主题样式靠 workspace.css 手写、只覆盖少数几个且只有间距 → 多数主题（尤其
 // 6 个杂志主题）切过去毫无视觉差异。这里把预览用的 THEME_PRESETS 内联样式照搬进编辑器，
 // 让「编辑排版」页所见即所得，每个主题都有鲜明视觉身份。
-function injectEditorThemeStyles() {
-  const STYLE_ID = "rb-editor-theme-styles";
-  if (document.getElementById(STYLE_ID)) return; // 注入一次即可（THEME_PRESETS 是常量）
-
+// 导出纯函数便于在扩展环境外（静态预览页/测试）复用同一份 CSS 生成逻辑。
+export function buildEditorThemeCss() {
   // 编辑器有自己的盒模型（内边距/高度/滚动），root 里的 padding/border/margin/阴影/宽度
   // 不要带进来免得双重边框；只保留视觉身份（背景/字色/字体/行高/字号）。
   const ROOT_DROP = /^(padding|margin|border|border-radius|box-shadow|max-width|width|height)/i;
@@ -75,10 +73,50 @@ function injectEditorThemeStyles() {
     if (t.image) rules.push(`${sel} figure img{${t.image}}`);
     if (t.figcaption) rules.push(`${sel} figcaption{${t.figcaption}}`);
     if (t.hr) rules.push(`${sel} hr{${t.hr}}`);
+    appendSignatureEditorRules(rules, sel, t.signature);
   }
+  return rules.join("\n");
+}
+
+// 杂志签名细节的编辑器近似（2026-06-11）：导出层（decorateHtmlForTheme）插的是真实
+// <span>，编辑器里不能这么干——span 会进 contenteditable 被保存进 bodyHtml。改用纯
+// CSS 伪元素：::first-letter（首字下沉）、counter + h2::before（章节序号）、
+// blockquote::before（大引号）、p:last-of-type::after（终止符），全部不进 DOM。
+// 与导出的已知差异（接受的近似）：① 首字下沉没有「段落 ≥40 字 / 标点开头跳过」守卫；
+// ② 终止符落在最后一个 <p> 上，不区分段落是否为空。所见即所得以方向正确为准，
+// 像素级以预览页/导出 HTML 为准。
+function appendSignatureEditorRules(rules, sel, sig) {
+  if (!sig) return;
+  if (sig.dropCap) {
+    rules.push(`${sel} > p:first-of-type::first-letter{${sig.dropCap}}`);
+  }
+  if (sig.h2Number?.style) {
+    // cn → 一/二/三（cjk-ideographic），padded → 01/02（decimal-leading-zero），
+    // 与导出层 formatSectionNumber 的两种格式一一对应
+    const counterStyle = sig.h2Number.format === "cn" ? "cjk-ideographic" : "decimal-leading-zero";
+    rules.push(`${sel}{counter-reset:rb-section;}`);
+    rules.push(
+      `${sel} h2::before{counter-increment:rb-section;content:counter(rb-section,${counterStyle});${sig.h2Number.style}}`
+    );
+  }
+  if (sig.blockquoteMark?.style) {
+    rules.push(
+      `${sel} blockquote::before{content:"${sig.blockquoteMark.char || "\u201c"}";${sig.blockquoteMark.style}}`
+    );
+  }
+  if (sig.endMark?.style) {
+    rules.push(
+      `${sel} > p:last-of-type::after{content:"${sig.endMark.char || "\u25a0"}";${sig.endMark.style}}`
+    );
+  }
+}
+
+function injectEditorThemeStyles() {
+  const STYLE_ID = "rb-editor-theme-styles";
+  if (document.getElementById(STYLE_ID)) return; // 注入一次即可（THEME_PRESETS 是常量）
   const style = document.createElement("style");
   style.id = STYLE_ID;
-  style.textContent = rules.join("\n");
+  style.textContent = buildEditorThemeCss();
   document.head.appendChild(style);
 }
 

@@ -542,7 +542,20 @@ export const THEME_PRESETS = {
     hr: "border:none;border-top:1px solid #000;margin:36px 25% 36px 25%;",
     strong: "color:#000;font-weight:700;",
     cta:
-      "margin-top:40px;padding:20px 0;background:transparent;color:#000;border-top:2px solid #000;border-bottom:2px solid #000;border-radius:0;text-align:center;font-family:'Helvetica Neue','Arial',sans-serif;font-size:13px;letter-spacing:0.2em;text-transform:uppercase;font-weight:700;"
+      "margin-top:40px;padding:20px 0;background:transparent;color:#000;border-top:2px solid #000;border-bottom:2px solid #000;border-radius:0;text-align:center;font-family:'Helvetica Neue','Arial',sans-serif;font-size:13px;letter-spacing:0.2em;text-transform:uppercase;font-weight:700;",
+    signature: {
+      dropCap:
+        "float:left;font-family:'Source Han Serif SC','Noto Serif SC','Songti SC',serif;font-size:58px;line-height:0.9;padding:6px 10px 2px 0;color:#000;font-weight:700;",
+      blockquoteMark: {
+        char: "\u201c",
+        style:
+          "display:block;font-family:Georgia,'Times New Roman',serif;font-size:46px;line-height:0.6;color:#000;margin:0 0 10px;"
+      },
+      endMark: {
+        char: "\u25c6",
+        style: "display:inline-block;margin-left:8px;font-size:11px;color:#000;vertical-align:1px;"
+      }
+    }
   },
 
   // 2) 墨韵书香 · 文史国风（替换原 Kinfolk）：宣纸米底 + 宋体墨色 + 朱红 accent
@@ -574,7 +587,21 @@ export const THEME_PRESETS = {
     hr: "border:none;border-top:1px solid #d8c7a6;margin:30px 0;",
     strong: "color:#9e3b2e;font-weight:700;",
     cta:
-      "margin-top:30px;padding:18px 22px;background:#2a2521;color:#f7f2e7;border-radius:12px;border-left:4px solid #9e3b2e;"
+      "margin-top:30px;padding:18px 22px;background:#2a2521;color:#f7f2e7;border-radius:12px;border-left:4px solid #9e3b2e;",
+    signature: {
+      dropCap:
+        "float:left;font-family:'Source Han Serif SC','Noto Serif SC','Songti SC',serif;font-size:56px;line-height:0.95;padding:6px 10px 2px 0;color:#9e3b2e;font-weight:700;",
+      h2Number: {
+        format: "cn",
+        style:
+          "display:inline-block;margin-right:10px;font-size:14px;color:#9e3b2e;border:1px solid #c98a7d;border-radius:4px;padding:1px 8px;vertical-align:middle;letter-spacing:0.12em;font-weight:400;"
+      },
+      endMark: {
+        char: "\u7ec8",
+        style:
+          "display:inline-block;margin-left:10px;font-size:12px;color:#f7f2e7;background:#9e3b2e;border-radius:3px;padding:2px 5px;line-height:1.4;vertical-align:1px;"
+      }
+    }
   },
 
   // 3) Wired · 黑底荧光科技
@@ -606,7 +633,19 @@ export const THEME_PRESETS = {
     hr: "border:none;border-top:1px solid #2a2a2a;margin:32px 0;",
     strong: "color:#d6ff44;font-weight:700;",
     cta:
-      "margin-top:36px;padding:20px;background:#d6ff44;color:#0b0b0b;border:none;border-radius:0;font-family:'Helvetica Neue','Arial Black',sans-serif;font-weight:900;letter-spacing:0.04em;text-transform:uppercase;"
+      "margin-top:36px;padding:20px;background:#d6ff44;color:#0b0b0b;border:none;border-radius:0;font-family:'Helvetica Neue','Arial Black',sans-serif;font-weight:900;letter-spacing:0.04em;text-transform:uppercase;",
+    signature: {
+      h2Number: {
+        format: "padded",
+        style:
+          "display:block;font-family:'SFMono-Regular','Menlo','Consolas',monospace;font-size:13px;color:#d6ff44;letter-spacing:0.18em;margin:0 0 6px;font-weight:600;"
+      },
+      endMark: {
+        char: "/END",
+        style:
+          "display:inline-block;margin-left:10px;font-family:'SFMono-Regular','Menlo','Consolas',monospace;font-size:12px;color:#d6ff44;letter-spacing:0.14em;"
+      }
+    }
   },
 
   // 4) Monocle · 杏色商业编辑感
@@ -638,7 +677,23 @@ export const THEME_PRESETS = {
     hr: "border:none;border-top:1px solid #cdb78b;margin:32px 0;",
     strong: "color:#0f1d33;font-weight:700;",
     cta:
-      "margin-top:38px;padding:22px 24px;background:#0f1d33;color:#f5ede0;border:none;border-radius:0;font-family:'Helvetica Neue','Arial',sans-serif;letter-spacing:0.04em;"
+      "margin-top:38px;padding:22px 24px;background:#0f1d33;color:#f5ede0;border:none;border-radius:0;font-family:'Helvetica Neue','Arial',sans-serif;letter-spacing:0.04em;",
+    signature: {
+      h2Number: {
+        format: "padded",
+        style:
+          "display:block;font-family:'Helvetica Neue','Arial',sans-serif;font-size:12px;color:#a18a5e;letter-spacing:0.26em;margin:0 0 8px;font-weight:700;"
+      },
+      blockquoteMark: {
+        char: "\u201c",
+        style:
+          "display:block;font-family:Georgia,'Times New Roman',serif;font-size:40px;line-height:0.6;color:#a18a5e;margin:0 0 8px;"
+      },
+      endMark: {
+        char: "\u25cf",
+        style: "display:inline-block;margin-left:8px;font-size:9px;color:#0f1d33;vertical-align:2px;"
+      }
+    }
   },
 
   // 5) 清新知识卡 · 干货科普（替换原 Vogue）：白底 + 青绿 accent + 卡片式区块
@@ -670,7 +725,18 @@ export const THEME_PRESETS = {
     hr: "border:none;border-top:1px solid #e3e8ee;margin:28px 0;",
     strong: "color:#1f8d82;font-weight:700;",
     cta:
-      "margin-top:30px;padding:18px 20px;background:#0f3b36;color:#eafaf6;border-radius:14px;border-left:4px solid #2ba397;"
+      "margin-top:30px;padding:18px 20px;background:#0f3b36;color:#eafaf6;border-radius:14px;border-left:4px solid #2ba397;",
+    signature: {
+      h2Number: {
+        format: "padded",
+        style:
+          "display:inline-block;margin-right:10px;font-size:14px;color:#ffffff;background:#2ba397;border-radius:6px;padding:2px 7px;font-weight:700;vertical-align:2px;"
+      },
+      endMark: {
+        char: "\u25a0",
+        style: "display:inline-block;margin-left:8px;font-size:10px;color:#2ba397;vertical-align:1px;"
+      }
+    }
   },
 
   // 6) 独立刊物 · 朱红 zine
@@ -702,7 +768,21 @@ export const THEME_PRESETS = {
     hr: "border:none;border-top:2px solid #c33d2e;margin:32px 30% 32px 0;",
     strong: "color:#c33d2e;font-weight:700;",
     cta:
-      "margin-top:36px;padding:22px 24px;background:#c33d2e;color:#f6efe2;border:none;border-radius:0;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-weight:700;letter-spacing:0.04em;"
+      "margin-top:36px;padding:22px 24px;background:#c33d2e;color:#f6efe2;border:none;border-radius:0;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-weight:700;letter-spacing:0.04em;",
+    signature: {
+      dropCap:
+        "float:left;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:60px;line-height:0.9;padding:6px 10px 2px 0;color:#c33d2e;font-weight:700;",
+      h2Number: {
+        format: "padded",
+        style:
+          "display:block;font-family:'Helvetica Neue','Arial',sans-serif;font-size:13px;color:#c33d2e;letter-spacing:0.2em;margin:0 0 6px;font-weight:700;"
+      },
+      endMark: {
+        char: "\u25a1",
+        style:
+          "display:inline-block;margin-left:8px;font-size:11px;color:#c33d2e;font-weight:700;"
+      }
+    }
   }
 };
 
