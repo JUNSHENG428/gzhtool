@@ -16,9 +16,11 @@
 
 ---
 
-## 当前焦点（更新于 2026-06-11 · 45th session）
+## 当前焦点（更新于 2026-06-12 · 46th session）
 
-**智能排版杂志签名细节层 + 编辑器所见即所得**（commit `309a510`，调用 huashu-design skill）：排版引擎新增可选 `theme.signature` pass（首字下沉 ≥40 字守卫 / 章节序号 padded|cn / 引语大引号 / 文末终止符），6 套杂志母版各配签名细节（NYer/墨韵/Wired/Monocle/清新知识卡/Zine 各有专属符号语言）；编辑器侧用纯 CSS 伪元素近似还原（::first-letter + counter + ::before/::after，不进 DOM 不污染 contenteditable），CSS 生成提取为导出纯函数 `buildEditorThemeCss()`。微信两条发布链白名单（prepareHtmlForWechat + mp sanitizeHtml）已核对放行 span+style+float。详见 [progress.md](memory-bank/progress.md) 顶部 45th 段。
+**去 AI 味增强 + 自拟主题创作 + BYOK 硬闸门**（commit `5086eee`）：humanize 两轮增强 + S2 验收闸；brief 创作模式；BYOK radio 硬闸门。详见 [progress.md](memory-bank/progress.md) 顶部 46th 段。
+
+历史 · **智能排版杂志签名细节层 + 编辑器所见即所得**（commit `309a510`，调用 huashu-design skill）：排版引擎新增可选 `theme.signature` pass（首字下沉 ≥40 字守卫 / 章节序号 padded|cn / 引语大引号 / 文末终止符），6 套杂志母版各配签名细节（NYer/墨韵/Wired/Monocle/清新知识卡/Zine 各有专属符号语言）；编辑器侧用纯 CSS 伪元素近似还原（::first-letter + counter + ::before/::after，不进 DOM 不污染 contenteditable），CSS 生成提取为导出纯函数 `buildEditorThemeCss()`。微信两条发布链白名单（prepareHtmlForWechat + mp sanitizeHtml）已核对放行 span+style+float。详见 [progress.md](memory-bank/progress.md) 顶部 45th 段。
 
 近期（44th 系列，已 push）：核心三链路审计 47 项 → 三波修复清零（`187d712`→`a8f8fe5`→`5ae0e70`）+ 文风指纹提取平台模式修复（`59a6a79`，反例 #36 第三例）。43rd：设置页重塑年费闸门四批次 + `docs/COPY_GLOSSARY.md` 文案 SSOT。反例约定增至 **38 条**（#38：仓库根=扩展根，`_` 前缀目录让 Chrome 拒载整个扩展，临时工件一律进 `dist/`）。
 
@@ -143,6 +145,7 @@ cd desktop && python build.py   # 桌面助手打包（需 python.org Python，�
 > **写入说明**：本文件应保持 ~150 行。增加内容时请优先放进 `memory-bank/` 对应文件，本索引只放最高优先级的 5-7 条。修改时记录在本文件底部「修订历史」段。
 
 ## 修订历史
+- 2026-06-12 46th session：当前焦点更新为去 AI 味增强 + 自拟主题创作 + BYOK 硬闸门（commit `5086eee`）
 - 2026-05-07 初版（39th session 收尾后建立，sediment 反例约定 21 条 + 14 处对齐清单 + 验证 SOP 三件套）
 - 2026-05-29 40th session：当前焦点更新为安全 review 16 项修复；反例约定 21→30 条；新增 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md)（竞品分析 + 上架就绪度）
 - 2026-05-29 41st session：当前焦点更新为合规检测 + 去 AI 味深化 + mp 注入/悬浮球优化
