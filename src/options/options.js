@@ -358,18 +358,34 @@ aiSourceModeRadios.forEach((radio) => {
   radio.addEventListener("change", async (event) => {
     if (!event.target.checked) return;
     const mode = event.target.value === "platform" ? "platform" : "byok";
-    await saveSettings({ aiSourceMode: mode });
-    applyAiSourceMode(mode);
-    // BYOK 软提示：年费独享，月费/免费用户切到这里 ai.js 在请求时会 throw LICENSE_BYOK_LOCKED
+
+    // 45th 续 · BYOK 硬闸门（对齐 drissionEnabled 的拦截模式）：
+    // 此前只有 setStatus 软提示，免费用户照样能切到 BYOK 并填 Key——
+    // 体验上就是「年费专属设置没锁」。现在先验 license，不过则回弹 + 升级弹窗 + 不保存。
+    // 注意：闸门只拦「切换动作」；存量 BYOK 免费用户（掉级/历史配置）hydrate 时
+    // 不强改配置，仍可管理自己的 Key（运行时 ai.js 有 LICENSE_BYOK_LOCKED 兜底）。
     if (mode === "byok") {
       const access = await checkLicense("ai.bringYourOwnKey");
       if (!access.ok) {
-        setStatus(
-          access.hint ||
-            "提示：自定义 API Key 仅年费会员可用。月费/免费用户切到此模式后调用会被拦截，请改回平台 AI 或升级年费会员。"
-        );
+        for (const r of aiSourceModeRadios) {
+          r.checked = r.value === "platform";
+        }
+        showUpgradeModal({
+          featureName: PAID_FEATURES["ai.bringYourOwnKey"].name,
+          hint: access.hint || PAID_FEATURES["ai.bringYourOwnKey"].hint,
+          bullets: [
+            "用自己的 API Key 调用，不计平台月度额度",
+            "文章正文直连你绑定的服务商，不经过润笔服务器",
+            "OpenAI / DeepSeek / Kimi / Claude 等兼容服务商任选"
+          ],
+          primaryAction: { label: "查看年费会员", url: pricingUrl() }
+        });
+        return;
       }
     }
+
+    await saveSettings({ aiSourceMode: mode });
+    applyAiSourceMode(mode);
   });
 });
 
@@ -582,6 +598,19 @@ async function hydrateForm() {
     fields.platformTier.value = settings.platformTier || "economy";
   }
   applyAiSourceMode(mode);
+
+  // 45th 续 · 存量 BYOK 免费用户（掉级/历史配置）：不强改配置（数据不锁），
+  // 但进设置页时提示一次「当前套餐调用会被拦截」，避免静默失败的困惑。
+  // fire-and-forget：license 查询不阻塞表单回填。
+  if (mode === "byok") {
+    void checkLicense("ai.bringYourOwnKey").then((access) => {
+      if (!access.ok) {
+        setStatus(
+          "注意：「自定义 API Key」为年费专享。当前套餐下保存的 Key 仍可编辑，但 AI 调用会被拦截——请切回平台 AI 或升级年费会员。"
+        );
+      }
+    });
+  }
 
   // 根据已存的 apiBaseUrl 反推服务商，填好下拉与 datalist；
   // 必须放在通用 fields 循环之后 —— 此时 fields.apiBaseUrl.value 才是真实值。

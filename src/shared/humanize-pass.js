@@ -59,6 +59,7 @@ import {
 } from "./humanize-rules.js";
 import { extractChatContent, postChatCompletionWithReasoningFallback, requestPlainChat } from "./ai.js";
 import { ensureOptionalHostPermission } from "./host-permissions.js";
+import { lintArticle } from "./humanize-checker.js";
 
 // ---------------------------------------------------------------------
 // 入口
@@ -69,6 +70,44 @@ import { ensureOptionalHostPermission } from "./host-permissions.js";
 // 自部署 vLLM / Ollama / 某些 SaaS humanizer 限制更严时，单段 fetch 失败
 // 会回退原文，不影响其它段。要彻底关并发可在 settings 里把 humanizeMaxConcurrency 设为 1。
 const DEFAULT_MAX_CONCURRENCY = 6;
+
+// 45th · S2 段级验收闸：
+// 只统计「确定性 AI 痕迹」（黑名单 / 套话 / 对仗 / 收尾套路…），不算 burstiness /
+// 段落节奏这类需要全文上下文的韵律指标——它们在单段文本上噪声太大，会误杀好稿。
+// 新稿痕迹分比原稿高出 ACCEPT_TOLERANCE 以上才回退（小幅波动放行）。
+const ACCEPT_TOLERANCE = 2;
+const TRACE_KINDS = new Set([
+  "ai-vocab",
+  "ai-phrase",
+  "chatbot-tone",
+  "vague-attribution",
+  "fake-honesty-repeat",
+  "phrase-repetition",
+  "parallel-structure",
+  "ending-command",
+  "poetic-ending",
+  "anti-triplet",
+  "negative-parallel",
+  "from-to-progression",
+  "when-anaphora",
+  "narrative-frame",
+  "inline-title-list",
+  "dash-overuse"
+]);
+
+function snippetTraceWeight(text) {
+  try {
+    const report = lintArticle(String(text || ""));
+    let sum = 0;
+    for (const it of report?.issues || []) {
+      if (TRACE_KINDS.has(it.kind)) sum += it.weight || 0;
+    }
+    return sum;
+  } catch {
+    // lint 是验收辅助，异常时视为 0 痕迹（放行），不阻塞 S2 主流程
+    return 0;
+  }
+}
 
 /**
  * @param {object} params
@@ -148,6 +187,12 @@ export async function runHumanizePass({
         }),
       apply: (newLead) => {
         if (newLead && newLead.trim() && newLead !== cloned.lead) {
+          const before = snippetTraceWeight(cloned.lead);
+          const after = snippetTraceWeight(newLead);
+          if (after > before + ACCEPT_TOLERANCE) {
+            errors.push(`lead 新稿 AI 痕迹反而变重（${before}→${after}），回退原文。`);
+            return false;
+          }
           cloned.lead = newLead.trim();
           return true;
         }
@@ -187,6 +232,16 @@ export async function runHumanizePass({
         if (ratio < 0.5 || ratio > 1.8) {
           errors.push(
             `section[${i}] 段数偏差过大（${sec.paragraphs.length} → ${newParas.length}），回退原文。`
+          );
+          return false;
+        }
+        // 45th · 段级验收闸：新稿确定性 AI 痕迹比原稿更重 → 回退。
+        // S2 偶尔会"越改越 AI"（替换字典反噬 / 新套话），这道闸零 token 防回归。
+        const before = snippetTraceWeight(original);
+        const after = snippetTraceWeight(rewritten);
+        if (after > before + ACCEPT_TOLERANCE) {
+          errors.push(
+            `section[${i}] 新稿 AI 痕迹反而变重（${before}→${after}），回退原文。`
           );
           return false;
         }

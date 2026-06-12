@@ -603,6 +603,8 @@ export function normalizeImportedSource(source) {
     // 公众号 author API 上限 16 字符
     author: String(source.author || "").trim().slice(0, 16),
     siteName: String(source.siteName || "").trim(),
+    // 45th 续：保留 origin（"brief" = 自拟主题创作），备份恢复后重试仍走创作语义
+    origin: String(source.origin || "").trim(),
     wordCount:
       Number(source.wordCount || 0) || blocks.reduce((sum, block) => sum + String(block.text || "").length, 0),
     images,

@@ -49,7 +49,8 @@ export const AI_VOCAB_BLACKLIST = Object.freeze([
   { phrase: "综上所述", weight: 9 },
   { phrase: "事实证明", weight: 6 },
   { phrase: "由此可见", weight: 5 },
-  { phrase: "在某种程度上", weight: 5 },
+  // 用短形态同时覆盖「在某种程度上 / 某种程度上是」两种写法（勿再加长形态，避免双重计数）
+  { phrase: "某种程度上", weight: 5 },
   { phrase: "从某种意义上说", weight: 6 },
   // 抽象壳词
   { phrase: "格局", weight: 7 },
@@ -105,7 +106,61 @@ export const AI_VOCAB_BLACKLIST = Object.freeze([
   { phrase: "问题在于", weight: 3 },
   // 去 AI 味"替换字典反噬"——机械替换产生的新套话，一旦固定出现同样是 AI 痕迹
   { phrase: "差不多同期", weight: 5 },
-  { phrase: "顺带一提", weight: 3 }
+  { phrase: "顺带一提", weight: 3 },
+
+  // -------------------------------------------------------------------
+  // 45th session 扩充：2025-2026 中文 LLM 高频词（按真实稿件复盘 + 检测器
+  // 社区共识筛选，只收高置信词，避免误伤正常写作）。
+  // -------------------------------------------------------------------
+  // 收尾感慨类（金句结尾家族）
+  { phrase: "未来已来", weight: 10 },
+  { phrase: "令人深思", weight: 8 },
+  { phrase: "引人深思", weight: 8 },
+  { phrase: "发人深省", weight: 8 },
+  { phrase: "细思极恐", weight: 7 },
+  { phrase: "答案是肯定的", weight: 9 },
+  { phrase: "这并非偶然", weight: 8 },
+  // 评论套话
+  { phrase: "值得一提的是", weight: 6 },
+  { phrase: "不难发现", weight: 6 },
+  { phrase: "不难看出", weight: 5 },
+  { phrase: "显而易见", weight: 6 },
+  { phrase: "毫无疑问", weight: 7 },
+  { phrase: "可以预见", weight: 6 },
+  { phrase: "无独有偶", weight: 6 },
+  { phrase: "殊不知", weight: 5 },
+  { phrase: "如出一辙", weight: 5 },
+  { phrase: "纵观", weight: 6 },
+  // 宣传式动词补充（「X 出」家族：AI 爱用单字动词+出 表"揭示感"）
+  { phrase: "折射出", weight: 6 },
+  { phrase: "映射出", weight: 6 },
+  { phrase: "勾勒出", weight: 6 },
+  { phrase: "诠释了", weight: 6 },
+  { phrase: "应运而生", weight: 7 },
+  { phrase: "蔚然成风", weight: 7 },
+  { phrase: "方兴未艾", weight: 7 },
+  { phrase: "浓墨重彩", weight: 7 },
+  { phrase: "画上句号", weight: 6 },
+  // 互联网黑话（人也用，但 LLM 密度异常高，权重压低防误伤）
+  { phrase: "底层逻辑", weight: 6 },
+  { phrase: "抓手", weight: 6 },
+  { phrase: "颗粒度", weight: 6 },
+  { phrase: "闭环", weight: 4 },
+  { phrase: "悄然", weight: 4 },
+
+  // -------------------------------------------------------------------
+  // 45th session 续 · 子 agent 实测样本复盘新增（4 篇 LLM 自然输出逐句对照
+  // lint 漏报后补收）。这批词在「LLM 不刻意堆套话时」仍高频出现。
+  // -------------------------------------------------------------------
+  { phrase: "恰恰相反", weight: 5 },
+  { phrase: "的本质是", weight: 5 },
+  { phrase: "本质上是", weight: 4 },
+  { phrase: "没那么简单", weight: 6 },
+  { phrase: "这意味着", weight: 4 },
+  { phrase: "写在最后", weight: 6 },
+  { phrase: "笑到最后", weight: 7 },
+  { phrase: "回望", weight: 5 },
+  { phrase: "先说结论", weight: 4 }
 ]);
 
 // ---------------------------------------------------------------------
@@ -148,7 +203,21 @@ export const AI_PHRASE_BLACKLIST = Object.freeze([
   { phrase: "答案藏在", weight: 7 },
   { phrase: "未来可期", weight: 8 },
   { phrase: "值得期待", weight: 5 },
-  { phrase: "唯一不变的是变化", weight: 9 }
+  { phrase: "唯一不变的是变化", weight: 9 },
+  // 45th session 扩充：金句结尾句式 + 评论腔起手式
+  { phrase: "而这，正是", weight: 9 },
+  { phrase: "这，或许就是", weight: 9 },
+  { phrase: "或许，这才是", weight: 9 },
+  { phrase: "不是终点", weight: 7 },
+  { phrase: "这只是开始", weight: 5 },
+  { phrase: "当我们谈论", weight: 8 },
+  { phrase: "真正的问题不在于", weight: 8 },
+  { phrase: "问题的关键在于", weight: 7 },
+  { phrase: "从这个角度看", weight: 6 },
+  { phrase: "站在更高的维度", weight: 8 },
+  // 45th 续 · 实测样本补收
+  { phrase: "才刚刚开始", weight: 7 },
+  { phrase: "真正的考验", weight: 6 }
 ]);
 
 // ---------------------------------------------------------------------
@@ -355,7 +424,10 @@ export const AI_VOCAB_REPLACEMENTS = Object.freeze([
   ["实现", "做出 / 跑通"],
   ["具有", "带 / 有 / 自带"],
   ["展示", "拿出来看 / 给出"],
-  ["体现", "看得出 / 能看到"]
+  ["体现", "看得出 / 能看到"],
+  ["值得一提的是", "顺带说一句 / 还有件事"],
+  ["毫无疑问", "明摆着 / 没跑"],
+  ["底层逻辑", "根子上的原因 / 真正原因"]
 ]);
 
 // ---------------------------------------------------------------------

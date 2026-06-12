@@ -2830,6 +2830,40 @@ console.log("\n运行 humanize-pass 契约 mock 套件 …");
       globalThis.fetch = originalFetch;
     }
   }
+
+  // case F（45th）: S2 段级验收闸——LLM 返回的"新稿"AI 痕迹比原稿更重 → 回退原文。
+  // 原段只有「赋能」(weight 8)，mock 新稿堆满高权重套话（权重和 40+），必须触发回退。
+  {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: "综上所述，毋庸置疑，这件事至关重要。未来已来，而这，正是答案。"
+            }
+          }
+        ]
+      })
+    });
+    try {
+      const result = await runHumanizePass({
+        article: makeArticle(),
+        settings: { apiKey: "sk-test", apiBaseUrl: "https://api.example.com/v1/chat/completions" },
+        intensity: "light",
+        lintReport: { issues: [{ text: "赋能", phrase: "赋能" }] }
+      });
+      assert(result.applied === false, "新稿 AI 痕迹更重时必须回退（applied=false）");
+      assert(
+        result.errors.some((e) => e.includes("回退")),
+        "验收闸回退时 errors 必须有「回退」记录"
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
 }
 
 // =====================================================================
@@ -3454,6 +3488,236 @@ console.log("\n运行 humanize-checker 升华结尾检测单测 …");
     "平实结尾不应误报 poetic-ending"
   );
   console.log("✓ humanize-checker 升华结尾 2 case（命中 / 不误报）");
+}
+
+console.log("\n运行 humanize-checker 45th 新检测器单测 …");
+{
+  const { lintArticle } = await import("../src/shared/humanize-checker.js");
+
+  // ① 新增黑名单词 / 金句短语应命中
+  const blacklist = lintArticle(
+    "<p>值得一提的是，这套方案的底层逻辑很扎实。</p><p>而这，正是行业期待的答案。未来已来。</p>"
+  );
+  assert(
+    blacklist.issues.some((i) => i.kind === "ai-vocab" && i.phrase === "值得一提的是"),
+    "「值得一提的是」应命中 ai-vocab"
+  );
+  assert(
+    blacklist.issues.some((i) => i.kind === "ai-phrase" && i.phrase === "而这，正是"),
+    "「而这，正是」应命中 ai-phrase"
+  );
+
+  // ② 「从…到…再到…」三段递进
+  const fromTo = lintArticle("<p>从芯片到整机，再到云端服务，公司完成了布局。</p>");
+  assert(
+    fromTo.issues.some((i) => i.kind === "from-to-progression"),
+    "「从…到…再到…」应命中 from-to-progression"
+  );
+
+  // ③ 句首「当……」排比 ≥3 才命中
+  const whenHit = lintArticle(
+    "<p>当用户打开应用，画面亮起。当服务器响应，数据返回。当夜幕降临，机房依旧轰鸣。</p>"
+  );
+  assert(
+    whenHit.issues.some((i) => i.kind === "when-anaphora"),
+    "3 个句首「当」应命中 when-anaphora"
+  );
+  const whenSafe = lintArticle("<p>当用户打开应用时画面亮起。服务器随后响应。</p>");
+  assert(
+    !whenSafe.issues.some((i) => i.kind === "when-anaphora"),
+    "单个「当」不应误报 when-anaphora"
+  );
+
+  // ④ 段落句数均匀（6 段 × 每段 3 句）→ paragraph-uniformity
+  const uniformPara =
+    "这是第一句话，铺垫一下背景。这是第二句话，继续展开论述。这是第三句话，收住本段。";
+  const uniform = lintArticle({
+    sections: [
+      { paragraphs: [uniformPara, uniformPara] },
+      { paragraphs: [uniformPara, uniformPara] },
+      { paragraphs: [uniformPara, uniformPara] }
+    ]
+  });
+  assert(
+    uniform.issues.some((i) => i.kind === "paragraph-uniformity"),
+    "6 段全是 3 句的均匀段落应命中 paragraph-uniformity"
+  );
+  // 有短段呼吸 + 句数有起伏 → 不报
+  const varied = lintArticle({
+    sections: [
+      { paragraphs: [uniformPara, "一句话短段。"] },
+      { paragraphs: [uniformPara + uniformPara, "另一个短段，两句话。就这样。"] },
+      { paragraphs: [uniformPara, "结尾短段。"] }
+    ]
+  });
+  assert(
+    !varied.issues.some((i) => i.kind === "paragraph-uniformity"),
+    "句数有起伏的段落不应误报 paragraph-uniformity"
+  );
+
+  // ⑤ 段首词重复：3/6 段以「其实」开头
+  const initRepeat = lintArticle({
+    sections: [
+      { paragraphs: ["其实这个问题没那么复杂，拆开看就清楚了。", "其实大家都明白，只是没人说破这层窗户纸。"] },
+      { paragraphs: ["其实换个角度想，事情反而简单了不少。", "市场的反应比预期平静，没有出现恐慌。"] },
+      { paragraphs: ["数据公布当天，股价只波动了百分之一。", "接下来要看的是季度财报的真实表现。"] }
+    ]
+  });
+  assert(
+    initRepeat.issues.some((i) => i.kind === "paragraph-initial-repeat"),
+    "3 段同以「其实」开头应命中 paragraph-initial-repeat"
+  );
+
+  console.log("✓ humanize-checker 45th 新检测器 7 case（黑名单×2/递进/当排比×2/段落均匀×2/段首重复）");
+}
+
+console.log("\n运行 buildRewriteMessages 自拟主题创作（brief）分支单测 …");
+{
+  const { buildRewriteMessages } = await import("../src/shared/ai.js");
+  const prefs = { length: "medium" };
+  const briefSource = {
+    origin: "brief",
+    title: "为什么我不建议新手做副业",
+    url: "",
+    siteName: "自拟主题",
+    images: [],
+    blocks: [{ type: "paragraph", text: "大多数副业失败是低估了时间成本" }]
+  };
+
+  // ① brief 模式：system 走创作 prompt，user 提示词换创作语义
+  const briefMsgs = buildRewriteMessages(briefSource, prefs, {}, null);
+  assert(
+    briefMsgs[0].content.includes("主笔") && briefMsgs[0].content.includes("想法要点"),
+    "brief 模式 system prompt 必须是创作语义（主笔 + 想法要点）"
+  );
+  assert(
+    briefMsgs[0].content.includes("不要编造"),
+    "brief 模式必须保留防幻觉红线"
+  );
+  const briefUser = briefMsgs[briefMsgs.length - 1].content;
+  assert(
+    briefUser.includes("主题与想法要点（作者提供）"),
+    "brief 模式 user prompt 必须标注「主题与想法要点（作者提供）」"
+  );
+  // 去 AI 味硬约束 system message 必须照常注入
+  assert(
+    briefMsgs.some((m) => m.role === "system" && m.content.includes("硬性约束")),
+    "brief 模式必须保留去 AI 味硬约束消息"
+  );
+
+  // ② brief 模式忽略自定义改写模板（模板都是"忠实改写"语义，会曲解创作任务）
+  const briefWithTemplate = buildRewriteMessages(briefSource, prefs, {}, {
+    systemTemplate: "改写模板标记XYZ {{content}}",
+    userTemplate: "U {{content}}"
+  });
+  assert(
+    !briefWithTemplate.some((m) => m.content.includes("改写模板标记XYZ")),
+    "brief 模式必须忽略自定义改写模板"
+  );
+
+  // ③ 普通改写模式不回归：仍走 DEFAULT_SYSTEM_PROMPT
+  const rewriteMsgs = buildRewriteMessages(
+    { title: "t", url: "https://x.com", images: [], blocks: [{ type: "paragraph", text: "x" }] },
+    prefs,
+    {},
+    null
+  );
+  assert(
+    rewriteMsgs[0].content.includes("改写成适合公众号发布"),
+    "非 brief 来源必须仍走改写 system prompt"
+  );
+
+  console.log("✓ buildRewriteMessages brief 分支 3 case（创作语义/模板忽略/改写不回归）");
+}
+
+console.log("\n运行 humanize-checker 45th 续 · 实测样本复盘检测器单测 …");
+{
+  const { lintArticle } = await import("../src/shared/humanize-checker.js");
+
+  // ① 叙述框架套路（narrative-frame）
+  const frames = lintArticle(
+    "<p>如果说2023年是元年，那么2026年则是决赛圈。</p>" +
+    "<p>越多人用，反馈越多，迭代越快，形成正向循环。</p>" +
+    "<p>谁能把能力转化为商业价值，谁才能笑到最后。</p>" +
+    "<p>工具终究是工具，替代不了思考。</p>"
+  );
+  const frameLabels = frames.issues.filter((i) => i.kind === "narrative-frame").map((i) => i.text);
+  assert(
+    frameLabels.some((t) => t.includes("如果说")),
+    "「如果说…那么…」应命中 narrative-frame"
+  );
+  assert(
+    frameLabels.some((t) => t.includes("越……越")),
+    "三连「越」应命中 narrative-frame"
+  );
+  assert(
+    frameLabels.some((t) => t.includes("谁能")),
+    "「谁能…谁才…」应命中 narrative-frame"
+  );
+  assert(
+    frameLabels.some((t) => t.includes("终究是")),
+    "「X 终究是 X」应命中 narrative-frame"
+  );
+
+  // ② 「一边…另一边」单次不报、两次才报
+  const oneSide = lintArticle("<p>一边是繁华都市，另一边是宁静乡村，他选了后者。</p>");
+  assert(
+    !oneSide.issues.some((i) => i.kind === "narrative-frame" && i.text.includes("一边")),
+    "「一边…另一边」单次不应报"
+  );
+  const twoSides = lintArticle(
+    "<p>一边认为这是个人选择，另一边觉得这是失败。</p><p>一边在意边界感，另一边习惯打探隐私。</p>"
+  );
+  assert(
+    twoSides.issues.some((i) => i.kind === "narrative-frame" && i.text.includes("一边")),
+    "「一边…另一边」x2 应命中 narrative-frame"
+  );
+
+  // ③ 祝福式 / 点题式收尾（poetic-ending 扩充）
+  const blessing = lintArticle("<p>正文先铺垫一段。</p><p>愿每个认真工作的年轻人，都能被看见。</p>");
+  assert(
+    blessing.issues.some((i) => i.kind === "poetic-ending" && i.label.includes("愿")),
+    "「愿……」祝福收尾应命中 poetic-ending"
+  );
+  const thesis = lintArticle("<p>正文先铺垫一段。</p><p>把体力活干掉，这就是好工具的价值。</p>");
+  assert(
+    thesis.issues.some((i) => i.kind === "poetic-ending" && i.label.includes("价值")),
+    "「这就是…的价值」应命中 poetic-ending"
+  );
+
+  // ④ 「不是 X，这是 Y」金句变体（parallel-structure 扩充）
+  const thisIs = lintArticle("<p>这不是世故，这是职业素养。</p>");
+  assert(
+    thisIs.issues.some((i) => i.kind === "parallel-structure" && i.label.includes("这是")),
+    "「不是 X，这是 Y」应命中 parallel-structure"
+  );
+
+  // ⑤ 否定式排比按次数升权：x4 应为 error 且权重 > x3
+  const np3 = lintArticle(
+    "<p>不是讨好，而是协作。这不是妥协，而是策略。那不是退让，而是选择。</p>"
+  );
+  const np4 = lintArticle(
+    "<p>不是讨好，而是协作。这不是妥协，而是策略。那不是退让，而是选择。也不是放弃，而是转身。</p>"
+  );
+  const i3 = np3.issues.find((i) => i.kind === "negative-parallel");
+  const i4 = np4.issues.find((i) => i.kind === "negative-parallel");
+  assert(i3 && i3.severity === "warn", "否定式排比 x3 应为 warn");
+  assert(i4 && i4.severity === "error" && i4.weight > i3.weight, "x4 应升 error 且权重更高");
+
+  // ⑥ 字符串输入的主题词白名单：标题/小标题里的名词复现不算 AI 重复
+  const topical = lintArticle(
+    "<p>楼下早餐店的五毛钱涨价记</p>" +
+    "<p>那天买包子发现五毛钱的涨幅，老板说面粉贵了。</p>" +
+    "<p>五毛钱不算多，但熟客们都注意到了。</p>" +
+    "<p>隔壁摊主也跟着把豆浆提了五毛钱。</p>" +
+    "<p>月底一算，五毛钱乘上每天两百单，不是小数目。</p>"
+  );
+  assert(
+    !topical.issues.some((i) => i.kind === "phrase-repetition" && i.phrase === "五毛钱"),
+    "标题含「五毛钱」时正文复现不应报 phrase-repetition"
+  );
+
+  console.log("✓ humanize-checker 45th 续 10 case（框架×4/一边×2/收尾×2/金句变体/排比升权/主题词白名单）");
 }
 
 console.log("\n运行 article.js 渲染单测（图片分布 / 表格列对齐 / markdown）…");

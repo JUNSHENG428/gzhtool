@@ -102,6 +102,10 @@ export function lintArticle(input, options = {}) {
   // 11. 结尾段升华 / 诗意收尾（否定+肯定句式 / 量词叠词排比）
   collectPoeticEndingIssues(input, issues);
 
+  // 12. 段落节奏（45th）：段落句数过度均匀 + 段首词重复
+  //     句级 burstiness 只看句长，这里补"段落级 stylometry"两个维度。
+  collectParagraphRhythmIssues(input, issues);
+
   // 算分
   let deduction = 0;
   for (const it of issues) deduction += it.weight || severityToWeight(it.severity);
@@ -315,16 +319,117 @@ function collectStructuralIssues(text, issues) {
     }
   }
 
-  // 否定式排比："不是 X 而是 Y" 出现 3 次以上
+  // 否定式排比："不是 X 而是 Y" 出现 3 次以上；次数越多扣得越重（45th 续：
+  // 实测 LLM 一篇里能写 4–5 处，扁平 5 分洗白了密度信号）
   const denialPara = countMatches(text, /不是[^。！？\n]{2,30}[，,]\s*而是/g);
   if (denialPara >= 3) {
+    const weight = Math.min(10, 5 + (denialPara - 3) * 2);
     issues.push({
       kind: "negative-parallel",
-      severity: "warn",
-      weight: 5,
+      severity: denialPara >= 4 ? "error" : "warn",
+      weight,
       text: `否定式排比 x${denialPara}`,
       hint: "「不是…而是…」连续出现 3 次以上，是 AI 的典型修辞。建议改成肯定句陈述。"
     });
+  }
+
+  // 45th：「从 X 到 Y，再到 Z」三段递进——AI 综述腔最爱的时间线/层次铺陈
+  const fromToAgain = countMatches(
+    text,
+    /从[^。！？\n，,]{1,14}到[^。！？\n，,]{1,14}[，,]?\s*(?:再到|又到)[^。！？\n]{1,20}/g
+  );
+  if (fromToAgain > 0) {
+    issues.push({
+      kind: "from-to-progression",
+      severity: "warn",
+      weight: 5,
+      text: `「从…到…再到…」x${fromToAgain}`,
+      hint: `命中三段递进句式 ${fromToAgain} 处。改成只保留首尾两点，或拆成两句各讲一段。`
+    });
+  }
+
+  // 45th：句首「当……」排比——3 句以上以「当」开头是 AI 抒情排比的强信号
+  const whenAnaphora = countMatches(text, /(?:^|[。！？!?\n；;])\s*当(?=[^。！？\n]{4,})/g);
+  if (whenAnaphora >= 3) {
+    issues.push({
+      kind: "when-anaphora",
+      severity: "warn",
+      weight: 5,
+      text: `句首「当……」x${whenAnaphora}`,
+      hint: `${whenAnaphora} 个句子以「当」开头，排比抒情是 AI 套路。保留 1 处，其余改成直接陈述。`
+    });
+  }
+
+  // 45th 续 · 子 agent 实测样本复盘新增的叙述框架套路（LLM 自然输出高频）
+  const framePatterns = [
+    {
+      // 「如果说 2023 是 X，（2024 是 Y，）那么 2026 则是 Z」时间线类比框架
+      re: /如果说[^。！？\n]{2,40}[，,][^。！？\n]{0,60}那么/g,
+      label: "如果说……那么……",
+      min: 1,
+      weight: 5,
+      hint: "类比铺陈框架。直接说结论，去掉「如果说/那么」的脚手架。"
+    },
+    {
+      // 「一边认为 X，另一边觉得 Y」对照排比（单次常见于人写，2 次以上才算指纹）
+      re: /一边[^。！？\n]{2,30}[，,]\s*另一边/g,
+      label: "一边……另一边……",
+      min: 2,
+      weight: 5,
+      hint: "对照排比连用。保留 1 组，其余改成单边陈述或具体例子。"
+    },
+    {
+      // 「既不是 X，也不（一定）是 Y」双重否定骑墙框架
+      re: /既不是[^。！？\n]{2,24}[，,]\s*也不/g,
+      label: "既不是……也不……",
+      min: 1,
+      weight: 4,
+      hint: "双重否定骑墙句。直接给判断，或只否定一边。"
+    },
+    {
+      // 「越多人用，反馈越多，迭代越快」三连越递进
+      re: /越[^。！？\n，,]{1,10}[，,][^。！？\n，,]{0,8}越[^。！？\n，,]{1,10}[，,][^。！？\n，,]{0,8}越/g,
+      label: "越……越……越……",
+      min: 1,
+      weight: 5,
+      hint: "三连「越」递进是 AI 飞轮叙事腔。砍到两个「越」或改成因果句。"
+    },
+    {
+      // 「旧的在退场，新的还在生长」新旧对照诗意句
+      re: /旧的[^。！？\n]{0,16}[，,]\s*新的/g,
+      label: "旧的……新的……",
+      min: 1,
+      weight: 6,
+      hint: "新旧对照是 AI 转型叙事金句。换成具体在发生的事。"
+    },
+    {
+      // 「谁能 X，谁才能/就能 Y」格言式收束
+      re: /谁能[^。！？\n]{2,24}[，,]\s*谁(?:才|就)/g,
+      label: "谁能……谁才/就……",
+      min: 1,
+      weight: 6,
+      hint: "格言式收束。改成对具体玩家/做法的判断。"
+    },
+    {
+      // 「工具终究是工具」同词回环（X 终究是 X）
+      re: /([\u4e00-\u9fa5]{1,6})终究是\1/g,
+      label: "X 终究是 X",
+      min: 1,
+      weight: 6,
+      hint: "同词回环的禅意句是 AI 收尾指纹。直接说这东西能做什么、不能做什么。"
+    }
+  ];
+  for (const { re, label, min, weight, hint } of framePatterns) {
+    const m = countMatches(text, re);
+    if (m >= min) {
+      issues.push({
+        kind: "narrative-frame",
+        severity: "warn",
+        weight,
+        text: `「${label}」x${m}`,
+        hint: `命中 ${m} 处。${hint}`
+      });
+    }
   }
 }
 
@@ -446,7 +551,10 @@ function collectRepeatedPhraseIssues(text, paragraphCount, issues, topicalTerms 
     // 主题词：标题 / 小标题里出现过的字串 → 不是"AI 重复"，跳过
     if (topicalTerms && topicalTerms.includes(item.phrase)) continue;
     totalRepeat += item.count;
-    const weight = Math.min(10, item.count * 2);
+    // 45th 续降权：通用 n-gram 重复大多是「主题名词天然复现」（真人叙事写
+    // 「老板娘」「表哥」一样会 x4），证据强度远低于套话黑名单。weight 从
+    // count*2 降为 count（封顶 8），把扣分主力让位给确定性检测器。
+    const weight = Math.min(8, item.count);
     issues.push({
       kind: "phrase-repetition",
       phrase: item.phrase,
@@ -486,6 +594,11 @@ function collectParallelStructureIssues(text, issues) {
     {
       re: /[\u4e00-\u9fa5A-Za-z0-9“”"]{2,18}[，,]?\s*而非\s*[\u4e00-\u9fa5A-Za-z0-9“”"]{2,18}[。！!？?]/g,
       label: "X 而非 Y"
+    },
+    {
+      // 「这不是世故，这是 professionalism」——「不是 X，这是 Y」金句变体
+      re: /[这那]?不是\s*[\u4e00-\u9fa5A-Za-z0-9“”"]{2,16}[，,]\s*[这那]是\s*[\u4e00-\u9fa5A-Za-z0-9“”"]{2,20}[。！!？?]/g,
+      label: "不是 X，这是 Y"
     }
   ];
   for (const { re, label } of patterns) {
@@ -553,6 +666,16 @@ function collectPoeticEndingIssues(input, issues) {
       // 一辆辆 / 一点点（一 + 字 + 同字）
       re: /一[\u4e00-\u9fa5]?([\u4e00-\u9fa5])\1/g,
       label: "量词叠词排比"
+    },
+    {
+      // 45th 续：「愿每个认真工作的年轻人，都能被看见」祝福式收尾
+      re: /(?:^|[。！？!?\n])\s*愿[^。！？\n]{4,40}[。！!]/g,
+      label: "「愿……」祝福收尾"
+    },
+    {
+      // 45th 续：「这就是好工具的价值 / 意义」点题收尾
+      re: /这就是[^。！？\n]{2,16}的(?:价值|意义)[。！!]/g,
+      label: "这就是……的价值/意义"
     }
   ];
   const seen = new Set();
@@ -574,6 +697,105 @@ function collectPoeticEndingIssues(input, issues) {
   }
 }
 
+// 45th：段落级 stylometry 两连检
+//  ① 段落句数过度均匀：人写作有"一句话短段"当呼吸，AI 默认每段 3–5 句铺满。
+//     条件：≥6 个正文段、每段句数都在 3–6 之间、句数变异系数 < 0.3 → warn。
+//     仅"缺短段"但句数有起伏 → hint（轻提示）。
+//  ② 段首词重复：≥3 个段落以同样的头两个字开头（"其实/这就/我们…"），
+//     是 AI 段落生成的节奏指纹。
+function collectParagraphRhythmIssues(input, issues) {
+  const paragraphs = extractParagraphTexts(input);
+  if (paragraphs.length < 5) return;
+
+  // ① 句数均匀度
+  if (paragraphs.length >= 6) {
+    const counts = paragraphs.map((p) => splitSentencesPlain(p).length).filter((n) => n > 0);
+    if (counts.length >= 6) {
+      const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
+      const variance = counts.reduce((acc, n) => acc + (n - mean) * (n - mean), 0) / counts.length;
+      const cv = mean > 0 ? Math.sqrt(variance) / mean : 0;
+      const allMidRange = counts.every((n) => n >= 3 && n <= 6);
+      const hasShortPara = counts.some(
+        (n) => n <= BURSTINESS_TARGET.shortParagraphMaxSentences
+      );
+      if (allMidRange && cv < 0.3) {
+        issues.push({
+          kind: "paragraph-uniformity",
+          severity: "warn",
+          weight: 5,
+          text: `段落节奏均匀（每段 ${Math.min(...counts)}–${Math.max(...counts)} 句）`,
+          hint: "所有段落句数几乎一样，是 AI 生成的段落指纹。把至少一段压成 1–2 句短段，再让某段放开写长。"
+        });
+      } else if (!hasShortPara) {
+        issues.push({
+          kind: "no-short-paragraph",
+          severity: "hint",
+          weight: 2,
+          text: "缺少 1–2 句的短段",
+          hint: "全篇没有短段呼吸。挑一个关键转折处，把一句话单独成段。"
+        });
+      }
+    }
+  }
+
+  // ② 段首词重复（取每段头两个汉字做近似"首词"）
+  const prefixCounter = new Map();
+  for (const p of paragraphs) {
+    const m = String(p).match(/^[“”"『「]?([\u4e00-\u9fa5]{2})/);
+    if (!m) continue;
+    const prefix = m[1];
+    prefixCounter.set(prefix, (prefixCounter.get(prefix) || 0) + 1);
+  }
+  const threshold = Math.max(3, Math.ceil(paragraphs.length * 0.34));
+  for (const [prefix, count] of prefixCounter.entries()) {
+    if (count >= threshold) {
+      issues.push({
+        kind: "paragraph-initial-repeat",
+        severity: "warn",
+        weight: 4,
+        text: `「${prefix}…」开头 x${count} 段`,
+        hint: `${count} 个段落都以「${prefix}」开头。换 2–3 处开头：用结论先行、引一句对话、或直接抛数字。`
+      });
+    }
+  }
+}
+
+/**
+ * 提取正文段落文本数组（不含标题 / 小标题）。
+ * object 输入：lead + sections[].paragraphs + closing；字符串输入：剥标签按换行切。
+ */
+function extractParagraphTexts(input) {
+  if (!input) return [];
+  if (typeof input === "string") {
+    return stripHtmlTags(input)
+      .split(/\n+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length >= 10);
+  }
+  if (typeof input !== "object") return [];
+  if (
+    (!Array.isArray(input.sections) || input.sections.length === 0) &&
+    typeof input.bodyHtml === "string" &&
+    input.bodyHtml.trim()
+  ) {
+    return extractParagraphTexts(input.bodyHtml);
+  }
+  const out = [];
+  if (input.lead && String(input.lead).trim().length >= 10) out.push(String(input.lead).trim());
+  const sections = Array.isArray(input.sections) ? input.sections : [];
+  for (const sec of sections) {
+    if (!sec || !Array.isArray(sec.paragraphs)) continue;
+    for (const p of sec.paragraphs) {
+      const text = String(p || "").trim();
+      if (text.length >= 10) out.push(text);
+    }
+  }
+  if (input.closing && String(input.closing).trim().length >= 10) {
+    out.push(String(input.closing).trim());
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------
 // 4) 工具
 // ---------------------------------------------------------------------
@@ -584,6 +806,12 @@ function collectPoeticEndingIssues(input, issues) {
  * 字符串输入则没有结构信息，返回空串（全部走通用过滤）。
  */
 function collectTopicalTerms(input) {
+  // 45th 续：字符串 / bodyHtml 输入此前拿不到主题词（topicalTerms 恒空），
+  // 导致标题里的主题名词（「五毛钱」「向上管理」）被当 AI 重复扣分。
+  // 降级方案：把剥标签后「短且不以句末标点结尾」的行视为标题/小标题。
+  if (typeof input === "string") {
+    return collectHeadingLikeLines(stripHtmlTags(input));
+  }
   if (!input || typeof input !== "object") return "";
   const parts = [];
   if (input.title) parts.push(String(input.title));
@@ -594,7 +822,29 @@ function collectTopicalTerms(input) {
     if (sec.heading) parts.push(String(sec.heading));
     if (sec.subheading) parts.push(String(sec.subheading));
   }
+  if (parts.length === 0 && typeof input.bodyHtml === "string" && input.bodyHtml.trim()) {
+    return collectHeadingLikeLines(stripHtmlTags(input.bodyHtml));
+  }
   return parts.join(" ");
+}
+
+/**
+ * 从纯文本里提取"看起来像标题/小标题"的行：首行恒收（文章标题），
+ * 其余收 4–32 字且不以 。！？ 结尾的短行。
+ */
+function collectHeadingLikeLines(text) {
+  const lines = String(text || "")
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return "";
+  const picked = [lines[0]];
+  for (const line of lines.slice(1)) {
+    if (line.length >= 4 && line.length <= 32 && !/[。！？!?]$/.test(line)) {
+      picked.push(line);
+    }
+  }
+  return picked.join(" ");
 }
 
 function pickLastParagraph(input) {

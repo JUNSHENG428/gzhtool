@@ -164,6 +164,14 @@ export function init(ctx) {
   });
   document.querySelector("#copyPromptButton").addEventListener("click", copyManualPrompt);
 
+  // 自拟主题创作（45th 续）：与改写按钮同款 debounce（防双击双扣额度）
+  document.querySelector("#briefGenerateButton")?.addEventListener("click", () => {
+    const now = Date.now();
+    if (now - _lastRewriteClickAt < REWRITE_CLICK_DEBOUNCE_MS) return;
+    _lastRewriteClickAt = now;
+    void createArticleFromBrief();
+  });
+
   // 「请先配置 AI 接口」前置 modal 的关闭 + 跳转
   const closeAiBtn = document.querySelector("#closeNeedAiConfigModalButton");
   const goAiBtn = document.querySelector("#goBindAiConfigButton");
@@ -435,7 +443,64 @@ async function _articleHasInFlightRewrite(articleId) {
   }
 }
 
-export async function rewriteArticle() {
+/**
+ * 45th 续 · 自拟主题创作：把「主题 + 想法要点 + 可选参考资料」合成一个
+ * origin="brief" 的虚拟 source，复用整条 REWRITE_ARTICLE 管线（S1 去 AI 味
+ * 硬约束 / lint / S2 二次润色 / 文风注入 / 任务中心 / 每日额度全部自动生效）。
+ * prompt 层的创作语义切换在 ai.js buildRewriteMessages 里按 origin 分支。
+ */
+export async function createArticleFromBrief() {
+  const { state, setStatus, syncWorkspace, schedulePersist } = _ctx;
+
+  const topic = String(document.querySelector("#briefTopicInput")?.value || "").trim();
+  const ideas = String(document.querySelector("#briefIdeasInput")?.value || "").trim();
+  const reference = String(document.querySelector("#briefRefInput")?.value || "").trim();
+
+  if (!topic) {
+    setStatus("请先填写文章主题。", "warning");
+    document.querySelector("#briefTopicInput")?.focus();
+    return;
+  }
+  if (!ideas && !reference) {
+    setStatus("请至少写几条想法要点（或贴一段参考资料），AI 才有内容可展开。", "warning");
+    document.querySelector("#briefIdeasInput")?.focus();
+    return;
+  }
+
+  const blocks = [];
+  for (const line of ideas.split(/\n+/).map((s) => s.trim()).filter(Boolean)) {
+    blocks.push({ type: "paragraph", text: line });
+  }
+  if (reference) {
+    blocks.push({ type: "paragraph", text: "—— 以下为作者提供的参考资料（事实只能取自这里）——" });
+    for (const para of reference.split(/\n+/).map((s) => s.trim()).filter(Boolean)) {
+      blocks.push({ type: "paragraph", text: para });
+    }
+  }
+
+  const briefSource = {
+    origin: "brief",
+    title: topic,
+    url: "",
+    description: "",
+    author: "",
+    siteName: "自拟主题",
+    captureMode: "brief",
+    wordCount: blocks.reduce((n, b) => n + (b.text || "").length, 0),
+    images: [],
+    blocks
+  };
+
+  // 写入 state.source：让「采集信息」面板可见这份素材，
+  // 后续重试 / 复制手动提示词都按这份 brief 走。
+  state.source = briefSource;
+  syncWorkspace();
+  schedulePersist();
+
+  await rewriteArticle({ sourceOverride: briefSource });
+}
+
+export async function rewriteArticle(options = {}) {
   const {
     state,
     setStatus,
@@ -447,12 +512,17 @@ export async function rewriteArticle() {
     collectRewritePreferences,
     resetRetryCount
   } = _ctx;
+  // 45th 续 · 自拟主题创作：createArticleFromBrief 传入合成 source，
+  // 优先级最高（编辑区有正文也不抢——用户明确点了「生成文章」）。
+  const sourceOverride = options.sourceOverride || null;
 
   syncCurrentArticleFromControls();
   const current = getCurrentArticle();
   let sourceForRewrite = null;
   let fromEditor = false;
-  if (isEditorBodySubstantiveForRewrite(current.bodyHtml)) {
+  if (sourceOverride) {
+    sourceForRewrite = sourceOverride;
+  } else if (isEditorBodySubstantiveForRewrite(current.bodyHtml)) {
     fromEditor = true;
     sourceForRewrite = buildRewriteSourceFromCurrentArticle(state, current);
   } else if (state.source) {
@@ -499,11 +569,14 @@ export async function rewriteArticle() {
   // 触发 applyRewriteTaskResult 写回；老 modal 模式（settings.useTaskCenter=false）走全屏 loading。
   const useTaskCenter = state.settings.useTaskCenter !== false;
 
+  const isBriefCreate = String(sourceForRewrite?.origin || "") === "brief";
   if (useTaskCenter) {
     setStatus(
-      fromEditor
-        ? `已加入改写队列（按当前编辑区正文）。可继续抓取或编辑其他文章——进度看右下角任务中心。`
-        : `已加入改写队列${templateLabel ? `（模板：${templateLabel}）` : ""}。可继续抓取或编辑其他文章——进度看右下角任务中心。`,
+      isBriefCreate
+        ? `已加入 AI 创作队列（主题：${sourceForRewrite.title || "未命名"}）。可继续编辑其他文章——进度看右下角任务中心。`
+        : fromEditor
+          ? `已加入改写队列（按当前编辑区正文）。可继续抓取或编辑其他文章——进度看右下角任务中心。`
+          : `已加入改写队列${templateLabel ? `（模板：${templateLabel}）` : ""}。可继续抓取或编辑其他文章——进度看右下角任务中心。`,
       "info"
     );
   } else {

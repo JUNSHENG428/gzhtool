@@ -200,6 +200,8 @@ function buildBlocksFromBodyHtml(bodyHtml, images) {
 export function buildRewriteMessages(source, preferences, settings, template, voiceSample = null) {
   const snapshot = createSourceSnapshot(source);
   const requestedLength = LENGTH_LABELS[preferences.length] || LENGTH_LABELS.medium;
+  // 45th 续 · 自拟主题创作模式：source 不是网页采集物，而是用户填的「主题 + 想法要点」。
+  const isBrief = String(source?.origin || "") === "brief";
 
   const audience =
     preferences.audience ||
@@ -218,7 +220,10 @@ export function buildRewriteMessages(source, preferences, settings, template, vo
     usePolicy === "force-off" ? null : voiceSample;
 
   const messages = [];
-  if (template && (template.systemTemplate || template.userTemplate)) {
+  // brief 模式不走自定义模板分支：所有自定义模板都是「忠实改写来源」语义，
+  // 强行套在"几条想法要点"上会让 LLM 把要点当成全文做缩写式改写。
+  // template 仍然生效的部分：defaults（audience/tone/angle/cta）+ humanizeProfile（硬约束阈值）。
+  if (!isBrief && template && (template.systemTemplate || template.userTemplate)) {
     const vars = {
       title: source.title || "",
       url: source.url || "",
@@ -256,12 +261,14 @@ export function buildRewriteMessages(source, preferences, settings, template, vo
     return messages;
   }
 
-  const systemPrompt = DEFAULT_SYSTEM_PROMPT;
+  const systemPrompt = isBrief ? CREATION_SYSTEM_PROMPT : DEFAULT_SYSTEM_PROMPT;
 
   const userPrompt = [
-    "请将下面的来源材料改写成公众号文章。",
+    isBrief
+      ? "请根据下面的主题与作者想法要点，撰写一篇公众号原创文章。"
+      : "请将下面的来源材料改写成公众号文章。",
     "",
-    "改写目标：",
+    isBrief ? "创作目标：" : "改写目标：",
     JSON.stringify(
       {
         audience,
@@ -274,7 +281,7 @@ export function buildRewriteMessages(source, preferences, settings, template, vo
       2
     ),
     "",
-    "来源快照：",
+    isBrief ? "主题与想法要点（作者提供）：" : "来源快照：",
     JSON.stringify(snapshot, null, 2)
   ].join("\n");
 
@@ -468,6 +475,25 @@ const DEFAULT_SYSTEM_PROMPT = [
   "5. JSON 字段必须包含 title、subtitle、lead、sections、closing、cta、wechatTitleOptions、keywords。",
   "6. 每个 section 必须包含 heading、paragraphs、bulletPoints、quote、imageRefs、codeBlocks、tables、mathBlocks。",
   "7. imageRefs 中每一项形如 {\"index\": 1, \"caption\": \"图注\"}，index 必须引用来源图片编号。",
+  "8. codeBlocks 中每一项形如 {\"language\": \"python\", \"text\": \"...\"}；tables 形如 {\"headers\": [...], \"rows\": [[...], ...]}；mathBlocks 形如 {\"latex\": \"E=mc^2\", \"display\": true}。",
+  "9. 若某个字段没有内容，请返回空字符串或空数组，不要省略字段。"
+].join("\n");
+
+// 45th 续 · 「自拟主题创作」模式（source.origin === "brief"）专用 system prompt。
+// 与改写模式的关键差异在第 1-2 条：改写要求"只基于来源事实、不得展开"，
+// 创作则要求"以作者要点为骨架自由展开成文"——但防幻觉红线不放松：
+// 具体数据 / 引语 / 公司动作必须来自作者素材，素材没有就不写。
+// JSON schema 条目（4-9）与改写模式保持逐字一致，normalizeArticle 共用一套解析。
+const CREATION_SYSTEM_PROMPT = [
+  "你是一名资深微信公众号主笔，负责根据作者提供的主题与想法要点，撰写一篇适合公众号发布的原创文章。",
+  "必须遵守这些规则：",
+  "1. 以作者的主题和要点为骨架展开成文：可以补充论证、过渡、场景化描写，让要点立得住；但所有具体数据、统计数字、引语、公司动作、人物言论都必须来自作者提供的素材——素材里没有的不要编造，需要数据支撑时改用定性表述或自然带过。",
+  "2. 作者要点之间允许重新排序、合并、取舍，但不得曲解或反转作者的观点立场。",
+  "3. 语气要像成熟编辑，而不是模板化 AI 文案；避免「随着…的不断发展」「在当今时代」等套话。",
+  "4. 输出必须是合法 JSON，且只输出 JSON，不要附加解释或 Markdown 代码块。",
+  "5. JSON 字段必须包含 title、subtitle、lead、sections、closing、cta、wechatTitleOptions、keywords。",
+  "6. 每个 section 必须包含 heading、paragraphs、bulletPoints、quote、imageRefs、codeBlocks、tables、mathBlocks。",
+  "7. imageRefs 中每一项形如 {\"index\": 1, \"caption\": \"图注\"}，index 必须引用来源图片编号；没有可用图片素材时一律返回空数组。",
   "8. codeBlocks 中每一项形如 {\"language\": \"python\", \"text\": \"...\"}；tables 形如 {\"headers\": [...], \"rows\": [[...], ...]}；mathBlocks 形如 {\"latex\": \"E=mc^2\", \"display\": true}。",
   "9. 若某个字段没有内容，请返回空字符串或空数组，不要省略字段。"
 ].join("\n");

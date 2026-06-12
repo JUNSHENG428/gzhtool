@@ -656,6 +656,34 @@
               </p>
             </section>
 
+            <!-- ============ 自拟主题创作（45th 续）：不抓网页，按主题+想法直接生成 ============ -->
+            <section class="panel">
+              <div class="section-header">
+                <div>
+                  <p class="section-kicker">原创</p>
+                  <h2>自拟主题，AI 帮你写</h2>
+                </div>
+              </div>
+              <div class="form-grid">
+                <label class="wide">
+                  <span>文章主题（必填）</span>
+                  <input id="briefTopicInput" type="text" placeholder="例如：为什么我不建议新手一上来就做副业" />
+                </label>
+                <label class="wide">
+                  <span>想法要点（每行一条）</span>
+                  <textarea id="briefIdeasInput" rows="5" placeholder="把想表达的观点、案例、结论一行一条写下来，AI 会以它们为骨架展开成文。&#10;例如：&#10;大多数副业失败是因为低估了时间成本&#10;我自己试过 3 个月做电商，亏了 4000 块&#10;先用主业技能接单，比从零学新技能靠谱"></textarea>
+                </label>
+                <label class="wide">
+                  <span>参考资料（可选）</span>
+                  <textarea id="briefRefInput" rows="4" placeholder="可粘贴相关资料 / 数据 / 新闻原文。AI 只会引用这里给出的事实，不会自行编造数据。"></textarea>
+                </label>
+              </div>
+              <div class="image-source-toolbar">
+                <button id="briefGenerateButton" class="primary" type="button">✍️ AI 生成文章</button>
+                <small class="field-hint" style="margin-left:auto;">与「AI 改写」共用每日额度（计 1 次），自动套用相同的去 AI 味管线。生成结果写入当前选中的文章。</small>
+              </div>
+            </section>
+
             <section class="panel">
               <div class="section-header">
                 <div>
