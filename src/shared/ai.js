@@ -1718,41 +1718,52 @@ export function extractJson(rawText) {
   }
 }
 
-function normalizeArticle(data, source, preferences) {
-  const rawSections = Array.isArray(data.sections) ? data.sections : [];
-  const sourceImages = Array.isArray(source.images) ? source.images : [];
+export function normalizeArticle(data, source = {}, preferences = {}) {
+  const root = data && typeof data === "object" ? data : {};
+  const safeSource = source && typeof source === "object" ? source : {};
+  const rawSections = Array.isArray(root.sections) ? root.sections : [];
+  const sourceImages = Array.isArray(safeSource.images) ? safeSource.images : [];
 
-  const sections = rawSections.map((section) => ({
-    heading: section.heading || "",
-    paragraphs: normalizeStringArray(section.paragraphs),
-    bulletPoints: normalizeStringArray(section.bulletPoints),
-    quote: section.quote || "",
-    imageRefs: normalizeImageRefs(section.imageRefs, sourceImages),
-    // 新增三类结构化内容，渲染层会据此画 <pre>/<table>/数学公式
-    codeBlocks: normalizeCodeBlocks(section.codeBlocks),
-    tables: normalizeTables(section.tables),
-    mathBlocks: normalizeMathBlocks(section.mathBlocks)
-  }));
+  const sections = rawSections.map((rawSection) => {
+    const section =
+      rawSection && typeof rawSection === "object"
+        ? rawSection
+        : { paragraphs: [rawSection] };
+    return {
+      heading: normalizeGeneratedText(section.heading),
+      paragraphs: normalizeStringArray(section.paragraphs),
+      bulletPoints: normalizeStringArray(section.bulletPoints),
+      quote: normalizeGeneratedText(section.quote),
+      imageRefs: normalizeImageRefs(section.imageRefs, sourceImages),
+      // 新增三类结构化内容，渲染层会据此画 <pre>/<table>/数学公式
+      codeBlocks: normalizeCodeBlocks(section.codeBlocks),
+      tables: normalizeTables(section.tables),
+      mathBlocks: normalizeMathBlocks(section.mathBlocks)
+    };
+  });
 
   // —— 漏图兜底 ——
   // AI 经常会"忘掉"原文中的图片引用。我们扫描所有 section.imageRefs 已用到的 index，
   // 把"应该被引用却没被引用"的来源图片，按它们在原文 blocks 里出现的顺序，
   // 插回到最近的那个 section 的 imageRefs 末尾。
   // 排除规则：明显的 logo / avatar / emoji / icon / tracking pixel / 广告位
-  injectMissingImages(sections, source);
+  injectMissingImages(sections, safeSource);
 
   // 同理：来源里出现但 AI 输出里完全消失的 code / table 也补回最近的 section
-  injectMissingStructuredBlocks(sections, source);
+  injectMissingStructuredBlocks(sections, safeSource);
 
   return {
-    title: data.title || source.title || "未命名改写稿",
-    subtitle: data.subtitle || "",
-    lead: data.lead || "",
+    title:
+      normalizeGeneratedText(root.title) ||
+      normalizeGeneratedText(safeSource.title) ||
+      "未命名改写稿",
+    subtitle: normalizeGeneratedText(root.subtitle),
+    lead: normalizeGeneratedText(root.lead),
     sections,
-    closing: data.closing || "",
-    cta: data.cta || preferences.cta || "",
-    wechatTitleOptions: normalizeStringArray(data.wechatTitleOptions).slice(0, 3),
-    keywords: normalizeStringArray(data.keywords).slice(0, 8)
+    closing: normalizeGeneratedText(root.closing),
+    cta: normalizeGeneratedText(root.cta) || normalizeGeneratedText(preferences.cta),
+    wechatTitleOptions: normalizeStringArray(root.wechatTitleOptions).slice(0, 3),
+    keywords: normalizeStringArray(root.keywords).slice(0, 8)
   };
 }
 
@@ -1760,8 +1771,8 @@ function normalizeCodeBlocks(value) {
   if (!Array.isArray(value)) return [];
   return value
     .map((item) => ({
-      language: String(item?.language || "").trim(),
-      text: String(item?.text || item?.code || "")
+      language: normalizeGeneratedText(item?.language),
+      text: normalizeGeneratedText(item?.text) || normalizeGeneratedText(item?.code)
     }))
     .filter((b) => b.text.trim().length > 0);
 }
@@ -1770,10 +1781,12 @@ function normalizeTables(value) {
   if (!Array.isArray(value)) return [];
   return value
     .map((item) => ({
-      headers: Array.isArray(item?.headers) ? item.headers.map((s) => String(s || "")) : [],
+      headers: Array.isArray(item?.headers)
+        ? item.headers.map((s) => normalizeGeneratedText(s))
+        : [],
       rows: Array.isArray(item?.rows)
         ? item.rows.map((row) =>
-            Array.isArray(row) ? row.map((cell) => String(cell || "")) : []
+            Array.isArray(row) ? row.map((cell) => normalizeGeneratedText(cell)) : []
           )
         : []
     }))
@@ -1785,7 +1798,10 @@ function normalizeMathBlocks(value) {
   return value
     .map((item) => ({
       // 支持 { latex } 或 { tex } 或 { text }
-      latex: String(item?.latex || item?.tex || item?.text || "").trim(),
+      latex:
+        normalizeGeneratedText(item?.latex) ||
+        normalizeGeneratedText(item?.tex) ||
+        normalizeGeneratedText(item?.text),
       display: item?.display !== false
     }))
     .filter((m) => m.latex.length > 0);
@@ -1843,7 +1859,7 @@ function injectMissingImages(sections, source) {
     );
     sections[sectionIdx].imageRefs.push({
       index: idx,
-      caption: image.caption || image.alt || ""
+      caption: normalizeGeneratedText(image.caption) || normalizeGeneratedText(image.alt)
     });
     used.add(idx);
   }
@@ -1864,13 +1880,14 @@ function injectMissingStructuredBlocks(sections, source) {
   let cursor = 0;
   blocks.forEach((block) => {
     if (block?.type === "code") {
-      const text = String(block.text || "").trim();
+      const text = normalizeGeneratedText(block.text);
       if (!text) return;
-      const key = `${String(block.language || "").trim()}::${text.slice(0, 80)}`;
+      const language = normalizeGeneratedText(block.language);
+      const key = `${language}::${text.slice(0, 80)}`;
       if (usedCode.has(key)) return;
       const sectionIdx = Math.min(sections.length - 1, cursor % sections.length);
       sections[sectionIdx].codeBlocks.push({
-        language: String(block.language || "").trim(),
+        language,
         text
       });
       usedCode.add(key);
@@ -1883,8 +1900,10 @@ function injectMissingStructuredBlocks(sections, source) {
       if (usedTable.has(key)) return;
       const sectionIdx = Math.min(sections.length - 1, cursor % sections.length);
       sections[sectionIdx].tables.push({
-        headers: headers.map((s) => String(s || "")),
-        rows: rows.map((row) => (Array.isArray(row) ? row.map((cell) => String(cell || "")) : []))
+        headers: headers.map((s) => normalizeGeneratedText(s)),
+        rows: rows.map((row) =>
+          Array.isArray(row) ? row.map((cell) => normalizeGeneratedText(cell)) : []
+        )
       });
       usedTable.add(key);
       cursor += 1;
@@ -1893,12 +1912,41 @@ function injectMissingStructuredBlocks(sections, source) {
 }
 
 function normalizeStringArray(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map((item) => String(item || "").trim())
+  const values = Array.isArray(value) ? value : value == null ? [] : [value];
+  return values
+    .map((item) => normalizeGeneratedText(item))
     .filter(Boolean);
+}
+
+function normalizeGeneratedText(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value).trim();
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeGeneratedText(item))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  if (typeof value === "object") {
+    for (const key of [
+      "text",
+      "content",
+      "value",
+      "title",
+      "heading",
+      "quote",
+      "label",
+      "name"
+    ]) {
+      const text = normalizeGeneratedText(value[key]);
+      if (text) return text;
+    }
+  }
+  return "";
 }
 
 function normalizeImageRefs(value, images) {
@@ -1908,8 +1956,11 @@ function normalizeImageRefs(value, images) {
 
   return value
     .map((item) => ({
-      index: Number(item?.index),
-      caption: String(item?.caption || "").trim()
+      index: Number(typeof item === "number" ? item : item?.index),
+      caption:
+        typeof item === "number"
+          ? ""
+          : normalizeGeneratedText(item?.caption) || normalizeGeneratedText(item?.alt)
     }))
     .filter(
       (item) =>
