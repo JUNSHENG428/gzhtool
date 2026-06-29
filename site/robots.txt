@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Sitemap: https://docuearn.com/sitemap.xml
+
+# AI usage signals
+Content-Usage: search=yes, ai-input=no, ai-train=no
