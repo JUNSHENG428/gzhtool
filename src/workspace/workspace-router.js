@@ -68,19 +68,28 @@ function readRoute() {
 
 /**
  * 切换显示对应视图，并刷新侧栏 / 顶部标题。
+ *
+ * 性能约定（check:features [6] 100 次 hash 切换基准）：
+ * - 只写「值真的变了」的属性——给 7 个视图 / N 个导航项重写相同值也会触发
+ *   style invalidation，高频切换时是白白多付的 recalc。
+ * - scrollTop 归零挪到 rAF：同步读写 scrollTop 会在 handler 内强制一次
+ *   布局 flush（大编辑器 DOM 下一次就是十几 ms），rAF 里与本帧渲染合并。
  */
 function applyRoute(route) {
   const views = document.querySelectorAll("[data-view]");
   views.forEach((node) => {
-    node.dataset.active = node.dataset.view === route ? "true" : "false";
+    const next = node.dataset.view === route ? "true" : "false";
+    if (node.dataset.active !== next) node.dataset.active = next;
   });
 
   const navItems = document.querySelectorAll(".ui-nav-item[data-route]");
   navItems.forEach((node) => {
     if (node.dataset.route === route) {
-      node.setAttribute("aria-current", "page");
-      node.classList.add("is-active");
-    } else {
+      if (node.getAttribute("aria-current") !== "page") {
+        node.setAttribute("aria-current", "page");
+        node.classList.add("is-active");
+      }
+    } else if (node.hasAttribute("aria-current") || node.classList.contains("is-active")) {
       node.removeAttribute("aria-current");
       node.classList.remove("is-active");
     }
@@ -89,12 +98,14 @@ function applyRoute(route) {
   const meta = VIEW_META[route] || VIEW_META.dashboard;
   const titleEl = document.getElementById("topViewTitle");
   const subEl = document.getElementById("topViewSub");
-  if (titleEl) titleEl.textContent = meta.title;
-  if (subEl) subEl.textContent = meta.sub;
+  if (titleEl && titleEl.textContent !== meta.title) titleEl.textContent = meta.title;
+  if (subEl && subEl.textContent !== meta.sub) subEl.textContent = meta.sub;
 
-  // 滚动到顶
-  const main = document.querySelector(".ui-shell-content");
-  if (main) main.scrollTop = 0;
+  // 滚动到顶（rAF 合帧，避免 handler 内同步强制 reflow）
+  requestAnimationFrame(() => {
+    const main = document.querySelector(".ui-shell-content");
+    if (main && main.scrollTop !== 0) main.scrollTop = 0;
+  });
 
   // 懒加载嵌入式 iframe（首次进入对应路由时才设 src，避免冷启动卡顿）
   ensureEmbedFrameLoaded(route);
