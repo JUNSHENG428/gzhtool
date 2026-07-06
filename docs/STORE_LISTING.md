@@ -31,7 +31,7 @@
 >
 > · AI 改写：免费 / 月费会员走「平台 AI」模式（润笔为你接通 DeepSeek / GPT-4o，按月度 token 配额计费，正文不存储仅记录用量）；年费会员另可选「自定义 API Key」模式，用你自己的 OpenAI / DeepSeek / Anthropic 账号，文章正文直发服务商不经过润笔。10+ 个内置高级模板（深度行业观察、故事化叙述、教程拆解…）。
 >
-> · 杂志级排版：6 套手工照搬 The New Yorker / Wired / Monocle / Vogue / Kinfolk / Paper 版式语言的母版，告别 AI 套模板感。
+> · 杂志级排版：6 套手工打磨的杂志母版（The New Yorker 式衬线 / 墨韵书香 / Wired / Monocle / 清新知识卡 / Zine），含首字下沉、章节序号等签名细节，告别 AI 套模板感。
 >
 > · AI 模板生成器（月费 / 年费）：7 题问卷描述你的写作风格，AI 自动写出一个专属改写模板。
 >
@@ -46,8 +46,8 @@
 > 套餐对比
 >
 > · 免费版（¥0）：1 个公众号 · 平台 AI 30 次 / 月（经济档 DeepSeek V4 Flash） · 5 个内置写作模板 · 1 台设备同时激活。
-> · Pro 月付（¥29 / 月）：5 个公众号 · 平台 AI 5M token / 月（经济 + 标准档 DeepSeek V4 Pro） · 10+ 高级模板 + AI 模板生成器 · 6 套杂志级母版 · DrissionPage 反爬抓取 · 3 台设备同时激活。
-> · Pro 年付（¥288 / 年）：等同月付权益 + 平台 AI 升级到 20M token / 月（含旗舰档 GPT-4o）+ 🔓 解锁自定义 API Key（年费独享） + 10 台设备同时激活。
+> · 月费会员（¥29 / 月）：1 个公众号 · 平台 AI 5M token / 月（经济 + 标准档 DeepSeek V4 Pro） · 10+ 高级模板 + AI 模板生成器 · 6 套杂志级母版 · 「去 AI 味」二次润色 · 3 台设备同时激活。
+> · 年费会员（¥288 / 年）：月费全部权益 + 平台 AI 升级到 20M token / 月（含旗舰档 GPT-4o）+ 🔓 自定义 API Key（年费独享）+ 最多绑定 5 个公众号 + 文风模拟 + 本地增强抓取（配套桌面助手）+ 10 台设备同时激活。
 > · 详细定价与开通方式请访问 https://docuearn.com/pricing
 >
 > 反馈 / 客服：support@docuearn.com
@@ -58,7 +58,7 @@
 
 > 协助微信公众号创作者完成"抓取参考资料 → AI 改写 → 排版 → 推送公众号草稿"的写作发布流程。
 >
-> 扩展中的所有附加能力（AI 智能选题 / AI 模板生成器 / DrissionPage 反爬抓取 / 「我的文风」采样 / 多公众号配置等）均围绕这条主流程展开，作为流程内某一环节的辅助工具，不构成独立的功能模块。
+> 扩展中的所有附加能力（AI 智能选题 / AI 模板生成器 / 本地增强抓取 / 「我的文风」采样 / 多公众号配置等）均围绕这条主流程展开，作为流程内某一环节的辅助工具，不构成独立的功能模块。
 
 ---
 
@@ -88,8 +88,34 @@ Chrome Web Store 后台会逐个让你解释为什么需要。直接复制下面
 >
 > 1. **微信公众号发布**：访问 `mp.weixin.qq.com` 与 `api.weixin.qq.com`，用于同步公众号编辑器、获取 access token、上传素材、创建草稿、发布和查询状态。
 > 2. **会员授权**：访问 `docuearn.com` / `api.docuearn.com`，用于登录、会员状态同步和月费 / 年费会员权益校验。
-> 3. **用户配置的 AI 接口**：默认覆盖 OpenAI、DeepSeek、Anthropic、DashScope 等常见官方接口；如果用户填写自建 OpenAI 兼容网关，扩展会在用户点击测试、改写或生成模板时单独申请该域名权限。
+> 3. **用户配置的 AI 接口**：默认覆盖 OpenAI、DeepSeek、通义（DashScope）三家官方接口；Anthropic 等其它服务商或自建 OpenAI 兼容网关，扩展会在用户点击测试、改写或生成模板时通过可选权限单独申请该域名。
 > 4. **热点与选题**：默认覆盖 `hot.inkgold.info`、`rsshub.app`、Bilibili / Reddit 等内置热点源；用户配置自托 NewsNow / RSSHub 时按需申请对应域名。
+>
+> **19 条默认 host_permissions 逐条用途**（后台若逐条追问按此填）：
+>
+> | # | Host | 用途 |
+> |---|---|---|
+> | 1 | `https://mp.weixin.qq.com/*` | 公众号后台编辑器同步（拉/推草稿正文、悬浮助手） |
+> | 2 | `https://api.weixin.qq.com/*` | 微信开放接口：access token / 上传素材 / 建草稿 / 发布 / 查询状态 |
+> | 3 | `https://docuearn.com/*` | 官网登录态桥接（登录后自动同步到扩展） |
+> | 4 | `https://*.docuearn.com/*` | 授权与平台 AI 服务（api.docuearn.com：license 校验、月度用量、LLM 代理） |
+> | 5 | `https://api.openai.com/*` | 用户自选 OpenAI 官方接口（BYOK 模式 AI 改写/模板生成） |
+> | 6 | `https://api.deepseek.com/*` | 用户自选 DeepSeek 官方接口（BYOK 模式，同上） |
+> | 7 | `https://dashscope.aliyuncs.com/*` | 用户自选阿里通义官方接口（BYOK 模式，同上） |
+> | 8 | `https://hot.inkgold.info/*` | 默认热点聚合源（选题功能的数据来源） |
+> | 9 | `https://rsshub.app/*` | 默认 RSS 聚合源（热点/选题） |
+> | 10 | `https://api.bilibili.com/*` | Bilibili 热榜（内置热点源） |
+> | 11 | `https://www.reddit.com/*` | Reddit 热帖（内置热点源） |
+> | 12 | `https://techcrunch.com/*` | TechCrunch RSS（内置热点源） |
+> | 13 | `https://www.theverge.com/*` | The Verge RSS（内置热点源） |
+> | 14 | `https://rss.arxiv.org/*` | arXiv RSS（内置热点源，AI/科研选题） |
+> | 15 | `https://machinelearningmastery.com/*` | ML Mastery RSS（内置热点源） |
+> | 16 | `https://towardsdatascience.com/*` | Towards Data Science RSS（内置热点源） |
+> | 17 | `https://importai.substack.com/*` | Import AI Newsletter RSS（内置热点源） |
+> | 18 | `https://www.leiphone.com/*` | 雷峰网 RSS（内置热点源） |
+> | 19 | `https://hnrss.org/*` | Hacker News RSS（内置热点源） |
+>
+> 以上 8–19 均为「热点/选题」功能的只读 RSS / JSON 数据源，由用户在热点页主动刷新时请求，不做后台轮询采集用户浏览数据。
 
 ### `optional_host_permissions`: `https://*/*` 和 `http://*/*`
 > 仅在用户主动触发动态来源时按需申请，不作为安装时默认权限。
