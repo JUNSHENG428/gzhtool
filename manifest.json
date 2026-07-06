@@ -95,11 +95,5 @@
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: https: blob:; connect-src 'self' https: wss: http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*;"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": ["src/vendor/pdfjs/pdf.worker.mjs"],
-      "matches": ["<all_urls>"]
-    }
-  ]
+  }
 }
