@@ -95,6 +95,23 @@ export async function readCachedPayload(sourceId) {
   return null;
 }
 
+// 「过期但还能救急」的旧缓存：全部后端都失败时拿来兜底展示（体感上永远有数据），
+// 上限 24 小时——再旧的热榜就没有参考价值了，宁可报错。
+export const STALE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export async function readStalePayload(sourceId) {
+  if (!sourceId) return null;
+  const memHit = _memoryCache.get(sourceId);
+  const entry =
+    memHit && Date.now() - memHit.timestamp < STALE_MAX_AGE_MS
+      ? memHit
+      : await storageGet(CACHE_PREFIX + sourceId);
+  if (!entry || !entry.payload) return null;
+  const ageMs = Date.now() - (Number(entry.timestamp) || 0);
+  if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > STALE_MAX_AGE_MS) return null;
+  return { payload: entry.payload, ageMs };
+}
+
 export async function writeCachedPayload(sourceId, payload) {
   if (!sourceId || !payload) return;
   const entry = { timestamp: Date.now(), payload };

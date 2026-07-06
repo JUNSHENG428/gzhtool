@@ -79,8 +79,8 @@ rss.your-domain.com {
 }
 ```
 
-启动 Caddy 后自动签 HTTPS 证书，访问 `https://rss.your-domain.com/zhihu/hotlist`
-就能拿到知乎热榜的 RSS 输出。
+启动 Caddy 后自动签 HTTPS 证书，访问 `https://rss.your-domain.com/zhihu/hot`
+就能拿到知乎热榜的 RSS 输出（旧版路由 `/zhihu/hotlist` 已被 RSSHub 移除）。
 
 ### docker-compose 版（更易管理）
 

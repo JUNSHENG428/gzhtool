@@ -28,6 +28,7 @@ import {
 } from "./hot-topics-sources.js";
 import {
   readCachedPayload,
+  readStalePayload,
   writeCachedPayload,
   clearCachedPayload,
   isBaseCoolingDown,
@@ -44,6 +45,17 @@ const UA =
 // 想自部一份的用户可在「设置 → 热点接口」覆盖此地址
 export const DEFAULT_NEWSNOW_BASE = "https://hot.inkgold.info/";
 
+// 内置公共兜底实例（用户没配自托地址时也能多实例轮询，单点挂了自动切换）。
+// ⚠️ 这些 host 必须同步进 manifest.json host_permissions（MV3 无 host 权限的
+//    跨域 fetch 会被 CORS 拦），并同步 docs/STORE_LISTING.md 的权限用途表。
+export const DEFAULT_NEWSNOW_FALLBACKS = [
+  "https://newsnow.busiyi.world/" // NewsNow 官方 demo
+];
+export const DEFAULT_RSSHUB_FALLBACKS = [
+  "https://rsshub.rssforever.com",
+  "https://rsshub.ktachibana.party"
+];
+
 const FETCH_TIMEOUT_MS = 8000;
 // 仅当 items 少于这个数量才认为「实际为空」并触发 fallback
 const MIN_VALID_ITEMS = 1;
@@ -57,7 +69,9 @@ const MIN_VALID_ITEMS = 1;
 //       未来可单独剔除对应 rsshub 字段，让它退化为「单 NewsNow 无兜底」。
 export const HOT_SOURCE_META = {
   // 综合 / 社区
-  zhihu: { id: "zhihu", label: "知乎热榜", detail: "知乎热门内容", category: "china", newsNow: "zhihu", rsshub: "/zhihu/hotlist" },
+  // 注：RSSHub 的知乎热榜路由 2025 起是 /zhihu/hot（旧 /zhihu/hotlist 在新版实例
+  //     直接 NotFoundError，这曾是知乎兜底链路从未打通的根因之一）
+  zhihu: { id: "zhihu", label: "知乎热榜", detail: "知乎热门内容", category: "china", newsNow: "zhihu", rsshub: "/zhihu/hot" },
   weibo: { id: "weibo", label: "微博热搜", detail: "新浪微博实时热点", category: "china", newsNow: "weibo", rsshub: "/weibo/search/hot" },
   tieba: { id: "tieba", label: "百度贴吧", detail: "贴吧热议话题", category: "china", newsNow: "tieba", rsshub: "/tieba/forum/hot" },
   baidu: { id: "baidu", label: "百度热搜", detail: "百度搜索实时榜", category: "china", newsNow: "baidu", rsshub: "/baidu/topwords" },
@@ -238,7 +252,7 @@ export async function fetchHotTopics(sourceId, opts = {}) {
       if (payload) break;
       const tag = multi ? `NewsNow(${shortHost(base)})` : "NewsNow";
       if (!forceRefresh && (await isBaseCoolingDown(base))) {
-        errors.push(`${tag}: 上次失败后冷却中（${COOLDOWN_MS / 60000} 分钟）`);
+        errors.push(`${tag}: 连续失败后暂停请求中（最长 ${COOLDOWN_MS / 60000} 分钟）`);
         continue;
       }
       try {
@@ -262,7 +276,7 @@ export async function fetchHotTopics(sourceId, opts = {}) {
   if (!payload && meta.direct === "bilibili-ranking") {
     const biliBase = "https://api.bilibili.com";
     if (!forceRefresh && (await isBaseCoolingDown(biliBase))) {
-      errors.push("Bilibili 官方接口: 冷却中");
+      errors.push("Bilibili 官方接口: 连续失败后暂停请求中");
     } else {
       try {
         const candidate = await fetchBilibiliRanking(fetchedAt, meta);
@@ -288,7 +302,7 @@ export async function fetchHotTopics(sourceId, opts = {}) {
       if (payload) break;
       const tag = multi ? `RSSHub(${shortHost(base)})` : "RSSHub";
       if (!forceRefresh && (await isBaseCoolingDown(base))) {
-        errors.push(`${tag}: 兜底链路也在冷却（${COOLDOWN_MS / 60000} 分钟）`);
+        errors.push(`${tag}: 连续失败后暂停请求中（最长 ${COOLDOWN_MS / 60000} 分钟）`);
         continue;
       }
       try {
@@ -313,27 +327,51 @@ export async function fetchHotTopics(sourceId, opts = {}) {
     return { ok: true, payload };
   }
 
+  // 5.5) 全部后端都失败：回退到 24 小时内的旧缓存兜底（体感「永远有数据」）。
+  //      仅普通加载走这条路；用户点「🔄 强制刷新」时是明确要新数据，失败就该
+  //      如实报错，不能拿旧数据糊弄。
+  if (!forceRefresh) {
+    const stale = await readStalePayload(sourceId);
+    if (stale && Array.isArray(stale.payload?.items) && stale.payload.items.length > 0) {
+      const ageMinutes = Math.max(1, Math.round(stale.ageMs / 60000));
+      const ageText =
+        ageMinutes >= 60 ? `${Math.round(ageMinutes / 60)} 小时` : `${ageMinutes} 分钟`;
+      return {
+        ok: true,
+        payload: {
+          ...stale.payload,
+          stale: true,
+          notice: `实时接口暂时不可用，先展示 ${ageText}前的缓存榜单。点「🔄 强制刷新」可立即重试。`
+        }
+      };
+    }
+  }
+
   if (errors.length === 0) {
     return {
       ok: false,
-      message: `「${meta.label}」暂未配置可用的数据接口，建议改用其他源（推荐：知乎热榜 / 微博热搜 / GitHub Trending），或在「设置 → 热点接口」填写自托 NewsNow，或在「设置 → 抓取增强」填写自托 RSSHub 地址。`
+      label: meta.label,
+      message: `「${meta.label}」暂未配置可用的数据接口。建议先换个源（微博热搜 / GitHub 趋势 / 36氪），或到「设置 → 热点接口」填写自托 NewsNow / RSSHub 地址。`
     };
   }
 
   const allEmpty = errors.every((line) => line.includes("返回空列表"));
-  const allCooling = errors.every((line) => line.includes("冷却"));
+  const allCooling = errors.every((line) => line.includes("暂停"));
   let advice;
   if (allCooling) {
     // 给用户明确的逃生口：强制刷新会绕过冷却闸门
-    advice = `点页面顶部的「🔄 强制刷新」按钮可立即重试（绕过冷却）；若仍失败，可在「设置 → 热点接口 → 测试连接」检查自托地址，或先换个源。`;
+    advice = `接口连续失败后会自动暂停最多 10 分钟，避免反复轰炸。点「🔄 强制刷新」可跳过等待立即重试；若仍失败，建议先换个源，或到「设置 → 热点接口」点「测试连接」排查。`;
   } else if (allEmpty) {
-    advice = `当前时段「${meta.label}」榜单可能没有新数据，可以稍后再试或换个源（推荐：知乎热榜 / GitHub Trending / 36氪）。`;
+    advice = `当前时段「${meta.label}」榜单可能没有新数据，可以稍后再试或换个源（推荐：微博热搜 / GitHub 趋势 / 36氪）。`;
   } else {
-    advice = `公共免费实例对${meta.label}这类反爬较严的源经常不可达，**最彻底的解决办法是自部署**：在「设置 → 热点接口」填自己的 NewsNow / RSSHub 地址（两个字段都支持英文逗号填多个，按顺序自动兜底），部署只需 5 分钟免费（指南见 docs/SELFHOST_HOTTOPICS.md）。临时办法：点「🔄 强制刷新」绕过冷却重试，或先换个源（微博热搜 / GitHub Trending / 36氪 通常更稳）。`;
+    advice = `知乎这类反爬严格的平台，公共免费接口偶尔会被上游限流，扩展已自动轮询多个备用接口。你可以：点「🔄 强制刷新」立即重试；或先换个更稳的源（微博热搜 / GitHub 趋势 / 36氪）；想一劳永逸，可在「设置 → 热点接口」按指引免费自建专属接口（约 5 分钟），支持填多个地址自动兜底。`;
   }
 
   return {
     ok: false,
+    label: meta.label,
+    errors,
+    advice,
     message: `「${meta.label}」拉取失败：${errors.join("；")}。${advice}`
   };
 }
@@ -594,15 +632,18 @@ function normalizeBase(value, fallback) {
 }
 
 // 把用户配置（可英文逗号 / 换行 / 分号分隔多个）拆成有序 base 列表，
-// 末尾补上官方默认源做最终兜底；去重保序。让用户能「自托优先 + 公共兜底」。
+// 末尾补上官方默认源 + 内置公共兜底实例做最终兜底；去重保序。
+// 让用户能「自托优先 + 多个公共实例轮询兜底」，任一实例挂掉都不影响拉取。
 function buildNewsnowBases(value) {
   const parts = String(value || "")
     .split(/[\n,;]+/)
     .map((s) => s.trim())
     .filter(Boolean)
     .map((b) => normalizeBase(b, DEFAULT_NEWSNOW_BASE));
-  const def = normalizeBase("", DEFAULT_NEWSNOW_BASE);
-  if (!parts.includes(def)) parts.push(def);
+  parts.push(normalizeBase("", DEFAULT_NEWSNOW_BASE));
+  for (const fb of DEFAULT_NEWSNOW_FALLBACKS) {
+    parts.push(normalizeBase(fb, DEFAULT_NEWSNOW_BASE));
+  }
   return Array.from(new Set(parts));
 }
 
@@ -612,8 +653,10 @@ function buildRsshubBases(value) {
     .map((s) => s.trim())
     .filter(Boolean)
     .map((b) => b.replace(/\/+$/, ""));
-  const def = resolveRsshubBaseUrl({});
-  if (!parts.includes(def)) parts.push(def);
+  parts.push(resolveRsshubBaseUrl({}));
+  for (const fb of DEFAULT_RSSHUB_FALLBACKS) {
+    parts.push(fb.replace(/\/+$/, ""));
+  }
   return Array.from(new Set(parts));
 }
 
@@ -679,7 +722,7 @@ export async function getHotTopicsHealth() {
 /**
  * 测试一个热点接口 base URL 是否可用。
  * - kind: "newsnow" | "rsshub"
- * - 都用 zhihu 路径做探测：NewsNow → /api/s?id=zhihu&latest，RSSHub → /zhihu/hotlist
+ * - 都用 zhihu 路径做探测：NewsNow → /api/s?id=zhihu&latest，RSSHub → /zhihu/hot
  * - 成功会清掉该 base 的失败计数；失败不计入冷却（避免用户测试本身把它点进冷却）
  */
 export async function testHotTopicsBackend(kind, baseUrl) {
@@ -690,7 +733,7 @@ export async function testHotTopicsBackend(kind, baseUrl) {
   let mode;
   if (kind === "rsshub") {
     targetBase = resolveRsshubBaseUrl({ rsshubBaseUrl: baseUrl });
-    url = `${targetBase}/zhihu/hotlist`;
+    url = `${targetBase}/zhihu/hot`;
     mode = "rss";
   } else {
     targetBase = normalizeBase(baseUrl, DEFAULT_NEWSNOW_BASE);
@@ -779,5 +822,5 @@ export async function testHotTopicsBackend(kind, baseUrl) {
 }
 
 function coolingMessage(label) {
-  return `${label} 上次拉取连续失败，已临时冷却 ${COOLDOWN_MS / 60000} 分钟避免请求轰炸。可以先换个源，或到「设置 → 热点接口」点测试连接。`;
+  return `${label} 连续拉取失败，已自动暂停最多 ${COOLDOWN_MS / 60000} 分钟避免反复轰炸。点「🔄 强制刷新」可跳过等待立即重试，或先换个源。`;
 }

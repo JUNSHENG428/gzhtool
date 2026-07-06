@@ -83,9 +83,17 @@ async function loadSource(source, forceRefresh = false) {
   });
 
   if (!response?.ok) {
-    const friendly = formatRuntimeError(response?.error, "加载失败。");
-    hotStatus.textContent = friendly;
-    hotContent.innerHTML = `<p class="hot-notice">${escapeHtml(friendly)}</p>`;
+    const err = response?.error;
+    if (err?.code === "HOT_TOPICS") {
+      // 结构化错误卡片：状态栏只留一句话，细节与操作按钮都在卡片里，
+      // 避免同一大段文案在 status + content 里重复出现两遍。
+      hotStatus.textContent = "这次没拉到数据，可在下方选择重试或换源。";
+      renderFetchError(source, err);
+    } else {
+      const friendly = formatRuntimeError(err, "加载失败。");
+      hotStatus.textContent = friendly;
+      hotContent.innerHTML = `<p class="hot-notice">${escapeHtml(friendly)}</p>`;
+    }
     return;
   }
 
@@ -97,7 +105,7 @@ async function loadSource(source, forceRefresh = false) {
   hotMeta.textContent = [
     data.label && `${data.label}`,
     data.detail,
-    backendLabel && `源：${backendLabel}`,
+    data.stale ? "⏳ 缓存兜底" : backendLabel && `源：${backendLabel}`,
     time && `更新：${time}`
   ]
     .filter(Boolean)
@@ -129,6 +137,60 @@ function renderPortal(data) {
 
   document.querySelector("#openPortalUrl")?.addEventListener("click", () => {
     chrome.tabs.create({ url: p.url });
+  });
+}
+
+// 拉取失败时的可操作错误卡片：一句结论 + 每个后端一行明细 + 建议 + 动作按钮。
+// 目标是让用户「看得懂 + 有事可做」，而不是面对一大段技术文案。
+function renderFetchError(source, err) {
+  const label = err.label || "该来源";
+  const lines = Array.isArray(err.errors) ? err.errors.filter(Boolean) : [];
+  const advice = err.advice || (lines.length === 0 ? err.message || "" : "");
+
+  // 换源建议：从「较稳定」池子里挑 2 个非当前源
+  const alternates = [
+    { id: "weibo", label: "微博热搜" },
+    { id: "github", label: "GitHub 趋势" },
+    { id: "36kr", label: "36氪快讯" }
+  ]
+    .filter((s) => s.id !== source)
+    .slice(0, 2);
+
+  hotContent.innerHTML = `
+    <div class="hot-error-card" role="alert">
+      <p class="hot-error-title">⚠️ 「${escapeHtml(label)}」这一次没拉到数据</p>
+      ${
+        lines.length
+          ? `<ul class="hot-error-detail">${lines
+              .map((l) => `<li>${escapeHtml(l)}</li>`)
+              .join("")}</ul>`
+          : ""
+      }
+      ${advice ? `<p class="hot-error-advice">${escapeHtml(advice)}</p>` : ""}
+      <div class="hot-error-actions">
+        <button type="button" class="primary" data-err-act="retry">🔄 强制刷新重试</button>
+        ${alternates
+          .map(
+            (s) =>
+              `<button type="button" class="ghost" data-err-act="switch" data-source="${escapeAttr(
+                s.id
+              )}">换到 ${escapeHtml(s.label)}</button>`
+          )
+          .join("")}
+        <button type="button" class="ghost" data-err-act="settings">打开「热点接口」设置</button>
+      </div>
+    </div>`;
+
+  hotContent.querySelector('[data-err-act="retry"]')?.addEventListener("click", () => {
+    void loadSource(source, true);
+  });
+  hotContent.querySelectorAll('[data-err-act="switch"]').forEach((btn) => {
+    btn.addEventListener("click", () => selectSource(btn.dataset.source));
+  });
+  hotContent.querySelector('[data-err-act="settings"]')?.addEventListener("click", () => {
+    chrome.tabs.create({
+      url: chrome.runtime.getURL("src/options/options.html#opt-anchor-hot")
+    });
   });
 }
 
@@ -174,9 +236,13 @@ function renderList(data) {
     })
     .join("");
 
-  hotContent.innerHTML = `<div class="hot-list">${rows}</div>${
-    data.notice ? `<p class="hot-notice">${escapeHtml(data.notice)}</p>` : ""
-  }`;
+  // 缓存兜底的提示必须放在列表上方，用户第一眼就要知道「这不是实时数据」
+  const noticeHtml = data.notice
+    ? `<p class="hot-notice${data.stale ? " hot-notice--stale" : ""}">${escapeHtml(data.notice)}</p>`
+    : "";
+  hotContent.innerHTML = data.stale
+    ? `${noticeHtml}<div class="hot-list">${rows}</div>`
+    : `<div class="hot-list">${rows}</div>${noticeHtml}`;
 
   bindItemActions(hotContent, items, data.label || "热点捕捉器");
 }

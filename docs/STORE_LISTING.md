@@ -89,9 +89,9 @@ Chrome Web Store 后台会逐个让你解释为什么需要。直接复制下面
 > 1. **微信公众号发布**：访问 `mp.weixin.qq.com` 与 `api.weixin.qq.com`，用于同步公众号编辑器、获取 access token、上传素材、创建草稿、发布和查询状态。
 > 2. **会员授权**：访问 `docuearn.com` / `api.docuearn.com`，用于登录、会员状态同步和月费 / 年费会员权益校验。
 > 3. **用户配置的 AI 接口**：默认覆盖 OpenAI、DeepSeek、通义（DashScope）三家官方接口；Anthropic 等其它服务商或自建 OpenAI 兼容网关，扩展会在用户点击测试、改写或生成模板时通过可选权限单独申请该域名。
-> 4. **热点与选题**：默认覆盖 `hot.inkgold.info`、`rsshub.app`、Bilibili / Reddit 等内置热点源；用户配置自托 NewsNow / RSSHub 时按需申请对应域名。
+> 4. **热点与选题**：默认覆盖 `hot.inkgold.info`、`rsshub.app` 及各自的公共备用实例（NewsNow 官方 demo `newsnow.busiyi.world`、RSSHub 公共实例 `rsshub.rssforever.com` / `rsshub.ktachibana.party`，用于单实例限流时自动轮询兜底）、Bilibili / Reddit 等内置热点源；用户配置自托 NewsNow / RSSHub 时按需申请对应域名。
 >
-> **19 条默认 host_permissions 逐条用途**（后台若逐条追问按此填）：
+> **22 条默认 host_permissions 逐条用途**（后台若逐条追问按此填）：
 >
 > | # | Host | 用途 |
 > |---|---|---|
@@ -103,19 +103,22 @@ Chrome Web Store 后台会逐个让你解释为什么需要。直接复制下面
 > | 6 | `https://api.deepseek.com/*` | 用户自选 DeepSeek 官方接口（BYOK 模式，同上） |
 > | 7 | `https://dashscope.aliyuncs.com/*` | 用户自选阿里通义官方接口（BYOK 模式，同上） |
 > | 8 | `https://hot.inkgold.info/*` | 默认热点聚合源（选题功能的数据来源） |
-> | 9 | `https://rsshub.app/*` | 默认 RSS 聚合源（热点/选题） |
-> | 10 | `https://api.bilibili.com/*` | Bilibili 热榜（内置热点源） |
-> | 11 | `https://www.reddit.com/*` | Reddit 热帖（内置热点源） |
-> | 12 | `https://techcrunch.com/*` | TechCrunch RSS（内置热点源） |
-> | 13 | `https://www.theverge.com/*` | The Verge RSS（内置热点源） |
-> | 14 | `https://rss.arxiv.org/*` | arXiv RSS（内置热点源，AI/科研选题） |
-> | 15 | `https://machinelearningmastery.com/*` | ML Mastery RSS（内置热点源） |
-> | 16 | `https://towardsdatascience.com/*` | Towards Data Science RSS（内置热点源） |
-> | 17 | `https://importai.substack.com/*` | Import AI Newsletter RSS（内置热点源） |
-> | 18 | `https://www.leiphone.com/*` | 雷峰网 RSS（内置热点源） |
-> | 19 | `https://hnrss.org/*` | Hacker News RSS（内置热点源） |
+> | 9 | `https://newsnow.busiyi.world/*` | NewsNow 官方公共实例（默认源限流时自动兜底） |
+> | 10 | `https://rsshub.app/*` | 默认 RSS 聚合源（热点/选题） |
+> | 11 | `https://rsshub.rssforever.com/*` | RSSHub 公共备用实例（官方实例限流时自动兜底） |
+> | 12 | `https://rsshub.ktachibana.party/*` | RSSHub 公共备用实例（同上，第二备用） |
+> | 13 | `https://api.bilibili.com/*` | Bilibili 热榜（内置热点源） |
+> | 14 | `https://www.reddit.com/*` | Reddit 热帖（内置热点源） |
+> | 15 | `https://techcrunch.com/*` | TechCrunch RSS（内置热点源） |
+> | 16 | `https://www.theverge.com/*` | The Verge RSS（内置热点源） |
+> | 17 | `https://rss.arxiv.org/*` | arXiv RSS（内置热点源，AI/科研选题） |
+> | 18 | `https://machinelearningmastery.com/*` | ML Mastery RSS（内置热点源） |
+> | 19 | `https://towardsdatascience.com/*` | Towards Data Science RSS（内置热点源） |
+> | 20 | `https://importai.substack.com/*` | Import AI Newsletter RSS（内置热点源） |
+> | 21 | `https://www.leiphone.com/*` | 雷峰网 RSS（内置热点源） |
+> | 22 | `https://hnrss.org/*` | Hacker News RSS（内置热点源） |
 >
-> 以上 8–19 均为「热点/选题」功能的只读 RSS / JSON 数据源，由用户在热点页主动刷新时请求，不做后台轮询采集用户浏览数据。
+> 以上 8–22 均为「热点/选题」功能的只读 RSS / JSON 数据源，由用户在热点页主动刷新时请求，不做后台轮询采集用户浏览数据。
 
 ### `optional_host_permissions`: `https://*/*` 和 `http://*/*`
 > 仅在用户主动触发动态来源时按需申请，不作为安装时默认权限。

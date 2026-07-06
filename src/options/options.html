@@ -974,12 +974,13 @@
           <p>
             热点捕捉默认走开源
             <a href="https://github.com/ourongxing/newsnow" target="_blank" rel="noreferrer">NewsNow</a>
-            （公共地址 <code>https://hot.inkgold.info/</code>）。NewsNow 失败时会自动回退到
+            （公共地址 <code>https://hot.inkgold.info/</code>，另内置公共备用实例自动轮询）。NewsNow 全部失败时自动回退到
             <a href="https://github.com/DIYgod/RSSHub" target="_blank" rel="noreferrer">RSSHub</a>
-            （30+ 中文热榜源都有路由），实现「双独立后端」抗单点失败。
+            （官方 + 内置公共实例，30+ 中文热榜源都有路由），实现「双独立后端 × 多实例」抗单点失败；
+            实时接口全部不可用时还会先展示 24 小时内的缓存榜单兜底。
           </p>
           <p class="muted">
-            如果公共 NewsNow 被限流，建议自部署一份到 Cloudflare Pages（5 分钟，免费）。
+            如果公共实例被限流，建议自部署一份到 Cloudflare Pages（5 分钟，免费），独占不排队最稳。
           </p>
         </div>
 
@@ -1008,10 +1009,11 @@
         </div>
 
         <p class="muted">
-          抓取顺序：先 NewsNow（可多个）→ 失败回退 RSSHub（可多个）→ 再失败才提示。
-          某个后端连续 3 次失败自动冷却 10 分钟，避免反复轰炸已挂服务。
-          <strong>知乎/微博等反爬较严的源，公共免费实例经常不可达，最彻底的解法是自部署</strong>
-          （NewsNow / RSSHub 都有 5 分钟免费一键部署方案，见 <code>docs/SELFHOST_HOTTOPICS.md</code>）。
+          抓取顺序：先 NewsNow（自填地址 → 官方 → 内置备用）→ 失败回退 RSSHub（同样多实例轮询）→
+          全部失败时先展示 24 小时内缓存 → 才最终提示错误。某个后端连续 3 次失败会自动暂停 10 分钟，避免反复轰炸已挂服务。
+          <strong>知乎等反爬较严的源，公共免费实例偶尔不可达，最彻底的解法是自部署专属实例</strong>——NewsNow / RSSHub
+          都有约 5 分钟的免费一键部署方案，见
+          <a href="https://github.com/JUNSHENG428/gzhtool/blob/main/docs/SELFHOST_HOTTOPICS.md" target="_blank" rel="noreferrer">自托部署指南</a>。
         </p>
       </section>
 
