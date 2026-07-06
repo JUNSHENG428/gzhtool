@@ -265,9 +265,10 @@ def _classify_runtime_error(exc: BaseException) -> str:
 
 def normalize_mode(mode: str) -> str:
     lowered = str(mode or "").strip().lower()
-    if lowered == "raw":
-        return "page"
-    if lowered in {"readable", "page", "selection"}:
+    # 必须原样保留 "raw"——scrape-article.js 的 __gzhRunFullCapture 只认
+    # "selection" / "readable" / "raw" 三个值，历史上这里把 raw 改写成了
+    # "page"，导致"原样整页"模式在 DrissionPage 通道里被误判成 readable。
+    if lowered in {"readable", "raw", "selection"}:
         return lowered
     return "readable"
 
@@ -481,7 +482,12 @@ class DrissionRuntime:
             self._wait_for_stable_dom(tab, min(timeout_sec, 6))
             try:
                 tab.run_js(self._scraper_source)
-                return tab.run_js("return window.__gzhRunCapture(arguments[0]);", mode)
+                # scrape-article.js 导出的函数名是 __gzhRunFullCapture，且期望
+                # 一个 { mode } 选项对象，不是裸 mode 字符串——这两处之前都对不上，
+                # 导致增强抓取从未真正跑通过，只是被扩展端的 fallback 悄悄兜住。
+                return tab.run_js(
+                    "return window.__gzhRunFullCapture(arguments[0]);", {"mode": mode}
+                )
             except Exception as exc:
                 last_error = exc
                 if "页面被刷新" not in str(exc):

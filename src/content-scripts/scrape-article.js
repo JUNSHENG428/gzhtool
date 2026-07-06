@@ -168,6 +168,433 @@
     ".richtext"
   ];
 
+  // 模块二用：本次 extractArticleFromPage 调用范围内的候选遮罩层列表。
+  // 挂在 IIFE 作用域而不是逐层传参，是因为 getVisibleText / extractListBlock /
+  // extractTableBlock / extractFigureBlock 这些辅助函数调用点很多，逐个改签名
+  // 收益不大；同一次抓取内不会有并发调用，模块级变量足够安全。
+  let activeOverlayCandidates = [];
+
+  /**
+   * 反爬 CSS 隐藏元素识别（移植自 boss直聘JD净化提取/jd_extractor.py 的实战
+   * 经验）：命中 display:none / visibility:hidden / font-size≈0 / opacity≈0 /
+   * 定位到可视区域外的绝对定位元素，判定为"人眼看不到、只用来塞垂圾字符
+   * 干扰爬虫"的节点。
+   */
+  function isVisibleForCapture(el) {
+    if (!el || el.nodeType !== 1) return true;
+    let style;
+    try {
+      style = window.getComputedStyle(el);
+    } catch (_) {
+      return true;
+    }
+    if (!style) return true;
+    if (style.display === "none") return false;
+    if (style.visibility === "hidden" || style.visibility === "collapse") return false;
+    const fontSize = parseFloat(style.fontSize);
+    if (!Number.isNaN(fontSize) && fontSize <= 1) return false;
+    const opacity = parseFloat(style.opacity);
+    if (!Number.isNaN(opacity) && opacity <= 0.05) return false;
+    if (style.position === "absolute" || style.position === "fixed") {
+      let rect = null;
+      try {
+        rect = el.getBoundingClientRect();
+      } catch (_) {}
+      if (rect && (rect.width > 0 || rect.height > 0)) {
+        if (rect.right < -50 || rect.bottom < -50) return false;
+        const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+        if (rect.left > vw + 2000 || rect.top > 20000) return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * 取代直接用 .textContent —— 跳过夹在段落/标题/列表项/表格单元格内部的
+   * CSS 隐藏干扰节点（比如 <span style="display:none">kanzhun</span>），
+   * 以及被 z-index 遮罩盖住的"假"文字层（模块二），只拼接真正参与渲染、
+   * 视觉上最终可见的文字。命中率极低时开销可忽略：绝大多数块内部既没有
+   * 隐藏子节点也没有重叠遮罩，TreeWalker 会直接原样走完，`activeOverlayCandidates`
+   * 为空数组时 `isVisuallyMaskedByOverlay` 直接短路。
+   *
+   * z-index 遮罩要在这一层（逐个祖先元素）判断而不是整块判断，是因为真实
+   * 场景里遮罩通常只盖住段落里的一小段（比如一句话中间的薪资数字），
+   * 拿整段的包围盒去和遮罩比重叠面积会算不出有意义的比例。
+   */
+  function getVisibleText(blockEl) {
+    if (!blockEl) return "";
+    const hiddenCache = new Map();
+    function ancestorHidden(startEl) {
+      let current = startEl;
+      while (current) {
+        if (hiddenCache.has(current)) {
+          if (hiddenCache.get(current)) return true;
+        } else {
+          const hidden =
+            !isVisibleForCapture(current) ||
+            (activeOverlayCandidates.length > 0 &&
+              isVisuallyMaskedByOverlay(current, activeOverlayCandidates));
+          hiddenCache.set(current, hidden);
+          if (hidden) return true;
+        }
+        if (current === blockEl) break;
+        current = current.parentElement;
+      }
+      return false;
+    }
+
+    let out = "";
+    const walker = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT, {
+      acceptNode(textNode) {
+        return ancestorHidden(textNode.parentElement)
+          ? NodeFilter.FILTER_SKIP
+          : NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    let node = walker.nextNode();
+    while (node) {
+      out += node.nodeValue;
+      node = walker.nextNode();
+    }
+    return out;
+  }
+
+  /**
+   * z-index 遮罩识别（移植自 boss直聘JD净化提取 的实战经验）：只收集"定位
+   * （absolute/fixed）+ 自带文字内容"的元素作候选遮罩层。
+   *
+   * 为什么只看"自带文字"的：当前抓取是直接读 DOM textContent，不是模拟
+   * 鼠标选中/复制，所以"遮罩层本身没有文字、纯粹用来劫持选中"这种最常见
+   * 的反爬手法天然不受影响（真实文字该在哪还在哪）。唯一会污染结果的是
+   * "遮罩层自己也带假文字"这种更激进的变体——此时视觉上遮罩才是最终显示
+   * 的那一层，底下真实文字理应被抑制。这个函数只在整个 root 里跑一次，
+   * 绝大多数正常网站结果是空数组，后续判断直接短路。
+   */
+  function findOverlayMaskCandidates(root) {
+    const candidates = [];
+    let all;
+    try {
+      all = root.querySelectorAll("*");
+    } catch (_) {
+      return candidates;
+    }
+    for (const el of all) {
+      let style;
+      try {
+        style = window.getComputedStyle(el);
+      } catch (_) {
+        continue;
+      }
+      if (style.position !== "absolute" && style.position !== "fixed") continue;
+      const text = (el.textContent || "").trim();
+      if (!text) continue;
+      let rect = null;
+      try {
+        rect = el.getBoundingClientRect();
+      } catch (_) {}
+      if (!rect || rect.width <= 0 || rect.height <= 0) continue;
+      candidates.push({ el, rect });
+    }
+    return candidates;
+  }
+
+  function bboxOverlapRatio(rectA, rectB) {
+    const left = Math.max(rectA.left, rectB.left);
+    const right = Math.min(rectA.right, rectB.right);
+    const top = Math.max(rectA.top, rectB.top);
+    const bottom = Math.min(rectA.bottom, rectB.bottom);
+    if (right <= left || bottom <= top) return 0;
+    const overlapArea = (right - left) * (bottom - top);
+    const areaA = rectA.width * rectA.height;
+    if (areaA <= 0) return 0;
+    return overlapArea / areaA;
+  }
+
+  /**
+   * 只有候选遮罩列表非空时才会被调用；先用廉价的 bbox 重叠比例预筛，
+   * 重叠比例达阈值才对该点做一次 elementFromPoint 精确确认最终视觉最上层
+   * 到底是谁——把最贵的那一步压缩到极少数真正可能重叠的块上。
+   */
+  function isVisuallyMaskedByOverlay(node, overlayCandidates) {
+    let rect = null;
+    try {
+      rect = node.getBoundingClientRect();
+    } catch (_) {}
+    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+
+    const vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+
+    for (const candidate of overlayCandidates) {
+      const overlayEl = candidate.el;
+      if (overlayEl === node || overlayEl.contains(node) || node.contains(overlayEl)) continue;
+      if (bboxOverlapRatio(rect, candidate.rect) < 0.6) continue;
+
+      const cx = Math.min(Math.max(rect.left + rect.width / 2, 0), vw - 1);
+      const cy = Math.min(Math.max(rect.top + rect.height / 2, 0), vh - 1);
+      if (cx < 0 || cy < 0 || cx >= vw || cy >= vh) continue;
+
+      let topEl = null;
+      try {
+        topEl = document.elementFromPoint(cx, cy);
+      } catch (_) {}
+      if (!topEl || topEl === node || node.contains(topEl) || topEl.contains(node)) continue;
+      if (topEl === overlayEl || overlayEl.contains(topEl)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // ── 模块三：自定义字体反爬还原（浏览器端 canvas 版，移植自
+  // boss直聘JD净化提取/jd_extractor.py 的字形位图哈希比对思路）──
+  //
+  // 与 Python 版的关键差异：content script 跑在真实浏览器里，字体已经被
+  // 页面自己加载并渲染给用户看过了——不需要下载字体文件、不需要 fonttools
+  // 解析 glyph，只要用 <canvas> 把"可疑字符"用页面声明的字体画出来，和
+  // "候选真实字符"用系统字体画出来的位图做哈希比对即可。
+
+  const PUA_CHAR_RE = /[\uE000-\uF8FF]/;
+  const FONT_HASH_SIZE = 24;
+  const FONT_RENDER_SIZE = 96;
+  const FONT_MATCH_THRESHOLD = 60;
+  const FONT_CANDIDATE_CHARS = "0123456789.,%+-·/年月日周天时分~";
+  const FONT_MAPPING_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+  const fontMappingMemoryCache = new Map();
+
+  function collectPuaCharsFromBlocks(blocks) {
+    const chars = new Set();
+    for (const block of blocks) {
+      for (const text of blockTextFields(block)) {
+        for (const ch of text) {
+          if (PUA_CHAR_RE.test(ch)) chars.add(ch);
+        }
+      }
+    }
+    return chars;
+  }
+
+  function blockTextFields(block) {
+    const fields = [];
+    if (typeof block.text === "string") fields.push(block.text);
+    if (Array.isArray(block.items)) fields.push(...block.items);
+    if (Array.isArray(block.headers)) fields.push(...block.headers);
+    if (Array.isArray(block.rows)) {
+      for (const row of block.rows) fields.push(...row);
+    }
+    if (typeof block.caption === "string") fields.push(block.caption);
+    return fields;
+  }
+
+  // 找出这个 PUA 字符实际是被哪个 font-family 渲染出来的——扫一遍 root 的
+  // 文本节点，命中即返回，不需要遍历全部（PUA 字符极少见，通常一两次
+  // 命中就够）。
+  function resolveFontFamilyForChar(root, ch) {
+    try {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+      let node = walker.nextNode();
+      while (node) {
+        if (node.nodeValue && node.nodeValue.indexOf(ch) !== -1) {
+          const parent = node.parentElement;
+          if (parent) {
+            const style = window.getComputedStyle(parent);
+            const family = (style.fontFamily || "").split(",")[0].trim().replace(/^["']|["']$/g, "");
+            if (family) return family;
+          }
+        }
+        node = walker.nextNode();
+      }
+    } catch (_) {}
+    return "";
+  }
+
+  function dHashFromCanvas(sourceCanvas) {
+    try {
+      const hashSize = FONT_HASH_SIZE;
+      const small = document.createElement("canvas");
+      small.width = hashSize + 1;
+      small.height = hashSize;
+      const sctx = small.getContext("2d", { willReadFrequently: true });
+      sctx.drawImage(sourceCanvas, 0, 0, FONT_RENDER_SIZE, FONT_RENDER_SIZE, 0, 0, hashSize + 1, hashSize);
+      const data = sctx.getImageData(0, 0, hashSize + 1, hashSize).data;
+      const gray = [];
+      for (let i = 0; i < data.length; i += 4) {
+        gray.push((data[i] + data[i + 1] + data[i + 2]) / 3);
+      }
+      const bits = [];
+      for (let row = 0; row < hashSize; row++) {
+        const offset = row * (hashSize + 1);
+        for (let col = 0; col < hashSize; col++) {
+          bits.push(gray[offset + col] > gray[offset + col + 1]);
+        }
+      }
+      return bits;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function renderGlyphHash(ch, fontFamilyCss) {
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = FONT_RENDER_SIZE;
+      canvas.height = FONT_RENDER_SIZE;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, FONT_RENDER_SIZE, FONT_RENDER_SIZE);
+      ctx.fillStyle = "#000";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "center";
+      ctx.font = Math.round(FONT_RENDER_SIZE * 0.7) + "px " + fontFamilyCss;
+      ctx.fillText(ch, FONT_RENDER_SIZE / 2, FONT_RENDER_SIZE / 2);
+      return dHashFromCanvas(canvas);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function hammingDistance(a, b) {
+    let dist = 0;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) dist++;
+    }
+    return dist;
+  }
+
+  // 只对传入的 puaChars 建映射（不是整份字体的 cmap）——我们只关心真的在
+  // 这次抓取里出现过的编码点，天然避免了"字体里顺带带了普通字母的字形也
+  // 被误判"这类问题（不需要像 Python 版那样特别限制只处理 PUA 编码点，
+  // 因为这里从一开始就只喂 PUA 字符进来）。
+  function buildFontMappingForFamily(fontFamily, puaChars) {
+    const refHashes = [];
+    for (const ch of FONT_CANDIDATE_CHARS) {
+      const hash = renderGlyphHash(ch, "sans-serif");
+      if (hash) refHashes.push({ ch, hash });
+    }
+    if (refHashes.length === 0) return {};
+
+    const safeFamily = String(fontFamily || "").replace(/["'\\]/g, "");
+    const fontFamilyCss = (safeFamily ? `"${safeFamily}", ` : "") + "sans-serif";
+
+    const mapping = {};
+    for (const puaChar of puaChars) {
+      const glyphHash = renderGlyphHash(puaChar, fontFamilyCss);
+      if (!glyphHash) continue;
+      let bestChar = null;
+      let bestDist = Infinity;
+      for (const ref of refHashes) {
+        const dist = hammingDistance(glyphHash, ref.hash);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestChar = ref.ch;
+        }
+      }
+      if (bestChar !== null && bestDist <= FONT_MATCH_THRESHOLD) {
+        mapping[puaChar] = bestChar;
+      }
+    }
+    return mapping;
+  }
+
+  function hasChromeSessionStorage() {
+    try {
+      return Boolean(
+        typeof chrome !== "undefined" &&
+          chrome.storage &&
+          chrome.storage.session &&
+          typeof chrome.storage.session.get === "function"
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 缓存优先查内存（同一次 content script 生命周期内最快），
+  // chrome.storage.session 作为跨 tab/跨 capture 的最佳努力缓存——
+  // DrissionPage 通道跑在纯页面上下文，没有 chrome.* API，这里全部
+  // try/catch 兜底，拿不到就退化成"这次现算、不跨 capture 复用"。
+  async function readFontMappingCache(cacheKey) {
+    const mem = fontMappingMemoryCache.get(cacheKey);
+    if (mem && Date.now() - mem.ts < FONT_MAPPING_CACHE_TTL_MS) return mem.mapping;
+    if (!hasChromeSessionStorage()) return null;
+    try {
+      const storageKey = "gzhFontMap:" + cacheKey;
+      const result = await chrome.storage.session.get(storageKey);
+      const entry = result && result[storageKey];
+      if (entry && Date.now() - entry.ts < FONT_MAPPING_CACHE_TTL_MS) {
+        fontMappingMemoryCache.set(cacheKey, entry);
+        return entry.mapping;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  async function writeFontMappingCache(cacheKey, mapping) {
+    const entry = { ts: Date.now(), mapping };
+    fontMappingMemoryCache.set(cacheKey, entry);
+    if (!hasChromeSessionStorage()) return;
+    try {
+      const storageKey = "gzhFontMap:" + cacheKey;
+      await chrome.storage.session.set({ [storageKey]: entry });
+    } catch (_) {}
+  }
+
+  function applyFontMappingToBlocks(blocks, mapping) {
+    const replace = (text) => {
+      if (typeof text !== "string" || !text) return text;
+      let out = "";
+      for (const ch of text) {
+        out += mapping[ch] || ch;
+      }
+      return out;
+    };
+    for (const block of blocks) {
+      if (typeof block.text === "string") block.text = replace(block.text);
+      if (Array.isArray(block.items)) block.items = block.items.map(replace);
+      if (Array.isArray(block.headers)) block.headers = block.headers.map(replace);
+      if (Array.isArray(block.rows)) {
+        block.rows = block.rows.map((row) => row.map(replace));
+      }
+      if (typeof block.caption === "string") block.caption = replace(block.caption);
+    }
+  }
+
+  /**
+   * 模块三主入口：先扫一次 blocks 里是否出现 Unicode 私有使用区编码点——
+   * 绝大多数正常网页扫不到，直接原地返回，零开销。只有真的命中时才继续
+   * 按 font-family 分组、建映射、缓存、替换。
+   */
+  async function restoreObfuscatedFontChars(root, blocks) {
+    const puaChars = collectPuaCharsFromBlocks(blocks);
+    if (puaChars.size === 0) return;
+
+    const charsByFamily = new Map();
+    for (const ch of puaChars) {
+      const family = resolveFontFamilyForChar(root, ch) || "unknown";
+      if (!charsByFamily.has(family)) charsByFamily.set(family, new Set());
+      charsByFamily.get(family).add(ch);
+    }
+
+    const fullMapping = {};
+    for (const [family, chars] of charsByFamily) {
+      const cacheKey = family + "@" + location.hostname;
+      let mapping = (await readFontMappingCache(cacheKey)) || {};
+      const missing = new Set();
+      for (const ch of chars) {
+        if (!(ch in mapping)) missing.add(ch);
+      }
+      if (missing.size > 0) {
+        const extra = buildFontMappingForFamily(family, missing);
+        mapping = Object.assign({}, mapping, extra);
+        await writeFontMappingCache(cacheKey, mapping);
+      }
+      Object.assign(fullMapping, mapping);
+    }
+
+    if (Object.keys(fullMapping).length === 0) return;
+    applyFontMappingToBlocks(blocks, fullMapping);
+  }
+
   window.__gzhRunFullCapture = async function runFullCapture(options) {
     const mode = (options && options.mode) || "readable";
     if (mode === "selection") {
@@ -180,7 +607,7 @@
     return extractArticleFromPage();
   };
 
-  function extractSelectionFromPage() {
+  async function extractSelectionFromPage() {
     const sel = window.getSelection ? window.getSelection() : null;
     const raw = sel ? String(sel.toString() || "") : "";
     const text = normalizeText(raw);
@@ -196,6 +623,9 @@
         blocks.push({ type: "paragraph", text });
       }
     }
+    // 字体反爬还原（模块三）：选中文字一样可能夹带自定义字体加密的编码点，
+    // 复用同一套 canvas 位图哈希还原逻辑，root 用 document.body 兜底。
+    await restoreObfuscatedFontChars(document.body, blocks);
     return {
       url: location.href,
       title:
@@ -262,7 +692,7 @@
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  function extractArticleFromPage(options) {
+  async function extractArticleFromPage(options) {
     const raw = Boolean(options && options.raw);
 
     // 域名特化规则优先（38th 续 7）：当前 host 命中 SITE_RULES 时，
@@ -298,6 +728,12 @@
     const imageIndexByUrl = new Map();
     const textSeen = new Set();
     const blocks = [];
+
+    // z-index 遮罩识别（移植自 boss直聘JD净化提取 的实战经验）：先做一次性
+    // 全量扫描找"定位 + 自带文字"的候选遮罩层。绝大多数正常网站扫描结果
+    // 是空数组，后面每个节点的判断直接短路，零额外开销；只有真的存在这类
+    // 候选遮罩时，才对与它 bbox 重叠的节点做一次精确的 elementFromPoint 确认。
+    activeOverlayCandidates = findOverlayMaskCandidates(root);
 
     // 用一个 helper 统一推图片并去重（38th 续 8 加强：装饰 URL 过滤 + 同图多 size 归并）
     function pushImage({ src, alt, caption }) {
@@ -349,6 +785,13 @@
           if (!raw && hasBoilerplateAncestor(node, root)) {
             return NodeFilter.FILTER_REJECT;
           }
+          if (!isVisibleForCapture(node)) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          // z-index 遮罩判断放在 getVisibleText 里逐祖先元素检查（见下），
+          // 而不是在这里对整块做一次粗判——真实场景里遮罩通常只盖住块内
+          // 一小段（比如一句话中间的薪资数字），对整块包围盒算重叠比例
+          // 会得出没有意义的比例，还会错误地把一整块都判定成"被遮罩"。
 
           // OL/UL/TABLE/PRE/FIGURE 当作整块，跳过其内部的 P/H/IMG 子节点
           if (
@@ -391,7 +834,7 @@
             return NodeFilter.FILTER_SKIP;
           }
 
-          const text = normalizeText(node.textContent || "");
+          const text = normalizeText(getVisibleText(node));
           const minLen = minTextLenForTag(node.tagName);
           if (text.length < minLen) {
             return NodeFilter.FILTER_SKIP;
@@ -433,7 +876,7 @@
           if (block) blocks.push(block);
         }
       } else {
-        const text = normalizeText(currentNode.textContent || "");
+        const text = normalizeText(getVisibleText(currentNode));
         if (text) {
           blocks.push(buildTextBlock(currentNode.tagName, text));
         }
@@ -480,6 +923,10 @@
       });
       plainText = blocksToPlainText(blocks);
     }
+
+    // 字体反爬还原（模块三）：只有 plainText 里真的出现私有使用区编码点
+    // 才会做任何额外工作，绝大多数正常网页直接原地返回，零开销。
+    await restoreObfuscatedFontChars(root, blocks);
 
     return {
       url: location.href,
@@ -606,7 +1053,8 @@
     const ordered = listNode.tagName === "OL";
     const items = [];
     listNode.querySelectorAll(":scope > li").forEach((li) => {
-      const text = normalizeText(li.textContent || "");
+      if (!isVisibleForCapture(li)) return;
+      const text = normalizeText(getVisibleText(li));
       if (text) items.push(text);
     });
     if (items.length === 0) return null;
@@ -615,7 +1063,7 @@
 
   function extractTableBlock(tableNode) {
     const headerCells = Array.from(tableNode.querySelectorAll(":scope > thead > tr > th")).map(
-      (th) => normalizeText(th.textContent || "")
+      (th) => normalizeText(getVisibleText(th))
     );
     let headers = headerCells;
     const rows = [];
@@ -629,13 +1077,13 @@
       const firstRowCells = Array.from(bodyRows[0].children);
       const allTh = firstRowCells.every((c) => c.tagName === "TH");
       if (allTh) {
-        headers = firstRowCells.map((th) => normalizeText(th.textContent || ""));
+        headers = firstRowCells.map((th) => normalizeText(getVisibleText(th)));
         bodyRows = bodyRows.slice(1);
       }
     }
 
     bodyRows.forEach((tr) => {
-      const cells = Array.from(tr.children).map((td) => normalizeText(td.textContent || ""));
+      const cells = Array.from(tr.children).map((td) => normalizeText(getVisibleText(td)));
       if (cells.some((cell) => cell)) rows.push(cells);
     });
 
@@ -650,7 +1098,7 @@
     if (!src || src.startsWith("data:") || isTinyTrackingUrl(src) || looksLikeDecorativeUrl(src)) return null;
     if (looksLikeTinyImage(img)) return null;
     const captionEl = figureNode.querySelector("figcaption");
-    const caption = captionEl ? normalizeText(captionEl.textContent || "") : "";
+    const caption = captionEl ? normalizeText(getVisibleText(captionEl)) : "";
     return pushImage({ src, alt: img.getAttribute("alt") || "", caption });
   }
 

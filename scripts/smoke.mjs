@@ -1428,6 +1428,49 @@ console.log("\n运行 desktop helper 安全特性单测 …");
   );
 }
 
+console.log("\n运行 desktop helper 抓取脚本调用契约回归 …");
+{
+  // 历史 bug：_run_capture_script 调用的是不存在的 window.__gzhRunCapture，
+  // 且传参是裸 mode 字符串，而 scrape-article.js 导出的是 __gzhRunFullCapture(options)，
+  // 期望 { mode } 对象——两处都对不上导致增强抓取从未真正跑通，只是被扩展端的
+  // fallback 悄悄兜住。这里锁死正确的调用契约，防止再漂移。
+  const serverSrc = fs.readFileSync(
+    path.join(root, "desktop/helper_app/server.py"),
+    "utf8"
+  );
+
+  assert(
+    !/window\.__gzhRunCapture\s*\(/.test(serverSrc),
+    "server.py 不应再调用不存在的 window.__gzhRunCapture，必须用 __gzhRunFullCapture"
+  );
+  assert(
+    /window\.__gzhRunFullCapture\s*\(\s*arguments\[0\]\s*\)/.test(serverSrc),
+    "server.py 必须调用 window.__gzhRunFullCapture(arguments[0])"
+  );
+  assert(
+    /tab\.run_js\(\s*\n?\s*["']return window\.__gzhRunFullCapture\(arguments\[0\]\);["'],\s*\{\s*["']mode["']\s*:\s*mode\s*\}\s*\)/.test(
+      serverSrc
+    ),
+    "调用 __gzhRunFullCapture 时必须传 { mode } 对象，不能传裸 mode 字符串（函数签名是 options.mode）"
+  );
+
+  // normalize_mode 不应再把 raw 改写成 page —— scrape-article.js 只认 "raw"
+  const normalizeModeMatch = serverSrc.match(
+    /def normalize_mode\(mode: str\) -> str:[\s\S]*?\n\n/
+  );
+  assert(normalizeModeMatch, "找不到 normalize_mode 函数定义");
+  assert(
+    !/return\s+["']page["']/.test(normalizeModeMatch[0]),
+    'normalize_mode 不应再把任何模式映射成 "page"（历史 bug：raw→page 导致原样整页模式失效）'
+  );
+  assert(
+    /\{\s*["']readable["']\s*,\s*["']raw["']\s*,\s*["']selection["']\s*\}/.test(
+      normalizeModeMatch[0]
+    ),
+    'normalize_mode 必须原样识别 "raw"（与 scrape-article.js / normalizeCaptureMode 保持三档一致）'
+  );
+}
+
 console.log("\n运行 drission helper errorCode 映射单测 …");
 {
   const drission = await import("../src/shared/drission.js");
