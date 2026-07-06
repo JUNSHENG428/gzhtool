@@ -698,7 +698,12 @@ async function handleSetPassword(request, env) {
     .bind(base64Encode(newHash), base64Encode(newSalt), auth.userId)
     .run();
 
-  return jsonResponse({ ok: true });
+  // 与 change-password / reset 对齐：设密后吊销所有旧 JWT（改凭据 = 安全事件），
+  // 同时发新 token 给当前会话，避免 dashboard 紧接着的 /api/me 被自己踢出。
+  const epoch = await bumpTokenEpoch(env, auth.userId);
+  const token = await issueJwt(env, { sub: auth.userId, email: auth.email, te: epoch });
+
+  return jsonResponse({ ok: true, token });
 }
 
 // ============================================================
@@ -1388,16 +1393,6 @@ async function handleLemonWebhook(request, env) {
     return jsonResponse({ ok: false, error: "签名校验失败" }, 401);
   }
 
-  // ---- 幂等 ----
-  if (eventId) {
-    const dup = await env.DB.prepare(
-      "SELECT event_id FROM webhook_events WHERE event_id = ?"
-    )
-      .bind(eventId)
-      .first();
-    if (dup) return jsonResponse({ ok: true, dedup: true });
-  }
-
   let payload;
   try {
     payload = JSON.parse(rawBody);
@@ -1405,16 +1400,35 @@ async function handleLemonWebhook(request, env) {
     return jsonResponse({ ok: false, error: "payload 不是合法 JSON" }, 400);
   }
 
-  // ---- 事件分发 ----
-  const result = await dispatchLemonEvent(env, eventName, payload);
-
+  // ---- 幂等（原子占坑）----
+  // 旧实现是「SELECT 查重 → 处理 → INSERT」：两个并发同 event_id 回调都能通过
+  // SELECT（TOCTOU），事件被处理两次。改为处理前 INSERT ON CONFLICT DO NOTHING
+  // 占坑，PK 冲突（changes=0）说明已被处理/正在处理，直接 dedup 返回。
   if (eventId) {
-    await env.DB.prepare(
+    const claim = await env.DB.prepare(
       `INSERT INTO webhook_events (event_id, event_name, raw, processed_at)
-       VALUES (?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(event_id) DO NOTHING`
     )
       .bind(eventId, eventName, rawBody.slice(0, 8000), Date.now())
       .run();
+    if (!Number(claim?.meta?.changes)) {
+      return jsonResponse({ ok: true, dedup: true });
+    }
+  }
+
+  // ---- 事件分发 ----
+  let result;
+  try {
+    result = await dispatchLemonEvent(env, eventName, payload);
+  } catch (err) {
+    // 处理失败：释放占坑，让 Lemon 的重试能重新走完整链路（否则事件永久丢失）
+    if (eventId) {
+      await env.DB.prepare("DELETE FROM webhook_events WHERE event_id = ?")
+        .bind(eventId)
+        .run();
+    }
+    throw err;
   }
 
   return jsonResponse({ ok: true, ...result });

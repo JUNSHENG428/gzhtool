@@ -775,7 +775,10 @@ function bindSetPassword() {
     els.setPwSubmit.disabled = true;
     els.setPwSubmit.textContent = "保存中…";
     try {
-      await auth.setPassword(newPw);
+      const res = await auth.setPassword(newPw);
+      // 后端设密后 bump token_epoch 吊销旧 JWT 并发新 token；不更新本地的话
+      // 下面 hydrate() 的 /api/me 会立刻 401 把用户踢出。
+      if (res && res.token) setToken(res.token);
       els.setPwForm.reset();
       closeModal(els.setPwModal);
       showToast(
