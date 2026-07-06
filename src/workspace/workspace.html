@@ -71,7 +71,7 @@
           <text x="24" y="34" font-size="24" text-anchor="middle" fill="#6b8f71" font-family="serif">抓</text>
         </svg>
       </div>
-      <p>先点右上角「抓取最近浏览页」开始</p>
+      <p>点击顶部「抓取当前网页」开始</p>
       <button id="emptyPromptCaptureButton" class="ghost">现在抓取</button>
     </div>
 
@@ -242,7 +242,7 @@
                 </button>
                 <button class="ui-quick-tile" type="button" id="quickCaptureCurrent">
                   <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M11 4a7 7 0 1 0 4.95 11.95l4.55 4.54 1.41-1.41-4.55-4.54A7 7 0 0 0 11 4Z"/></svg></span>
-                  <span class="ui-quick-tile-title">抓取当前页</span>
+                  <span class="ui-quick-tile-title">抓取当前网页</span>
                   <span class="ui-quick-tile-desc">把刚才看的网页拽进来</span>
                 </button>
                 <button class="ui-quick-tile" type="button" data-route="hot">
@@ -334,28 +334,28 @@
           <section class="workspace-view" data-view="layout" aria-label="编辑排版">
             <div class="layout-toolbar" role="toolbar" aria-label="编辑排版工具条">
               <div class="layout-toolbar-group layout-toolbar-group--main">
-                <button id="captureButton" class="layout-toolbar-btn" type="button" aria-label="抓取当前浏览器标签页的内容">
+                <button id="captureButton" class="layout-toolbar-btn" type="button" aria-label="抓取当前网页内容">
                   <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M11 4a7 7 0 1 0 4.95 11.95l4.55 4.54 1.41-1.41-4.55-4.54A7 7 0 0 0 11 4Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z"/></svg>
-                  抓取最近浏览页
+                  抓取当前网页
                 </button>
                 <div class="rewrite-cluster">
                   <div class="lt-select" title="选择改写风格模板">
                     <select id="rewriteTemplateSelect" aria-label="选择改写风格模板"></select>
                     <svg class="lt-select-chevron" viewBox="0 0 12 12" width="10" height="10" aria-hidden="true"><path fill="currentColor" d="M6 8 1.5 3.5h9z"/></svg>
                   </div>
-                  <button id="aiGenTemplateBtnLayout" class="layout-toolbar-btn layout-toolbar-btn--accent" type="button" title="AI 帮你生成专属改写模板（PRO）" aria-label="用 AI 生成新的改写模板">
+                  <button id="aiGenTemplateBtnLayout" class="layout-toolbar-btn layout-toolbar-btn--accent" type="button" title="AI 帮你生成专属改写模板（PRO）" aria-label="生成专属改写模板">
                     <span aria-hidden="true">✨</span>
-                    AI 新模板
+                    生成专属模板
                     <span class="layout-toolbar-pro-tag" aria-hidden="true">PRO</span>
                   </button>
                   <button id="rewriteButton" class="layout-toolbar-btn layout-toolbar-btn--primary" type="button" aria-label="使用 AI 改写当前文章">
                     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Z"/></svg>
                     AI 改写当前篇
                   </button>
-                  <button id="humanizeToggleBtn" class="humanize-chip" type="button" aria-pressed="false" title="开启后会在主改写完成后再触发一次去 AI 味润色（按章节数计费）">
+                  <button id="humanizeToggleBtn" class="humanize-chip" type="button" aria-pressed="false" title="开启后会在主改写完成后再触发一次 AI 痕迹润色（按章节数计费）">
                     <span class="humanize-chip-dot" aria-hidden="true"></span>
-                    <span class="humanize-chip-label">去 AI 味</span>
-                    <span class="humanize-chip-state">关</span>
+                    <span class="humanize-chip-label">AI 痕迹</span>
+                    <span class="humanize-chip-state">关闭</span>
                     <span class="humanize-chip-pro" aria-hidden="true">PRO</span>
                   </button>
                   <button id="skipHumanizeBtn" class="humanize-skip-btn" type="button" hidden title="跳过当前正在并行进行的二次润色，立刻拿主改写结果">
@@ -576,7 +576,7 @@
                 <h2>像公众号后台一样编辑正文</h2>
               </div>
               <div class="export-actions">
-                <button id="copyHtmlButton" class="ghost">复制正文 HTML</button>
+                <button id="copyHtmlButton" class="ghost" title="保留排版样式，复制后可粘贴到公众号后台">复制公众号正文</button>
                 <button id="copyMarkdownButton" class="ghost">复制 Markdown</button>
                 <button id="downloadHtmlButton" class="ghost">导出预览 HTML</button>
               </div>
@@ -632,17 +632,17 @@
               <div class="ui-quick-grid">
                 <button class="ui-quick-tile" type="button" id="captureSelection2">
                   <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M3 3h6v2H5v4H3V3Zm12 0h6v6h-2V5h-4V3ZM3 15h2v4h4v2H3v-6Zm16 0h2v6h-6v-2h4v-4ZM7 7h10v10H7V7Z"/></svg></span>
-                  <span class="ui-quick-tile-title">抓选中文字</span>
+                  <span class="ui-quick-tile-title">抓取选中文字</span>
                   <span class="ui-quick-tile-desc">先选中再点击，最精准</span>
                 </button>
                 <button class="ui-quick-tile" type="button" id="captureReadable2">
                   <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h10v2H4v-2Z"/></svg></span>
-                  <span class="ui-quick-tile-title">智能识别正文</span>
+                  <span class="ui-quick-tile-title">抓取正文（推荐）</span>
                   <span class="ui-quick-tile-desc">自动剔除导航/广告/侧栏</span>
                 </button>
                 <button class="ui-quick-tile" type="button" id="captureRaw2">
                   <span class="ui-quick-tile-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M4 4h16v16H4V4Zm2 2v12h12V6H6Z"/></svg></span>
-                  <span class="ui-quick-tile-title">原样抓取整页</span>
+                  <span class="ui-quick-tile-title">抓取整页</span>
                   <span class="ui-quick-tile-desc">保留全部 DOM</span>
                 </button>
                 <button class="ui-quick-tile" type="button" data-route="layout">

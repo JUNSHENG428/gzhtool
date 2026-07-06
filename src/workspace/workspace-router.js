@@ -627,7 +627,7 @@ function bindCaptureShortcuts() {
     const btn = document.getElementById(id);
     if (!btn) return;
     btn.addEventListener("click", () => {
-      // 复用顶部主"抓取最近浏览页"按钮 — 它已经绑了对应消息
+      // 复用顶部主"抓取当前网页"按钮 — 它已经绑了对应消息
       const main = document.getElementById("captureButton");
       if (main) {
         // 临时把 mode 写到 dataset，由 workspace-capture.js 读

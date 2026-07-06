@@ -20,7 +20,7 @@ let _ctx;
  * "must be called during a user gesture"。把 grant 这一步提前到 click handler 里
  * 同步发起，SW 后续 contains 检查就直接返回 true。
  *
- * 取目标 URL 的方式：从 session 读 lastSourceUrl —— 这是上次「抓取最近浏览页」
+ * 取目标 URL 的方式：从 session 读 lastSourceUrl —— 这是上次「抓取当前网页」
  * 时 SW 存进去的（service-worker.js:796 / 836）。第一次抓取（没 lastSourceUrl）
  * 由 SW 去 chrome.tabs.query 取活跃 tab 决定，那种情况下前端不知道 URL，
  * 直接放行让 SW 自己处理 —— 此时 SW 走 contains 路径基本能通过（Chrome 在
@@ -65,7 +65,7 @@ const VALID_CAPTURE_MODES = new Set(["selection", "raw", "readable"]);
 
 const CAPTURE_MODE_LABELS = {
   selection: "正在抓取选中文字...",
-  raw: "正在原样抓取整页...",
+  raw: "正在抓取整页...",
   readable: "正在抓取页面内容..."
 };
 
@@ -253,7 +253,7 @@ function _applyCaptureSourceToCurrentArticle(source) {
 
   if (usedFallback) {
     setStatus(
-      `已自动回退到原样抓取（智能识别正文失败 → ${blockCount} 块内容、${imageCount} 张图片）。建议在改写前删除评论 / 推荐 / 广告等噪声段。`,
+      `已自动回退到整页抓取（正文抓取失败 → ${blockCount} 块内容、${imageCount} 张图片）。建议在改写前删除评论 / 推荐 / 广告等噪声段。`,
       "warning"
     );
   } else if (autoFilled) {

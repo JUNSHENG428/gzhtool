@@ -642,10 +642,10 @@ async function triggerCapture(mode) {
   // 比如 perplexity.ai / substack 等不在 manifest host_permissions 白名单的站点，
   // 没这一步必然失败。
   if (currentTab?.url) {
-    const granted = await ensureHostPermissionFromGesture(currentTab.url, "抓取当前页");
+    const granted = await ensureHostPermissionFromGesture(currentTab.url, "抓取当前网页");
     if (!granted) {
       setStatus(
-        "需要你允许扩展访问该网页才能抓取。请重新点击「抓取当前页」并在弹窗中点「允许」。",
+        "需要你允许扩展访问该网页才能抓取。请重新点击「抓取当前网页」并在弹窗中点「允许」。",
         "warning"
       );
       return;
@@ -656,8 +656,8 @@ async function triggerCapture(mode) {
     mode === "selection"
       ? "已打开编辑台，正在抓取选中文字。"
       : mode === "raw"
-      ? "已打开编辑台，正在原样抓取整页。"
-      : "已打开编辑台，正在抓取当前页面。";
+      ? "已打开编辑台，正在抓取整页。"
+      : "已打开编辑台，正在抓取当前网页。";
   void runAction(
     { type: "PREPARE_SOURCE_AND_OPEN_WORKSPACE", captureMode: mode },
     successMessage

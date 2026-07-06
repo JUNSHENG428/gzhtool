@@ -2788,7 +2788,7 @@ button[hidden] {
   margin-left: auto;
 }
 
-/* 基础按钮（次级） — 抓取最近浏览页 / 历史草稿 / 等 */
+/* 基础按钮（次级） — 抓取当前网页 / 历史草稿 / 等 */
 .layout-toolbar-btn {
   display: inline-flex;
   align-items: center;

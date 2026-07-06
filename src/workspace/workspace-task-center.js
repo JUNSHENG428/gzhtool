@@ -476,7 +476,7 @@ function phaseToLabel(task) {
       return segments.join("  ");
     }
     case "pass1:done":
-      return "分析 AI 痕迹…";
+      return "本地文本检测中…";
     case "pass2:plan":
       return "规划润色段落…";
     case "pass2:start":

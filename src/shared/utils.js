@@ -41,9 +41,9 @@ export function clampIndex(value, length) {
 
 /**
  * 把抓取模式归一化到三档：selection / readable / raw。
- * - selection: 只抓选中文字（页内选区，永远走 content script，不走 DrissionPage）
- * - readable:  智能识别正文（默认）
- * - raw:       原样抓取整页
+ * - selection: 抓取选中文字（页内选区，永远走 content script，不走 DrissionPage）
+ * - readable:  抓取正文（推荐，默认）
+ * - raw:       抓取整页
  *
  * 任何不认识的值都回退到 "readable"，让链路一致。
  * （之前 drission.js 错误地从 utils.js import 了一个不存在的同名函数，

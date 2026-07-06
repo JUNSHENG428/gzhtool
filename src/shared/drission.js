@@ -175,7 +175,7 @@ export async function requestDrissionCapture(settings, payload = {}) {
     throw new Error("DrissionPage 增强抓取只支持 http/https 网页。");
   }
   if (captureMode === "selection") {
-    throw new Error("DrissionPage 增强抓取不支持“只抓选中文字”，该模式会自动使用扩展内置抓取。");
+    throw new Error("DrissionPage 增强抓取不支持“抓取选中文字”，该模式会自动使用扩展内置抓取。");
   }
 
   const controller = new AbortController();

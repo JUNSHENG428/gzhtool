@@ -780,8 +780,8 @@ export async function applyRewriteTaskResult(task) {
       // history snapshot 失败不阻塞 apply
     }
     const baseMessage = result.meta?.templateName
-      ? `当前篇改写完成（模板：${result.meta.templateName}），已生成标题建议、摘要和可编辑正文。`
-      : "当前篇改写完成，已生成标题建议、摘要和可编辑正文。";
+      ? `改写完成（模板：${result.meta.templateName}），已生成标题建议、摘要和可编辑正文。`
+      : "改写完成，已生成标题建议、摘要和可编辑正文。";
     const lengthHint = formatLengthHint(result.meta?.lengthCheck);
     const successMessage = lengthHint ? `${baseMessage}${lengthHint}` : baseMessage;
     setStatus(
@@ -888,8 +888,8 @@ async function _applyRewriteResultToCurrentArticle(response, sourceImages) {
   schedulePersist();
   await saveCurrentDraftRecord("AI 改写完成");
   const baseMessage = response.meta?.templateName
-    ? `当前篇改写完成（模板：${response.meta.templateName}），已生成标题建议、摘要和可编辑正文。`
-    : "当前篇改写完成，已生成标题建议、摘要和可编辑正文。";
+    ? `改写完成（模板：${response.meta.templateName}），已生成标题建议、摘要和可编辑正文。`
+    : "改写完成，已生成标题建议、摘要和可编辑正文。";
   const lengthHint = formatLengthHint(response.meta?.lengthCheck);
   const successMessage = lengthHint ? `${baseMessage}${lengthHint}` : baseMessage;
   setStatus(
@@ -907,7 +907,7 @@ async function _applyRewriteResultToCurrentArticle(response, sourceImages) {
  *
  * 进度条逻辑：
  *  - pass1:start  → "主改写进行中..."
- *  - pass1:done   → "主改写完成，正在分析 AI 痕迹..."
+ *  - pass1:done   → "主改写完成，正在做本地文本检测..."
  *  - pass2:plan   → "lint 完成，正在准备润色..."
  *  - pass2:start  → "正在并行润色 0/N 段..."（同时显示「跳过润色」按钮）
  *  - pass2:tick   → "正在并行润色 K/N 段..."（K = current）
@@ -936,7 +936,7 @@ function handleRewriteProgress(payload) {
       break;
     }
     case "pass1:done":
-      setStatus?.("主改写完成 ✓ 正在分析 AI 痕迹...", "info");
+      setStatus?.("主改写完成，正在做本地文本检测...", "info");
       break;
     case "pass2:plan":
       setStatus?.("正在准备二次润色...", "info");
@@ -950,7 +950,7 @@ function handleRewriteProgress(payload) {
       break;
     case "pass2:done":
       setSkipButtonVisible(false);
-      setStatus?.("润色完成 ✓ 重新评估 AI 痕迹...", "info");
+      setStatus?.("润色完成，正在复查文本检测结果...", "info");
       break;
     case "done":
       setSkipButtonVisible(false);
@@ -1017,14 +1017,14 @@ function initHumanizeToggleChip() {
     if (!access?.ok) {
       const meta = PAID_FEATURES?.["ai.deAiBoost"] || {};
       showUpgradeModal({
-        featureName: meta.name || "去 AI 味二次润色",
+        featureName: meta.name || "AI 痕迹二次润色",
         hint:
           meta.hint ||
-          "Pro 才能在主改写之外再跑一次专属「去 AI 味」模型润色，把 AI 痕迹压到检测线以下。",
+          "Pro 才能在主改写之外再跑一次专项润色，降低明显的 AI 痕迹。",
         bullets: [
-          "二次润色专项重写：句长、破折号、套话、协作语气全部重排",
+          "主改写后再做一次专项润色：句长、破折号、套话、协作语气全部重排",
           "可按章节计费，一篇 1500 字大约 +3k–5k token",
-          "免费版：保留主 pass + 本地 lint 提示，不会触发额外调用"
+          "免费版：保留主改写 + 本地文本检测提示，不会触发额外调用"
         ]
       });
       return;
@@ -1057,7 +1057,7 @@ function applyHumanizeChipState(chip, enabled, intensity, hasAccess) {
   const stateEl = chip.querySelector(".humanize-chip-state");
   const proEl = chip.querySelector(".humanize-chip-pro");
 
-  // 没 PRO 资格：永远显示「关 · PRO」，避免用户误以为已开启
+  // 没 PRO 资格：永远显示「关闭 · PRO」，避免用户误以为已开启
   const effectiveEnabled = hasAccess && enabled;
 
   chip.setAttribute("aria-pressed", String(effectiveEnabled));
@@ -1067,17 +1067,17 @@ function applyHumanizeChipState(chip, enabled, intensity, hasAccess) {
     intensity === "light" ? "轻" : intensity === "strong" ? "重" : "中";
 
   if (stateEl) {
-    stateEl.textContent = effectiveEnabled ? `开 · ${intensityLabel}` : "关";
+    stateEl.textContent = effectiveEnabled ? `开启 · ${intensityLabel}` : "关闭";
   }
   if (proEl) {
     proEl.hidden = hasAccess;
   }
 
   chip.title = effectiveEnabled
-    ? `已开启去 AI 味二次润色（强度：${intensityLabel}）。每篇额外 N 次 LLM 调用，token 成本约 +60%–80%。`
+    ? `已开启 AI 痕迹二次润色（强度：${intensityLabel}）。主改写后会再做一次润色，每篇额外 N 次 LLM 调用，token 成本约 +60%–80%。`
     : hasAccess
-    ? "点击开启去 AI 味二次润色（按章节数额外调用 LLM）。"
-    : "Pro 专属：去 AI 味二次润色。点击查看升级方案。";
+    ? "点击开启 AI 痕迹二次润色：主改写后再做一次润色（按章节数额外调用 LLM）。"
+    : "Pro 专属：AI 痕迹二次润色。点击查看升级方案。";
 }
 
 /**
@@ -1564,8 +1564,8 @@ function escapeAttr(value) {
 /**
  * 把 background 算出来的 lengthCheck 格式化成附在状态栏后面的人话提示。
  *   ok      → "（约 1450 字，符合目标）"
- *   short   → "（约 540 字，比目标少 33%，可让 AI 扩写或换更长档位）"
- *   long    → "（约 2950 字，比目标多 14%，可让 AI 精简或换更短档位）"
+ *   short   → "（约 540 字，比目标少 33%。建议切到「长文」后重新改写，或扩写当前篇。）"
+ *   long    → "（约 2950 字，比目标多 14%。建议切到更短篇幅后重新改写，或先精简当前篇。）"
  *   unknown → 不附加
  */
 function formatLengthHint(lengthCheck) {
@@ -1578,7 +1578,7 @@ function formatLengthHint(lengthCheck) {
     return `（约 ${actual} 字，符合目标 ${expected.min}-${expected.max} 字）`;
   }
   if (status === "short") {
-    return `（约 ${actual} 字，比目标少约 ${deltaPct}%，可让 AI 扩写或换更长档位）`;
+    return `（约 ${actual} 字，比目标少约 ${deltaPct}%。建议切到「长文」后重新改写，或扩写当前篇。）`;
   }
-  return `（约 ${actual} 字，比目标多约 ${deltaPct}%，可让 AI 精简或换更短档位）`;
+  return `（约 ${actual} 字，比目标多约 ${deltaPct}%。建议切到更短篇幅后重新改写，或先精简当前篇。）`;
 }
