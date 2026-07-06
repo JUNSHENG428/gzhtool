@@ -143,7 +143,7 @@ npm i -D playwright && npx playwright install chromium
 - [ ] manifest.version 与 package.json.version 一致 (`npm run version:sync`)
 - [ ] 隐私政策已部署在 https://docuearn.com/privacy 且可公网访问
 - [ ] 服务条款已部署在 https://docuearn.com/terms 且可公网访问
-- [ ] `npm run build:zip` 成功输出 `dist/runbi-v0.3.2.zip`
+- [ ] `npm run build:zip` 成功输出 `dist/runbi-v0.3.3.zip`
 - [ ] 解压 zip 检查：不含 `.venv/` `node_modules/` `docs/` `scripts/` `server/` `site/` `claude_design_system_prompt.md`
 - [ ] 在干净的 Chrome profile（无其它扩展 / 无登录态）下加载未压缩的 stage 目录测试一遍主要流程
 - [ ] 截图与 store 描述准备完毕

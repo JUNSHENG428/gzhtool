@@ -9,7 +9,7 @@
 ## 5 件最重要的事
 
 1. **四段式架构**：`src/`（扩展）+ `server/`（Worker）+ `site/`（官网）+ `desktop/`（桌面助手）— 详见 [memory-bank/systemPatterns.md](memory-bank/systemPatterns.md) §总体架构
-2. **当前版本 0.3.2**（manifest.json 是版本号唯一真源；`npm run version:sync` 同步到 package.json）
+2. **当前版本 0.3.3**（manifest.json 是版本号唯一真源；`npm run version:sync` 同步到 package.json）
 3. **License 反向 gating 模型**：Free 1 设备 / Monthly 3 设备 / Yearly 10 设备 + 🔓 自定义 API Key 仅年费独享（详细配额见下方表）
 4. **Worker 已在 production**：`https://api.docuearn.com` · 最新 Version `7c1263e0`（2026-06-10）
 5. **不要碰**：用户 AI key / wechat AppSecret / License key 永远不写 memory-bank、commit msg、log 输出
@@ -76,7 +76,7 @@
 
 ```sh
 # 三件套
-node scripts/smoke.mjs        # 46 case：router 28 + upstream 6 + worker phase 4 12
+node scripts/smoke.mjs        # 35 组套件（router/upstream/worker phase4/humanize/task-center/desktop helper 等）
 npm run check:ext             # 40 件 UI / section 锚点 / 路由 检查
 node --check <file>           # 触改的 .js / .mjs 单文件 syntax check（不需要 npm 也能跑）
 ```
@@ -134,7 +134,7 @@ wrangler secret put OPENAI_API_KEY                                  # 注入私�
 npm run dev:floating-ball       # 悬浮球 content script watch 重建（唯一需要构建的部分）
 npm run check:js                # JS/MJS 语法检查
 npm run check:ext               # UI / 路由检查（40 件）
-npm run test:smoke              # 46 case 冒烟
+npm run test:smoke              # 35 组套件冒烟
 npm run version:sync            # manifest.json → package.json
 cd server && wrangler dev       # worker 本地起
 cd desktop && python build.py   # 桌面助手打包（需 python.org Python，非 Homebrew）
