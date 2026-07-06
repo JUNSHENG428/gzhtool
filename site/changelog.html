@@ -192,13 +192,36 @@
   <main>
     <article class="changelog-page">
       <h1>更新日志</h1>
-      <p class="meta">最近更新：2026 年 5 月 3 日 · 我们用「小步快跑」的节奏迭代，所有用户改进意见都欢迎邮件反馈</p>
+      <p class="meta">最近更新：2026 年 7 月 6 日 · 我们用「小步快跑」的节奏迭代，所有用户改进意见都欢迎邮件反馈</p>
 
       <div class="changelog-banner">
-        <strong>📦 当前最新版本：</strong> 桌面助手 <a href="https://github.com/JUNSHENG428/gzhtool/releases" target="_blank" rel="noopener">helper-v0.1.0</a> · 浏览器扩展会跟随 Chrome Web Store 自动更新
+        <strong>📦 当前最新版本：</strong> 桌面助手 <a href="https://github.com/JUNSHENG428/gzhtool/releases" target="_blank" rel="noopener">helper-v0.2.0</a> · 浏览器扩展会跟随 Chrome Web Store 自动更新
       </div>
 
       <div class="changelog-timeline">
+        <!-- 桌面助手 v0.2.0 · 安全加固 -->
+        <div class="changelog-entry major">
+          <div class="changelog-date">
+            <span class="version-tag">helper-v0.2.0</span>
+            <span>2026 年 5 月</span>
+          </div>
+          <h2>桌面助手 v0.2.0 · 安全加固（强烈建议升级）</h2>
+          <div class="changes">
+            <h3 class="added">新增</h3>
+            <ul>
+              <li><strong>默认开启访问令牌鉴权</strong>：抓取接口必须携带本机生成的随机令牌才能调用，防止电脑上其它程序偷偷使用助手；窗口里点「复制 helper 地址」即可拿到带令牌的完整地址。</li>
+              <li><strong>默认拒绝抓取本机 / 内网地址</strong>：只允许公网 http / https 页面，避免助手被误用为内网探测跳板；高级用户可显式开启放行。</li>
+              <li><strong>跨源来源白名单收窄</strong>：只接受浏览器扩展与本机调试地址的请求。</li>
+            </ul>
+            <h3 class="improved">改进</h3>
+            <ul>
+              <li>窗口新增「安全凭据」卡片：脱敏显示当前令牌，一键重置。</li>
+              <li>抓取失败返回稳定错误码，扩展端能给出更准确的差异化提示。</li>
+            </ul>
+            <p style="margin-top:8px;">下载：<a href="https://github.com/JUNSHENG428/gzhtool/releases/tag/helper-v0.2.0" target="_blank" rel="noopener">GitHub Release</a> · 升级方法：关掉旧版 → 下载新版 zip → 替换 → 启动</p>
+          </div>
+        </div>
+
         <!-- 2026-05-03 39th session · 平台 LLM 代理 / 反向 gating -->
         <div class="changelog-entry major">
           <div class="changelog-date">

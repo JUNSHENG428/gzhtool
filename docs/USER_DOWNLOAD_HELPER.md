@@ -91,6 +91,8 @@ DrissionPage 需要你电脑上已经装了 Chrome 浏览器。下载并安装 C
 - 默认开启 **token 鉴权**：没拿到 token 的本机程序也调不到 `/scrape`
 - 默认 **拒绝抓取本机/内网地址**（`127.0.0.1`、`10.0.0.0/8`、`192.168.0.0/16` 等），避免被当成 SSRF 跳板
 - 抓取的内容直接传给浏览器扩展，不走任何第三方服务器
+- 每次抓取成功后会在**你自己的电脑**上留一份 Markdown 存档（`~/Documents/Runbi/Inbox/`，
+  Windows 为 `文档\Runbi\Inbox\`），方便留档检索；不需要可以直接删文件，它不会上传到任何地方
 - 源代码完全开源，可以审：[查看 helper_app 源码](../desktop/helper_app/)
 
 ### Q8：扩展报「helper token 不匹配」怎么办？
