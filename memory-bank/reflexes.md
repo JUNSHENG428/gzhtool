@@ -8,7 +8,7 @@
 
 ---
 
-## 主反例约定（编号 1-39，progress.md 显式编号）
+## 主反例约定（编号 1-43，progress.md 显式编号）
 
 | # | 一句话规避 | 关键词 | 首次沉淀 | 强化次数 |
 |---|---|---|---|---|
@@ -47,10 +47,14 @@
 | 33 | **后台"找一个同类扩展 tab 干活"不能盲取 `tabs.query()[0]`**（最老 tab，状态陈旧）——按 `lastAccessed` 取最近聚焦 tab，否则多开 tab 时状态串篇（"同步的是上一篇"） | runFloatingBallPull / 多 tab | 2026-05-29 41st | — |
 | 34 | **新增 `PAID_FEATURES` 付费功能 key 必须同步 `server/worker.js` `PAID_FEATURE_KEYS`**——否则「PAID_FEATURE 前后端对齐」smoke 单测 FAIL（客户端 plans 闸门是软的，server 的 key 列表是 SSOT）。同理改任何「N 处对齐清单」项要 grep 全套 | PAID_FEATURES / ai.quoteCards / 前后端对齐 | 2026-05-31 42nd | (关联 #14/#18) |
 | 35 | **写第三方 contenteditable 编辑器的 fallback 判定要看「新内容是否写进去」，不能看「编辑器是否为空」**——`setEditorHtml` 旧逻辑用 `innerHTML.length<20`（≈编辑器空）才触发 execCommand/innerHTML 兜底；第一篇导入后编辑器非空，第二篇起合成 paste 被 ProseMirror 忽略（非 isTrusted）而兜底被跳过→永远停在第一篇，必须关 tab 重开才行。改判定为「期望内容的文本指纹是否已出现在编辑器里」+ selectAll 强制整篇替换 | setEditorHtml / mp 连续导入 | 2026-06-03 42nd | (修正 #32 的「长度判定") |
-| 36 | **多 mode 共用的 UI 控件（按钮/输入）做校验时必须按当前 mode 分流，不能只走默认 mode 路径**——「测试连接」按钮在平台/BYOK 两面板**之外**共用，旧逻辑无脑走 BYOK 三件套校验，平台模式下 apiKey 为空被 `请先填写 API Key` 拦死，让免费用户误以为平台 AI 用不了。修法：点击时读当前 `aiSourceMode` 传给后台，`testAiConnection` 顶部 `if(mode==="platform")` 分流到 JWT 鉴权的 `/api/llm/usage` 测试。判定原则：加/改任何「被多入口或多状态复用」的控件逻辑时，先列出它服务的所有 mode/状态，逐一确认分支，别让默认分支吃掉其它 mode。**06-10 补强实证（同 bug 两轮才修干净）**：06-04 只修了测试连接 1 处，用户再报「还是要填 Key」——又揪出 4 处「只认 apiKey」入口：`hasUsableAiConfig` 改写前置闸门（真正拦截器）/ workspace aiPill / popup AI 卡 / modal 文案。**修 mode 相关校验时第一动作就是 `grep apiKey`（或对应判定字段）全仓列清单**，不要修一处交差 | options.js testAiConnection + workspace-rewrite hasUsableAiConfig / 平台 vs BYOK | 2026-06-04 42nd + 2026-06-10 43rd | (关联 #14 同语义入口清单) |
+| 36 | **多 mode 共用的 UI 控件（按钮/输入）做校验时必须按当前 mode 分流，不能只走默认 mode 路径**——「测试连接」按钮在平台/BYOK 两面板**之外**共用，旧逻辑无脑走 BYOK 三件套校验，平台模式下 apiKey 为空被 `请先填写 API Key` 拦死，让免费用户误以为平台 AI 用不了。修法：点击时读当前 `aiSourceMode` 传给后台，`testAiConnection` 顶部 `if(mode==="platform")` 分流到 JWT 鉴权的 `/api/llm/usage` 测试。判定原则：加/改任何「被多入口或多状态复用」的控件逻辑时，先列出它服务的所有 mode/状态，逐一确认分支，别让默认分支吃掉其它 mode。**06-10 补强实证（同 bug 两轮才修干净）**：06-04 只修了测试连接 1 处，用户再报「还是要填 Key」——又揪出 4 处「只认 apiKey」入口：`hasUsableAiConfig` 改写前置闸门（真正拦截器）/ workspace aiPill / popup AI 卡 / modal 文案。**修 mode 相关校验时第一动作就是 `grep apiKey`（或对应判定字段）全仓列清单**，不要修一处交差。**07-06 第四例（49th 续）**：AI 选题规划 `runTopicPlanning` 又是「只认 apiKey」入口——SW 直连 BYOK fetch、前端只给 `apiBaseUrl` 申请 host 权限，默认平台模式用户报「AI 返回内容为空」；修成 `requestPlainChat` 模式分流 + `ensureAiHostPermissionFromGesture`，并加 2 条 smoke 断言锁死（SW 必须 requestPlainChat / 前端权限必须分流） | options.js testAiConnection + workspace-rewrite hasUsableAiConfig + SW runTopicPlanning / 平台 vs BYOK | 2026-06-04 42nd + 2026-06-10 43rd + 2026-07-06 49th 续 | (关联 #14 同语义入口清单) |
 | 37 | **HTML 里加表单控件必须同步接 hydrate/save 链，且「留空=不下发」字段要做空串保全**——options.html 里 `topP`/`frequencyPenalty`/`presencePenalty`/`humanizeEnabled`/`humanizeIntensity` 5 个控件存在了多个 session 但从未进 options.js `fields` 字典：用户改了不报错也不生效（defaults 兜底值一直在用），是最难被发现的"幽灵设置"。接入时还有第二坑：saveForm 通用循环对 `type=number` 做 `Number(field.value)`，空串变 0——把「留空=用服务端默认」语义变成「显式下发 0」（top_p=0 会彻底改变采样行为）。修法：保存末尾对这类字段空值改回 `""`（下游 `numberOrNull` 跳过空串）。判定原则：加控件的 PR 必须三件套齐活——HTML 控件 + fields/hydrate 接线 + 保存语义检查（特别是「空=不发」类）；review 时 grep 控件 id 在 JS 里出现次数，0 次 = 幽灵设置 | options fields 字典 / topP 空串保全 / 幽灵设置 | 2026-06-10 43rd 续 | — |
 | 38 | **仓库根 = unpacked 扩展根，禁止任何 `_` 前缀文件/目录**——Chrome 把 `_` 开头的名字保留给系统（`_locales` 等），根目录出现 `_temp/` 直接 `Could not load manifest` 拒载整个扩展。临时工件（预览页/截图/报告）一律放 `dist/`（已 gitignore 且 Chrome 接受）。判定原则：在仓库根创建新目录前先想「Chrome 会把它当扩展内容扫描」 | _temp 拒载 / dist/theme-preview | 2026-06-11 45th | — |
 | 39 | **AI JSON schema 是软约束，文本字段进渲染前必须统一归一化**——模型可能把 `title/lead/quote/paragraphs/bulletPoints/table cell` 等应为字符串的字段包成 `{text}` / `{content}` / `{value}` 对象；如果直接透传到 `escapeHtml(String(value))`，正文会出现 `[object Object]`。修法：在 `normalizeArticle` 边界抽取 text/content/value/title/heading/quote/label/name，数组和结构化块共用同一文本归一化；渲染层不承担猜 schema 的责任。判定原则：任何 LLM JSON 入库/渲染前都先做 schema normalization，不要把 `String(object)` 当兜底 | normalizeArticle / [object Object] / LLM JSON | 2026-06-17 47th | — |
+| 40 | **Playwright evaluate 驱动的性能基准会把 harness 开销算进被测代码**——check:features「100 次 hash 切换」基准 ~95% 是同文档导航 harness 开销：全视图 display:none 零渲染对照仍 3235ms vs 真实 3405ms，被测代码只占 ~5%，「<3000ms」在该测量方法下物理不可达。修法/判定原则：perf 优化前先做**零渲染对照实验**测出 harness 底噪，再决定优化目标；否则会为测量方法本身的开销白优化 | check:features [6] / applyRoute 基准 | 2026-07-06 48th | — |
+| 41 | **webhook 幂等必须原子占坑，SELECT-then-act 挡不住并发重放**——虎皮椒（SELECT status 查重）与 Lemon（SELECT 查重→处理→INSERT）两条支付通道同日各中一枪，同一 TOCTOU 模式。修法：占坑发生在处理**之前**且靠 DB 原子性——条件 UPDATE（`status='pending'→'paid'`，changes=0 即重放）或 `INSERT ON CONFLICT(event_id) DO NOTHING`；处理失败回滚占坑让重试重新发货。判定原则：任何「查重→处理→落库」三段式 webhook handler 都是竞态 | 虎皮椒 `885435f` / Lemon `7e60318` | 2026-07-06 48th | — |
+| 42 | **会被 `innerHTML` 整体重建的组件，徽标/角标/装饰必须状态驱动渲染，不能事后 append**——浮球拉草稿徽标初版 append 到 DOM 上，`refreshPullBallStatus` 重建 `strip.innerHTML` 后立即消失。修法：用 `draftReadyInfo` 模块状态进模板函数渲染；判定原则：给组件加视觉元素前先 grep 它是否有整体重建路径，有就必须从状态渲染 | floating-ball / draft badge / innerHTML refresh | 2026-07-06 48th 并发 | — |
+| 43 | **MV3 浏览器 E2E 必须防五类假通过：旧 bundle、硬编码扩展 ID、空抓取、真实 LLM、固定 timeout**——测试前强制 `npm run build:floating-ball`，用 service worker URL 动态取 ID，抓取 title/body/images 做非空/长度断言，OpenAI/DeepSeek/DashScope/平台 LLM 全 mock，等待 DOM/task/storage/message 而非 `waitForTimeout` | Playwright / MV3 E2E / fake pass | 2026-07-06 49th | — |
 
 ---
 
@@ -149,3 +153,6 @@
 - 2026-06-10 43rd session：第 36 条补强实证——同 bug 两轮才修干净，又揪出 4 处「只认 apiKey」入口（hasUsableAiConfig 改写闸门 / aiPill / popup 卡 / modal 文案）；判定原则升级为「修 mode 相关校验第一动作 grep 判定字段全仓列清单」。另：defaults.js aiSourceMode 默认 byok→platform（未上架无老用户包袱）
 - 2026-06-11 45th session：新增第 38 条（仓库根=扩展根，`_` 前缀目录让 Chrome 拒载整个扩展；临时工件一律进 dist/）
 - 2026-06-17 47th session：新增第 39 条（AI JSON 文本字段进渲染前必须统一归一化，防 `[object Object]`）
+- 2026-07-06 48th session：新增第 40 条（Playwright perf 基准先做零渲染对照测 harness 底噪）+ 第 41 条（webhook 幂等原子占坑，SELECT-then-act 是 TOCTOU；虎皮椒+Lemon 同日各中一枪）
+- 2026-07-06 48th 并发 + 49th session：新增第 42 条（innerHTML 重建组件的装饰元素必须状态驱动渲染）+ 第 43 条（MV3 浏览器 E2E 防假通过五件套）
+- 2026-07-06 49th 续：第 36 条第四例实证——AI 选题规划 runTopicPlanning 仍是「只认 apiKey」入口（SW 直连 BYOK + 前端权限只认 apiBaseUrl）；修成 requestPlainChat 模式分流并用 smoke 断言锁死。教训升级：**任何新增 AI 调用入口落地前必须 grep `apiBaseUrl`/`apiKey`/`aiSourceMode` 确认已分流**

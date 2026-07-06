@@ -16,20 +16,29 @@
 
 ---
 
-## 当前焦点（更新于 2026-06-12 · 46th session）
+## 当前焦点（更新于 2026-07-06 · 49th 续 session）
 
-**去 AI 味增强 + 自拟主题创作 + BYOK 硬闸门**（commit `5086eee`）：humanize 两轮增强 + S2 验收闸；brief 创作模式；BYOK radio 硬闸门。详见 [progress.md](memory-bank/progress.md) 顶部 46th 段。
+**49th 续 · AI 选题规划平台模式修复（反例 #36 第四例）**：`runTopicPlanning` 只走 BYOK 直连 + 前端权限只认 `apiBaseUrl`，平台 AI 用户报「AI 返回内容为空」。修成 `requestPlainChat` 模式分流（+signal 超时 / `AI_EMPTY_RESPONSE` 诊断）+ 空响应/解析失败 80s 预算内自动重试 1 次 + 错误分码文案 + `ensureAiHostPermissionFromGesture` + 生成中可收起 + loading 三阶段进度点；smoke +2 断言锁死。判定原则升级：**新增 AI 调用入口前必须 grep `apiBaseUrl`/`apiKey`/`aiSourceMode` 确认分流**。详见 progress.md 顶部「49th 续」段。
+
+历史 · **全面优化 + Chrome Web Store 上线前准备**（16 commits）：Phase 0 基线固化 + 增强抓取调用契约修复（`0a1a7e9`，`__gzhRunCapture` 不存在从未跑通）+ deepHumanize 任务中心（`adf1702`）→ Phase 1 阻塞项（privacy §3.1 / 版本漂移 / helper 日志脱敏 / 删 WAR）→ Phase 2 全栈（**Worker 虎皮椒+Lemon webhook 幂等原子占坑 `885435f`+`7e60318` 待 `wrangler deploy`**；官网 4 页 SKU 硬错误）→ Phase 3 上架（zip 6.14MB ⚠️ 混入并发会话 WIP 须重跑 release:cws；D 节 7 组真机用例；19 条 host 权限用途表）。反例增至 **41 条**（#40 perf 基准 harness 底噪对照 / #41 webhook 幂等原子占坑）。详见 [progress.md](memory-bank/progress.md) 顶部 48th 段。
+
+**48th 并发会话（同日）· 杂志母版×4 + 改写提示词手艺层 + 推送防串号三件套 + 浮球直观化（全绿待 commit）**：即上面待办 ③ 的实体。新增 4 套母版（FT 财经鲑鱼/Kinfolk 奶油慢刊/arXiv 学术手稿/Esquire 鎏金夜话）；`CRAFT_QUALITY_RULES` 注入改写+创作双 prompt；浏览器 Push 写入前账号比对（`WECHAT_BROWSER_ACCOUNT_MISMATCH`，清掉「Pull 有 Push 没有」）+ 字段级写入反馈 + banner 未保存警示 + `RUNBI_DRAFT_READY` 浮球红点；React 浮球对齐 emoji+小字。反例增至 **42 条**（#42 innerHTML 整体重建的组件禁事后 DOM append 装饰元素）。详见 progress.md 顶部「48th 并发会话」段。
+
+历史 · **47th（2026-06-17）AI 文章字段对象化 `[object Object]` 修复**：`normalizeArticle`/`normalizeGeneratedText` 边界归一化 + `test-article-normalization` 接入 npm test（反例 #39）。详见 progress.md 47th 段。
+
+历史 · **46th（2026-06-12）去 AI 味增强 + 自拟主题创作 + BYOK 硬闸门**（commit `5086eee`）：humanize 两轮增强 + S2 验收闸；brief 创作模式；BYOK radio 硬闸门。详见 [progress.md](memory-bank/progress.md) 顶部 46th 段。
 
 历史 · **智能排版杂志签名细节层 + 编辑器所见即所得**（commit `309a510`，调用 huashu-design skill）：排版引擎新增可选 `theme.signature` pass（首字下沉 ≥40 字守卫 / 章节序号 padded|cn / 引语大引号 / 文末终止符），6 套杂志母版各配签名细节（NYer/墨韵/Wired/Monocle/清新知识卡/Zine 各有专属符号语言）；编辑器侧用纯 CSS 伪元素近似还原（::first-letter + counter + ::before/::after，不进 DOM 不污染 contenteditable），CSS 生成提取为导出纯函数 `buildEditorThemeCss()`。微信两条发布链白名单（prepareHtmlForWechat + mp sanitizeHtml）已核对放行 span+style+float。详见 [progress.md](memory-bank/progress.md) 顶部 45th 段。
 
 近期（44th 系列，已 push）：核心三链路审计 47 项 → 三波修复清零（`187d712`→`a8f8fe5`→`5ae0e70`）+ 文风指纹提取平台模式修复（`59a6a79`，反例 #36 第三例）。43rd：设置页重塑年费闸门四批次 + `docs/COPY_GLOSSARY.md` 文案 SSOT。反例约定增至 **38 条**（#38：仓库根=扩展根，`_` 前缀目录让 Chrome 拒载整个扩展，临时工件一律进 `dist/`）。
 
-待办候选（无优先级）：
-- **排版真机端到端**：发草稿到 mp 实测签名细节（Android 衬线回退无衬线但细节不受影响）
-- 真机端到端：免费账号锁定弹窗 / 年费文风注入 + 5 账号上限 / 平台模式 S2 二次润色实测 / 多账号发布轮询实测
-- Push 同步 mp 登录账号比对（Pull 有，Push 没有）；UX 遗留：改写成果卡 / 额度 80% 提醒 / 免登录试用
-- 金句手动编辑/增删（当前纯 AI 提炼）
-- **上架收尾**：重打包 zip（`npm run release:cws`）+ 出商店 PNG + 实测 + $5 注册（详见 [docs/COMPETITIVE_ANALYSIS.md](docs/COMPETITIVE_ANALYSIS.md) §5）
+待办候选（48th 后，前四条有先后）：
+- **① `cd server && wrangler deploy`**（`885435f`+`7e60318` 两个 webhook 幂等修复待上线）
+- **② 真机验收** `docs/MANUAL_VERIFY_CHECKLIST.md` D1–D7（覆盖旧「排版真机/锁定弹窗/文风/S2/轮询」各条）
+- **③ 并发会话改动定稿提交后重跑 `npm run release:cws`** 出干净 zip（当前 zip 混入 WIP）→ 实测 + $5 注册上架（并发会话改动已定稿全绿，剩 commit + 重打包）
+- ④ helper 下次发版 bump version.py 0.2.0→0.3.0（含 Inbox 归档/批量抓取/契约修复/日志脱敏增量）
+- ~~Push 同步 mp 登录账号比对（Pull 有，Push 没有）~~ ✅ 已决：48th 并发会话落地 `assertMpAccountMatches` + `WECHAT_BROWSER_ACCOUNT_MISMATCH`，见 progress.md「48th 并发会话」段；UX 遗留：改写成果卡 / 额度 80% 提醒 / 免登录试用
+- 金句手动编辑/增删（当前纯 AI 提炼）；issueProLicense 按 sourceOrderId 幂等第二道保险；官网「开通 Pro 会员」CTA 按 COPY_GLOSSARY 退场
 - **本地排版结构 lint** / **基础配图能力** / Phase 6 设备反伪造 / admin dashboard / activeContext.md archive 切分
 
 ---
@@ -68,7 +77,7 @@
 | 20 | plan/SKU schema 演进**不要硬编码默认值**——必须接受参数 + 显式归一化 | `progress.md` 第 20 条 |
 | 21 | **流式响应路径不要做 fallback 链**——半途切上游会产生错位 JSON | `progress.md` 第 21 条 |
 
-完整 33 条见 `memory-bank/reflexes.md` 表格 / `memory-bank/progress.md`「反例约定第 N 条」搜索。
+完整 41 条见 `memory-bank/reflexes.md` 表格 / `memory-bank/progress.md`「反例约定第 N 条」搜索。
 
 ---
 
@@ -153,3 +162,6 @@ cd desktop && python build.py   # 桌面助手打包（需 python.org Python，�
 - 2026-06-04 42nd session 续²：修复平台 AI「测试连接」误报「请先填写 API Key」；反例约定 35→36 条；纠正「npm run dev」实为不存在脚本（main src/ 无打包步骤）
 - 2026-06-10 43rd session：同 bug 第二轮——「只认 apiKey」入口全量分流（hasUsableAiConfig 改写闸门是真拦截器）+ aiSourceMode 默认改 platform；#36 补强；commit `624ff0e`
 - 2026-06-10 43rd session 续：设置页重塑与年费闸门四批次落地（新增 ai.voiceMimic / 多账号 1/1/5 / 原位锁定 UI / 保存链修复 5 字段 / 去术语 + COPY_GLOSSARY.md SSOT / 营销页同步）；SKU 配额表更新（多公众号月费 5→1，加文风/抓取/去味行）；Worker `7c1263e0`
+- 2026-07-06 48th session：当前焦点更新为全面优化 + CWS 上线前准备（16 commits，Phase 0–3）；反例约定 39→41 条（#40 perf harness 底噪 / #41 webhook 幂等原子占坑）；待办候选重排（wrangler deploy → 真机 D1–D7 → 重跑 release:cws → helper 0.3.0）
+- 2026-07-06 48th 并发会话：追加当前焦点段（杂志母版×4 / CRAFT_QUALITY_RULES 双 prompt / Push 账号比对+字段级反馈+未保存警示+浮球红点 / React 浮球对齐 emoji+小字）；反例 41→42 条（#42 innerHTML 重建组件禁事后 append 装饰元素）；待办「Push 账号比对」标记已落地
+- 2026-07-06 49th 续 session：当前焦点更新为 AI 选题规划平台模式修复（反例 #36 第四例：runTopicPlanning 只认 apiKey → requestPlainChat 模式分流 + 自动重试 + 错误分码 + loading 三阶段进度）；工作区四股改动（48th 并发 / 49th E2E+文案 / 热点源多实例 / 本修复）分组 commit 落库

@@ -307,6 +307,66 @@
   border: 1px solid rgba(232, 208, 160, 0.85);
 }
 
+/* 缓存兜底提示：比普通 notice 更醒目一点的琥珀色，且渲染在列表上方 */
+.hot-notice--stale {
+  margin: 0 0 14px;
+  background: rgba(255, 243, 214, 0.95);
+  border-color: rgba(214, 168, 90, 0.9);
+  color: #7a5a24;
+  font-weight: 500;
+}
+
+/* 拉取失败错误卡片：一句结论 + 后端明细 + 建议 + 可操作按钮 */
+.hot-error-card {
+  margin-top: 14px;
+  padding: 18px 20px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(214, 168, 90, 0.55);
+  background:
+    radial-gradient(120% 100% at 0% 0%, rgba(255, 248, 230, 0.9), transparent 70%),
+    rgba(255, 253, 248, 0.96);
+  box-shadow: var(--shadow-xs);
+}
+
+.hot-error-title {
+  margin: 0 0 10px;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.hot-error-detail {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 0.8125rem;
+  line-height: var(--leading-relaxed);
+  color: #8a5e1c;
+}
+
+.hot-error-detail li + li {
+  margin-top: 2px;
+}
+
+.hot-error-advice {
+  margin: 0 0 14px;
+  font-size: 0.8125rem;
+  line-height: var(--leading-relaxed);
+  color: var(--soft-ink);
+}
+
+.hot-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hot-error-actions button {
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
 .hot-status {
   min-height: 22px;
   font-size: 0.8125rem;
@@ -914,11 +974,16 @@ button[data-action="express"].is-error:hover {
   gap: 8px;
 }
 
-.topic-planner-modal.is-planning .topic-planner-modal__footer-actions button {
+/* 生成中只锁「生成选题」提交按钮；取消按钮保持可点（收起弹窗、后台继续生成） */
+.topic-planner-modal.is-planning .topic-planner-modal__footer-actions [data-act="submit"] {
   pointer-events: none;
 }
 
 .topic-planner-modal__loading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
   font-size: 0.8125rem;
   color: #5c4f3d;
   text-align: left;
@@ -928,6 +993,63 @@ button[data-action="express"].is-error:hover {
     linear-gradient(90deg, rgba(31, 79, 58, 0.12), rgba(192, 142, 61, 0.12)),
     rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(31, 79, 58, 0.16);
+}
+
+.topic-planner-spinner {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(31, 79, 58, 0.22);
+  border-top-color: #1f4f3a;
+  animation: topicPlannerSpin 0.9s linear infinite;
+}
+
+.topic-planner-loading__stages {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.topic-planner-loading__stage {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(31, 79, 58, 0.18);
+  color: rgba(92, 79, 61, 0.62);
+  background: rgba(255, 255, 255, 0.55);
+  transition: all 0.3s ease;
+}
+
+.topic-planner-loading__stage.is-active {
+  border-color: rgba(31, 79, 58, 0.5);
+  background: rgba(31, 79, 58, 0.12);
+  color: #1f4f3a;
+  font-weight: 600;
+}
+
+.topic-planner-loading__stage.is-done {
+  border-color: rgba(31, 79, 58, 0.3);
+  color: rgba(31, 79, 58, 0.7);
+}
+
+.topic-planner-loading__stage.is-done::before {
+  content: "✓ ";
+}
+
+.topic-planner-loading__arrow {
+  color: rgba(92, 79, 61, 0.4);
+}
+
+.topic-planner-loading__text {
+  flex: 1 1 100%;
+}
+
+@keyframes topicPlannerSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .topic-planner-modal__error {

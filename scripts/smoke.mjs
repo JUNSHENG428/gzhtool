@@ -2578,6 +2578,18 @@ console.log("\n运行 AI 选题规划（topic-planner）纯函数 + UI 钩子防
     swJs.includes("runTopicPlanning"),
     "service-worker 必须实现 runTopicPlanning 编排函数"
   );
+  assert(
+    swJs.includes("requestPlainChat"),
+    "runTopicPlanning 必须走模式感知的 requestPlainChat（反例 #36：平台/BYOK 分流，不能只认 BYOK apiKey 直连）"
+  );
+  const plannerUiJs = fs.readFileSync(
+    path.join(root, "src/pages/topic-planner-ui.js"),
+    "utf8"
+  );
+  assert(
+    plannerUiJs.includes("ensureAiHostPermissionFromGesture"),
+    "topic-planner-ui 申请 AI host 权限必须按 aiSourceMode 分流（platform → getApiBase / byok → apiBaseUrl）"
+  );
 
   // 11) license / usage-stats 必须把 ai.topicPlanner / topicPlanner 挂上配额体系
   const licJs = fs.readFileSync(path.join(root, "src/shared/license.js"), "utf8");

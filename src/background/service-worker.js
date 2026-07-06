@@ -4,8 +4,7 @@ import {
   requestHumanizeJudge,
   requestDeepHumanizeRewrite,
   testAiConnection,
-  extractChatContent,
-  postChatCompletionWithReasoningFallback
+  requestPlainChat
 } from "../shared/ai.js";
 import {
   getActivePromptTemplate,
@@ -79,7 +78,11 @@ import {
 } from "./task-registry.js";
 
 const MAX_RETRIES = 2;
-const TOPIC_PLANNER_AI_TIMEOUT_MS = 65_000;
+// AI 选题总监：单次调用超时 / 总预算（含自动重试）/ 触发重试所需的最少剩余预算。
+// 总预算必须小于前端 PLAN_TOPICS_TIMEOUT_MS(90s)，否则前端先超时、后台结果作废。
+const TOPIC_PLANNER_AI_TIMEOUT_MS = 55_000;
+const TOPIC_PLANNER_TOTAL_BUDGET_MS = 80_000;
+const TOPIC_PLANNER_MIN_RETRY_BUDGET_MS = 15_000;
 
 /**
  * 当前 in-flight 的 humanize-pass AbortController 集合，按 requestId 索引。
@@ -1118,7 +1121,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         } else {
           sendResponse({
             ok: false,
-            error: { code: "HOT_TOPICS", message: result.message, retryable: true }
+            error: {
+              code: "HOT_TOPICS",
+              message: result.message,
+              label: result.label || "",
+              // 结构化字段给热点页渲染错误卡片用（每个后端一行 + 单独的建议段）
+              errors: Array.isArray(result.errors) ? result.errors : [],
+              advice: result.advice || "",
+              retryable: true
+            }
           });
         }
         break;
@@ -1486,7 +1497,7 @@ async function scrapeLastSourceTab(captureMode = "readable") {
 
   if (!capture || !Array.isArray(capture.blocks) || capture.blocks.length === 0) {
     if (safeMode === "selection") {
-      throw new Error("没有检测到选中文字，请在原网页里先选中一段文字再点击「只抓选中文字」。");
+      throw new Error("没有检测到选中文字，请在原网页里先选中一段文字再点击「抓取选中文字」。");
     }
     throw new Error("抓取失败或正文为空，请确认页面已完全加载，或换一篇可公开访问的页面再试。");
   }
@@ -1763,16 +1774,21 @@ async function runTopicPlanning(payload = {}) {
       ? { ...profile, outputCount: 1 }
       : profile;
 
-  // 2) AI 设置必须存在
+  // 2) AI 配置必须可用（反例 #36：按 aiSourceMode 分流，不能只认 BYOK 三件套）：
+  //    平台模式靠润笔账户 JWT 鉴权，未登录时 requestPlainChat 会抛 AUTH_REQUIRED 友好报错；
+  //    BYOK 模式必须填好 apiBaseUrl + apiKey 才能直连 chat completions。
   const settings = await getSettings();
-  if (!settings?.apiKey?.trim() || !settings?.apiBaseUrl?.trim()) {
+  const isPlatformAi = settings?.aiSourceMode === "platform";
+  if (!isPlatformAi && (!settings?.apiKey?.trim() || !settings?.apiBaseUrl?.trim())) {
     return {
       ok: false,
       error: "AI 接口未配置，请到「AI 设置」补完 API Base URL / API Key / Model 后再试。",
       errorCode: "AI_NOT_CONFIGURED"
     };
   }
-  await ensureOptionalHostPermission(settings.apiBaseUrl, "AI 选题规划接口");
+  if (!isPlatformAi) {
+    await ensureOptionalHostPermission(settings.apiBaseUrl, "AI 选题规划接口");
+  }
 
   // 3 + 4 + 5：reroll 走快路径（直接复用上次 candidatePool）；常规路径要重新拉源 → 评分 → 筛选
   let aiPool = [];
@@ -1874,67 +1890,95 @@ async function runTopicPlanning(payload = {}) {
       ? { itemId: reroll.itemId, previousAngle: reroll.previousAngle || "" }
       : null
   });
-  let aiText = "";
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), TOPIC_PLANNER_AI_TIMEOUT_MS);
-  try {
-    // 推理模型（Kimi k2.x / o1 / R1）拒绝 temperature —— helper 命中 400 关键词时
-    // 自动剥参重试，避免选题总监因为温度被服务端拒掉。
-    const { response: aiResp, payload: respJson } =
-      await postChatCompletionWithReasoningFallback(
-        settings.apiBaseUrl.trim(),
-        settings.apiKey,
-        {
-          model: String(settings.model || "").trim(),
-          // 选题总监需要稳定输出 JSON，温度调低一些（比 rewrite 默认 0.8 低）
-          temperature: 0.4,
-          messages
-        },
-        { signal: controller.signal }
-      );
-    if (!aiResp.ok) {
-      const m = respJson?.error?.message || respJson?.message || `状态码 ${aiResp.status}`;
+  // 走模式感知的 requestPlainChat（平台 → worker /api/llm/chat；BYOK → 直连，
+  // 内含推理模型剥参重试）。空响应 / JSON 解析失败在总预算内自动重试 1 次：
+  // 这两类失败多为代理截断或模型偶发抽风，直接换一次骰子比让用户重填画像划算。
+  const deadline = Date.now() + TOPIC_PLANNER_TOTAL_BUDGET_MS;
+  let parsed = null;
+  let lastFailure = {
+    ok: false,
+    error: "AI 调用失败：未知原因",
+    errorCode: "AI_CALL_FAILED"
+  };
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const remainingMs = deadline - Date.now();
+    if (attempt > 1 && remainingMs < TOPIC_PLANNER_MIN_RETRY_BUDGET_MS) break;
+    const attemptMessages =
+      attempt === 1
+        ? messages
+        : [
+            ...messages,
+            {
+              role: "user",
+              content:
+                "上一次响应为空或不是合法 JSON。请重新输出：直接以 { 开头、以 } 结尾输出 JSON 本体，不要输出思考过程、解释或 Markdown 代码块。"
+            }
+          ];
+    const controller = new AbortController();
+    const timeoutId = setTimeout(
+      () => controller.abort(),
+      Math.min(TOPIC_PLANNER_AI_TIMEOUT_MS, remainingMs)
+    );
+    let aiText = "";
+    try {
+      aiText = await requestPlainChat(settings, attemptMessages, {
+        // 选题总监需要稳定输出 JSON，温度调低一些（比 rewrite 默认 0.8 低）
+        temperature: 0.4,
+        context: "AI 选题规划接口",
+        signal: controller.signal
+      });
+    } catch (e) {
+      if (e?.name === "AbortError") {
+        return {
+          ok: false,
+          error:
+            "AI 接口响应超时，已主动中断。建议换更快的模型档位、降低推荐数量，或检查 API 网关是否拥塞。",
+          errorCode: "AI_TIMEOUT"
+        };
+      }
+      if (e?.code === "AI_EMPTY_RESPONSE") {
+        lastFailure = {
+          ok: false,
+          error: `${e.message} 已自动重试仍为空，无法生成选题。可尝试更换模型档位后重试。`,
+          errorCode: "AI_EMPTY_RESPONSE"
+        };
+        continue;
+      }
+      // 鉴权 / 配额 / 限流 / 网络等硬错误：重试无意义，携带原错误码直接返回
+      const passthroughCodes = new Set([
+        "AUTH_REQUIRED",
+        "AUTH_EXPIRED",
+        "PLATFORM_QUOTA_EXCEEDED",
+        "PLATFORM_RATE_LIMITED",
+        "PLATFORM_UNCONFIGURED",
+        "NETWORK"
+      ]);
       return {
         ok: false,
-        error: `AI 调用失败：${m}`,
-        errorCode: "AI_CALL_FAILED"
+        error: passthroughCodes.has(e?.code)
+          ? String(e.message || e)
+          : `AI 调用失败：${e?.message || e}`,
+        errorCode: passthroughCodes.has(e?.code) ? e.code : "AI_CALL_FAILED"
       };
+    } finally {
+      clearTimeout(timeoutId);
     }
-    aiText = extractChatContent(respJson) || "";
-    if (!aiText) {
-      return {
-        ok: false,
-        error: "AI 返回内容为空，无法生成选题。可能是模型仅支持旧版接口或被代理截断。",
-        errorCode: "AI_EMPTY_RESPONSE"
-      };
-    }
-  } catch (e) {
-    if (e?.name === "AbortError") {
-      return {
-        ok: false,
-        error:
-          "AI 接口响应超过 65 秒，已主动中断。建议换更快的模型、降低推荐数量，或检查 API 网关是否拥塞。",
-        errorCode: "AI_TIMEOUT"
-      };
-    }
-    return {
-      ok: false,
-      error: `AI 调用异常：${e?.message || e}`,
-      errorCode: "AI_CALL_FAILED"
-    };
-  } finally {
-    clearTimeout(timeoutId);
-  }
 
-  // 7) 解析 + 抗幻觉
-  const parsed = parseTopicDirectorOutput(aiText, aiPool);
-  if (!parsed.ok) {
-    return {
+    // 7) 解析 + 抗幻觉
+    const attemptParsed = parseTopicDirectorOutput(aiText, aiPool);
+    if (attemptParsed.ok) {
+      parsed = attemptParsed;
+      break;
+    }
+    lastFailure = {
       ok: false,
-      error: `AI 输出无法落地：${parsed.reason || "未知原因"}`,
+      error: `AI 输出无法落地：${attemptParsed.reason || "未知原因"}。已自动重试仍失败，可尝试更换模型档位后重试。`,
       errorCode: "AI_PARSE_FAILED",
-      meta: { rawLen: aiText.length, diagnostics: parsed.diagnostics }
+      meta: { rawLen: aiText.length, diagnostics: attemptParsed.diagnostics }
     };
+  }
+  if (!parsed) {
+    return lastFailure;
   }
 
   // 8) 免费版试用：只展示 1 条 + 计数。reroll 模式不在免费版可触发（前端拦截）。

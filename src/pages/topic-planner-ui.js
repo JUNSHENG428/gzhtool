@@ -43,7 +43,7 @@ import {
   DEFAULT_TOPIC_PROFILE
 } from "../shared/defaults.js";
 import { buildOutlineCapture } from "../shared/topic-planner.js";
-import { PAID_FEATURES, checkLicense } from "../shared/license.js";
+import { PAID_FEATURES, checkLicense, getApiBase } from "../shared/license.js";
 import { showUpgradeModal } from "../shared/upgrade-modal.js";
 import { ensureHostPermissionFromGesture } from "../shared/host-permissions.js";
 
@@ -426,11 +426,7 @@ async function runReroll(rec) {
   const previousAngle = rec.recommendedAngle || "";
   // 必须在 click handler 用户手势上下文里同步申请 AI 接口 origin —— SW 端没有
   // user activation，调 chrome.permissions.request 会抛 user gesture 错。
-  const settings = await getSettings();
-  const aiPermitted = await ensureHostPermissionFromGesture(
-    settings.apiBaseUrl,
-    "AI 选题接口"
-  );
+  const aiPermitted = await ensureAiHostPermissionFromGesture("AI 选题接口");
   if (!aiPermitted) {
     throw new Error("需要授权访问 AI 接口域名才能换角度，请允许后再试。");
   }
@@ -762,25 +758,21 @@ async function runPlanning(metaEl, formEl) {
   const errEl = formEl.querySelector('[data-el="modalError"]');
   const loadingEl = formEl.querySelector('[data-el="modalLoading"]');
   const submitBtn = formEl.querySelector('[data-act="submit"]');
+  const cancelBtn = formEl.querySelector('[data-act="cancel"]');
   const originalSubmitText = submitBtn?.innerHTML || "📍 生成选题";
+  const originalCancelText = cancelBtn?.textContent || "取消";
   if (errEl) errEl.hidden = true;
   const stopPlanningHints = startPlanningHintTicker(loadingEl);
   formEl.classList.add("is-planning");
   submitBtn.disabled = true;
   submitBtn.innerHTML = "生成中…";
+  // 生成中允许「收起」：点它只是关掉弹窗，后台继续生成，完成后推荐卡片照常渲染到入口区。
+  if (cancelBtn) cancelBtn.textContent = "收起 · 后台继续生成";
   try {
     // 必须在 click handler 用户手势上下文里同步申请 AI 接口 origin —— SW 端没有
     // user activation，调 chrome.permissions.request 会抛 user gesture 错。
-    const settings = await getSettings();
-    const aiPermitted = await ensureHostPermissionFromGesture(
-      settings.apiBaseUrl,
-      "AI 选题接口"
-    );
+    const aiPermitted = await ensureAiHostPermissionFromGesture("AI 选题接口");
     if (!aiPermitted) {
-      stopPlanningHints();
-      formEl.classList.remove("is-planning");
-      submitBtn.disabled = false;
-      submitBtn.innerHTML = originalSubmitText;
       if (errEl) {
         errEl.hidden = false;
         errEl.textContent = "需要授权访问 AI 接口域名才能生成选题，请允许后再试。";
@@ -805,22 +797,27 @@ async function runPlanning(metaEl, formEl) {
           blocked: "本次被拦的是「AI 选题规划免费试用额度」",
           gain: "升级 Pro 后：每天不限次 + 按设置数量出全量推荐 + 解锁「换一个角度」。"
         });
-      } else if (code === "AI_NOT_CONFIGURED") {
-        if (errEl) {
-          errEl.hidden = false;
-          errEl.textContent =
-            "AI 接口未配置，请先到「AI 设置」补完 API Base URL / API Key / Model 后再试。";
-        }
-      } else if (code === "AI_TIMEOUT") {
-        if (errEl) {
-          errEl.hidden = false;
-          errEl.textContent =
-            res?.error ||
-            "AI 接口响应太慢，本次已中断。建议换更快模型、降低推荐数量或稍后重试。";
-        }
-      } else if (errEl) {
+        return;
+      }
+      const codeMessages = {
+        AI_NOT_CONFIGURED:
+          "AI 接口未配置。平台 AI 模式请先登录润笔账户；自定义 API Key 模式请到「AI 设置」补完 API Base URL / API Key / Model。",
+        AUTH_REQUIRED:
+          "当前是平台 AI 模式但还没登录润笔账户。请到「设置 → 我的会员」登录后再试。",
+        AUTH_EXPIRED: "润笔账户登录已过期，请到「设置 → 我的会员」重新登录后再试。",
+        PLATFORM_QUOTA_EXCEEDED:
+          res?.error || "本月平台 AI 额度已用完，可升级会员或改用自定义 API Key。",
+        AI_TIMEOUT:
+          res?.error ||
+          "AI 接口响应太慢，本次已中断。建议换更快模型、降低推荐数量或稍后重试。",
+        AI_EMPTY_RESPONSE:
+          res?.error || "AI 返回内容为空（已自动重试）。建议更换模型档位后重试。"
+      };
+      if (errEl) {
         errEl.hidden = false;
-        errEl.textContent = formatRuntimeError(res?.error, "选题失败，请稍后重试。");
+        errEl.textContent =
+          codeMessages[code] ||
+          formatRuntimeError(res?.error, "选题失败，请稍后重试。");
       }
       return;
     }
@@ -846,6 +843,7 @@ async function runPlanning(metaEl, formEl) {
     formEl.classList.remove("is-planning");
     submitBtn.disabled = false;
     submitBtn.innerHTML = originalSubmitText;
+    if (cancelBtn) cancelBtn.textContent = originalCancelText;
   }
 }
 
@@ -854,6 +852,22 @@ async function runPlanning(metaEl, formEl) {
 // =====================================================================
 function escapeAttr(value) {
   return escapeHtml(String(value)).replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+}
+
+/**
+ * 按当前 aiSourceMode 申请正确的 AI 接口 origin（反例 #36：不能只认 BYOK 的 apiBaseUrl）：
+ *   platform → 润笔 worker API base（默认 api.docuearn.com，已在 manifest host_permissions，
+ *              contains 命中直接短路；用户自定义 base 时才会真的弹授权）
+ *   byok     → settings.apiBaseUrl
+ * 必须在用户手势上下文里调用。返回 true = 已有权限或授权成功。
+ */
+async function ensureAiHostPermissionFromGesture(context) {
+  const settings = await getSettings();
+  const target =
+    settings?.aiSourceMode === "platform"
+      ? await getApiBase()
+      : settings?.apiBaseUrl;
+  return ensureHostPermissionFromGesture(target, context);
 }
 
 // 只放行 http(s) 链接（热点源 URL 来自第三方，escapeAttr 防不住 javascript: scheme —
@@ -872,29 +886,48 @@ function safeHttpUrl(value) {
 function startPlanningHintTicker(loadingEl) {
   if (!loadingEl) return () => {};
   const startedAt = Date.now();
+  // stage：驱动顶部三个阶段点的高亮（0=拉源 1=评分 2=AI 主编）
   const steps = [
-    { at: 0, text: "正在拉取候选热点源，通常 10 秒内完成。" },
-    { at: 10, text: "正在做硬过滤、8 维评分和多样性筛选。" },
-    { at: 24, text: "已进入 AI 主编分析阶段，慢模型可能需要多等一会儿。" },
-    { at: 45, text: "AI 仍在响应。如果接口较慢，后台会主动中断并给出明确原因。" },
-    { at: 70, text: "还在等待后台返回，建议检查模型速度或 API 网关状态。" }
+    { at: 0, stage: 0, text: "正在拉取候选热点源，通常 10 秒内完成。" },
+    { at: 10, stage: 1, text: "正在做硬过滤、8 维评分和多样性筛选。" },
+    { at: 24, stage: 2, text: "已进入 AI 主编分析阶段，慢模型可能需要多等一会儿。" },
+    { at: 45, stage: 2, text: "AI 仍在响应。若为空响应或格式异常，后台会自动重试一次。" },
+    { at: 70, stage: 2, text: "还在等待后台返回，超时会主动中断并给出明确原因。" }
   ];
+  const stageLabels = ["拉取热点", "算法评分", "AI 主编"];
 
   loadingEl.hidden = false;
+  loadingEl.innerHTML = `
+    <span class="topic-planner-spinner" aria-hidden="true"></span>
+    <span class="topic-planner-loading__stages" aria-hidden="true">${stageLabels
+      .map(
+        (label, i) =>
+          `<span class="topic-planner-loading__stage" data-stage="${i}">${escapeHtml(label)}</span>`
+      )
+      .join('<span class="topic-planner-loading__arrow">→</span>')}</span>
+    <span class="topic-planner-loading__text" data-el="loadingText" role="status"></span>
+  `;
+  const textEl = loadingEl.querySelector('[data-el="loadingText"]');
+  const stageEls = loadingEl.querySelectorAll(".topic-planner-loading__stage");
+
   const render = () => {
     const elapsed = Math.floor((Date.now() - startedAt) / 1000);
     const current = steps.reduce(
       (picked, step) => (elapsed >= step.at ? step : picked),
       steps[0]
     );
-    loadingEl.textContent = `${current.text} 已等待 ${elapsed} 秒。`;
+    if (textEl) textEl.textContent = `${current.text} 已等待 ${elapsed} 秒。`;
+    stageEls.forEach((el, i) => {
+      el.classList.toggle("is-active", i === current.stage);
+      el.classList.toggle("is-done", i < current.stage);
+    });
   };
   render();
   const timer = setInterval(render, 1000);
   return () => {
     clearInterval(timer);
     loadingEl.hidden = true;
-    loadingEl.textContent = "";
+    loadingEl.innerHTML = "";
   };
 }
 
