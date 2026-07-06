@@ -95,7 +95,7 @@
   <main>
     <article class="legal">
       <h1>隐私政策</h1>
-      <p class="meta">最近更新：2026 年 4 月 22 日 · 适用于 润笔 Chrome 扩展及 docuearn.com 网站</p>
+      <p class="meta">最近更新：2026 年 7 月 6 日 · 适用于 润笔 Chrome 扩展、润笔桌面助手及 docuearn.com 网站</p>
 
       <div class="summary-box">
         <strong>English Summary for Reviewers:</strong>
@@ -111,6 +111,11 @@
         and abuse detection. (b) <strong>BYOK mode</strong> (yearly-only) — the user's
         article body is sent directly from the extension to their own configured
         provider; we are not in the request path.
+        An optional desktop helper app (for yearly subscribers) listens only on
+        127.0.0.1:7788, requires a locally-generated token for its scrape endpoint,
+        refuses to fetch private-network / loopback targets by default, and archives
+        captured content only to the user's local
+        <code>~/Documents/Runbi/Inbox/</code> folder — nothing is uploaded to any server.
       </div>
 
       <h2>1. 我们是谁</h2>
@@ -164,6 +169,24 @@
           <code>llm_audit_log</code>（AI 调用流水）保留 90 天后由定时任务自动清理。
           <code>device_activations</code>（已激活设备记录）按 last_seen_at 维护，超 90 天未活跃的行由 Cloudflare Worker scheduled cron 每小时自动删除（不做软删，物理 DELETE）。</li>
         <li><strong>支付数据：</strong>由第三方支付平台处理，我们仅接收支付平台的回调通知（支付状态、订单号、客户邮箱），不存储任何银行卡信息。</li>
+      </ul>
+
+      <h3>3.1 桌面助手（本地增强抓取，年费专享）</h3>
+      <p>
+        「润笔桌面助手」是一个可选安装的本机小程序，为年费会员提供「本地增强抓取」能力
+        （处理需要滚动加载、点击展开等复杂页面）。它的数据边界如下：
+      </p>
+      <ul>
+        <li><strong>只在你的电脑内工作：</strong>助手只监听本机地址 <code>127.0.0.1:7788</code>，
+          不对局域网或互联网开放任何端口；抓取由你电脑上的浏览器完成，流量走你自己的网络。</li>
+        <li><strong>抓取接口需要访问令牌：</strong>助手首次启动时在本机生成一个随机访问令牌，
+          扩展必须携带匹配的令牌才能发起抓取请求；令牌只保存在你的电脑上，从不上传。</li>
+        <li><strong>抓取结果只归档到本机：</strong>每次抓取成功后，正文会自动以 Markdown 文件
+          存到你电脑的 <code>~/Documents/Runbi/Inbox/</code> 目录（Windows 为
+          <code>文档\Runbi\Inbox\</code>），方便你留档检索。<strong>这些内容不会上传到我们
+          或任何第三方的服务器</strong>；不需要时直接删除文件即可。</li>
+        <li><strong>默认拒绝抓取本机 / 内网地址：</strong>为防止被误用于探测你的内网，
+          助手默认拒绝抓取指向本机、局域网或保留网段的地址，仅允许公网 http / https 页面。</li>
       </ul>
 
       <h2>4. 数据共享</h2>
