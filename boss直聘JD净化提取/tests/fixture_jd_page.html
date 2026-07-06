@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>JD 反爬模拟页面</title>
+<style>
+  body { font-family: -apple-system, sans-serif; }
+  .job-sec-text { width: 600px; padding: 20px; }
+  .noise-display-none { display: none; }
+  .noise-visibility-hidden { visibility: hidden; }
+  .noise-font-zero { font-size: 0; }
+  .noise-offscreen { position: absolute; left: -9999px; top: -9999px; }
+  .mask-wrap { position: relative; display: inline-block; }
+  .mask-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    /* 真实场景通常是透明遮罩，这里给个背景色方便肉眼调试，不影响提取逻辑 */
+    background: rgba(255, 0, 0, 0.001);
+  }
+  .real-under-mask { position: relative; z-index: 1; }
+  .mask-overlay-with-decoy {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    background: #fff;
+  }
+  .real-under-decoy { position: relative; z-index: 1; }
+</style>
+</head>
+<body>
+  <div class="job-sec-text" id="jd">
+    <p>
+      岗位职责：负责后端服务开发与维护<span class="noise-display-none">kanzhun</span>，
+      参与核心系统架构设计<span class="noise-visibility-hidden">直聘</span>。
+    </p>
+    <p>
+      任职要求：<span class="noise-font-zero">噪音噪音</span>本科及以上学历，
+      三年以上相关工作经验。
+    </p>
+    <div class="noise-offscreen">这段屏幕外的文字不应该出现在结果里</div>
+    <p>
+      薪资待遇：
+      <span class="mask-wrap">
+        <span class="mask-overlay"></span>
+        <span class="real-under-mask">15k-25k·14薪</span>
+      </span>
+      ，具体面议。
+    </p>
+    <p>欢迎有志之士加入我们的团队，共同成长。</p>
+    <p>
+      工作地点：
+      <span class="mask-wrap">
+        <span class="mask-overlay-with-decoy">虚假占位地址</span>
+        <span class="real-under-decoy">上海市浦东新区</span>
+      </span>
+    </p>
+  </div>
+</body>
+</html>

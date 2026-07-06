@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+jobs_output.csv
+tests/_tmp*/
+
+# 字体缓存是运行期产物：保留目录结构，不提交下载到的字体/映射表本身
+font_cache/*.ttf
+font_cache/*.json
+!font_cache/.gitkeep
