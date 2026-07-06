@@ -3801,4 +3801,100 @@ console.log("\n运行 article.js 渲染单测（图片分布 / 表格列对齐 /
   console.log("✓ article.js 渲染 4 case（图片分布/表格列对齐/横滚）");
 }
 
+console.log("\n运行 task-center · 深度去 AI 味 单测 …");
+{
+  const swSrc = fs.readFileSync(path.join(root, "src/background/service-worker.js"), "utf8");
+  const rewriteSrc = fs.readFileSync(path.join(root, "src/workspace/workspace-rewrite.js"), "utf8");
+  const tcSrc = fs.readFileSync(path.join(root, "src/workspace/workspace-task-center.js"), "utf8");
+
+  assert(swSrc.includes('case "DEEP_HUMANIZE"'), "SW 应注册 DEEP_HUMANIZE handler");
+  assert(rewriteSrc.includes('type: "DEEP_HUMANIZE"'), "runDeepHumanize 应发送 DEEP_HUMANIZE 消息");
+  assert(
+    rewriteSrc.includes('if (useTaskCenter) {\n    setStatus?.(\n      "已加入「深度去 AI 味」后台任务'),
+    "task center 模式应提示已加入后台任务"
+  );
+  assert(
+    rewriteSrc.includes('} else {\n    showLoading?.("AI 审稿员正在评审…"'),
+    "阻塞 loading 应仅保留在 useTaskCenter=false 分支"
+  );
+  assert(tcSrc.includes("deepHumanize"), "task-center UI 应识别 deepHumanize 类型");
+  assert(tcSrc.includes("处理中"), "进行中 chip 应展示「处理中」状态");
+
+  const prevChrome = globalThis.chrome;
+  globalThis.chrome = {
+    storage: {
+      session: {
+        set: async () => {},
+        get: async () => ({})
+      }
+    },
+    runtime: {
+      sendMessage: () => Promise.resolve().catch(() => {})
+    }
+  };
+
+  const { addTask, updateTask, completeTask, getTaskListSnapshot } = await import(
+    "../src/background/task-registry.js"
+  );
+
+  const handle = addTask({
+    type: "deepHumanize",
+    articleId: "art-dh-smoke",
+    articleTitle: "冒烟测试稿",
+    requestId: `dh-smoke-${Date.now()}`
+  });
+  assert(handle.taskId, "addTask(deepHumanize) 应返回 taskId");
+  assert(handle.started === true, "首个 deepHumanize 任务应直接 running");
+
+  let snap = getTaskListSnapshot();
+  assert(snap.running.length >= 1, "snapshot 应包含 running 任务");
+  const runningTask = snap.running.find((t) => t.id === handle.taskId);
+  assert(runningTask?.type === "deepHumanize", "task.type 应为 deepHumanize");
+
+  const badgeCount = snap.running.length + snap.pending.length;
+  assert(badgeCount >= 1, "任务中心 badge 计数应 ≥ 1");
+
+  updateTask(handle.taskId, { phase: "deepHumanize:judge", current: 0, total: 2 });
+  snap = getTaskListSnapshot();
+  const judging = snap.running.find((t) => t.id === handle.taskId);
+  assert(judging?.phase === "deepHumanize:judge", "phase 应更新为 deepHumanize:judge");
+
+  updateTask(handle.taskId, { phase: "deepHumanize:rewrite", current: 1, total: 2 });
+  completeTask(handle.taskId, {
+    status: "done",
+    result: {
+      bodyHtml: "<p>改写后</p>",
+      sourceBodyHtml: "<p>原文</p>",
+      judge: { score: 82, verdict: "略像 AI" },
+      articleId: "art-dh-smoke",
+      articleTitle: "冒烟测试稿"
+    }
+  });
+  snap = getTaskListSnapshot();
+  assert(
+    !snap.running.some((t) => t.id === handle.taskId),
+    "完成后 running 列表不应再包含该任务"
+  );
+  const doneTask = snap.done.find((t) => t.id === handle.taskId);
+  assert(doneTask?.status === "done", "完成任务应进入 done 列表且 status=done");
+  assert(
+    snap.running.length + snap.pending.length === badgeCount - 1,
+    "完成后 badge 计数应减 1"
+  );
+
+  const failHandle = addTask({
+    type: "deepHumanize",
+    articleId: "art-dh-fail",
+    articleTitle: "失败稿",
+    requestId: `dh-fail-${Date.now()}`
+  });
+  completeTask(failHandle.taskId, { status: "failed", error: "模拟 API 失败" });
+  snap = getTaskListSnapshot();
+  const failedTask = snap.done.find((t) => t.id === failHandle.taskId);
+  assert(failedTask?.status === "failed" && failedTask.error, "失败任务应带 error 字段");
+
+  globalThis.chrome = prevChrome;
+  console.log("✓ task-center · 深度去 AI 味 12 case（ wiring + registry 生命周期）");
+}
+
 console.log(`\n冒烟通过 · 扩展版本 manifest: ${manifest.version}`);

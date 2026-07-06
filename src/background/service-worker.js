@@ -1,6 +1,8 @@
 import {
   evaluateArticleLength,
   requestRewrite,
+  requestHumanizeJudge,
+  requestDeepHumanizeRewrite,
   testAiConnection,
   extractChatContent,
   postChatCompletionWithReasoningFallback
@@ -684,6 +686,115 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true, data: { aborted: true } });
         } else {
           sendResponse({ ok: true, data: { aborted: false, reason: "no-inflight" } });
+        }
+        break;
+      }
+      case "DEEP_HUMANIZE": {
+        const access = await checkDeAiBoostAccess();
+        if (!access.ok) {
+          sendResponse({
+            ok: false,
+            error: access.hint || PAID_FEATURES["ai.deAiBoost"].hint,
+            errorCode: "LICENSE_FEATURE_LOCKED",
+            meta: { feature: "ai.deAiBoost" }
+          });
+          break;
+        }
+
+        const bodyHtml = String(message.payload?.bodyHtml || "").trim();
+        if (!bodyHtml) {
+          sendResponse({ ok: false, error: "正文为空，无法做深度去 AI 味。" });
+          break;
+        }
+
+        const articleId = String(message.payload?.articleId || "").trim();
+        const articleTitle = String(message.payload?.articleTitle || "").trim() || "未命名";
+        const requestId =
+          String(message.payload?.requestId || "").trim() || `dh-${Date.now()}`;
+
+        const taskHandle = registerTask({
+          type: "deepHumanize",
+          articleId,
+          articleTitle,
+          requestId
+        });
+        const taskId = taskHandle.taskId;
+
+        if (!taskHandle.started) {
+          const runnable = await waitTaskRunnable(taskId);
+          if (!runnable) {
+            sendResponse({
+              ok: false,
+              error: { code: "CANCELLED", message: "任务在排队时被取消。", retryable: false }
+            });
+            break;
+          }
+        }
+
+        try {
+          const settings = await getSettings();
+          broadcastRewriteProgress(requestId, { phase: "deepHumanize:judge", current: 0, total: 2 });
+
+          const judge = await withRetry(
+            () => requestHumanizeJudge(settings, bodyHtml),
+            MAX_RETRIES,
+            "AI 味评审"
+          );
+
+          broadcastRewriteProgress(requestId, { phase: "deepHumanize:rewrite", current: 1, total: 2 });
+
+          const rewritten = await withRetry(
+            () => requestDeepHumanizeRewrite(settings, bodyHtml, judge.findings),
+            MAX_RETRIES,
+            "深度去 AI 味重写"
+          );
+
+          const clean = String(rewritten || "").trim();
+          if (!clean) {
+            completeRegistryTask(taskId, {
+              status: "failed",
+              error: "深度去 AI 味没有返回有效内容，请重试。"
+            });
+            sendResponse({
+              ok: false,
+              error: "深度去 AI 味没有返回有效内容，请重试。"
+            });
+            break;
+          }
+
+          broadcastRewriteProgress(requestId, { phase: "done", current: 2, total: 2 });
+
+          const taskAfterRun = findTaskByReqId(requestId);
+          if (taskAfterRun?.status === "cancelled") {
+            sendResponse({ ok: false, errorCode: "CANCELLED", error: "已取消深度去 AI 味。" });
+            break;
+          }
+
+          const responsePayload = {
+            ok: true,
+            data: {
+              bodyHtml: clean,
+              sourceBodyHtml: bodyHtml,
+              judge,
+              articleId,
+              articleTitle
+            }
+          };
+          sendResponse(responsePayload);
+          completeRegistryTask(taskId, {
+            status: "done",
+            result: responsePayload.data
+          });
+        } catch (deepErr) {
+          if (deepErr?.code === "CANCELLED") {
+            sendResponse({ ok: false, errorCode: "CANCELLED", error: "已取消深度去 AI 味。" });
+            break;
+          }
+          completeRegistryTask(taskId, {
+            status: "failed",
+            error: String(deepErr?.message || deepErr || "未知错误")
+          });
+          throw deepErr;
         }
         break;
       }

@@ -798,6 +798,64 @@ export async function applyRewriteTaskResult(task) {
 }
 
 /**
+ * task-center.onTaskDone 触发：把 SW 端「深度去 AI 味」结果写回对应 article 编辑器。
+ */
+export async function applyDeepHumanizeTaskResult(task) {
+  const result = task?.result;
+  if (!result?.bodyHtml) return;
+
+  const {
+    state,
+    applyCurrentArticleToControls,
+    syncWorkspace,
+    schedulePersist,
+    setStatus
+  } = _ctx;
+
+  const articleId = task.articleId || result.articleId || "";
+  const idx = articleId ? state.articleBundle.findIndex((a) => a.id === articleId) : -1;
+  if (idx < 0) {
+    setStatus?.(
+      `《${task.articleTitle || "未命名"}》深度去 AI 味已完成，但目标稿件已删除，结果未写回。`,
+      "warning"
+    );
+    return;
+  }
+
+  const sourceBodyHtml = result.sourceBodyHtml || "";
+  const clean = preserveImagesInRewrittenHtml(
+    sourceBodyHtml,
+    sanitizeHtml(result.bodyHtml)
+  );
+  if (!clean || !clean.trim()) return;
+
+  const target = state.articleBundle[idx];
+  target.bodyHtml = clean;
+  schedulePersist();
+
+  const judge = result.judge || {};
+  const resultEl = document.querySelector("#deepHumanizeResult");
+
+  if (state.currentArticleIndex === idx) {
+    const editorEl = document.querySelector("#editor");
+    if (editorEl) {
+      editorEl.innerHTML = clean;
+      if (typeof _ctx?.onWorkspaceInput === "function") _ctx.onWorkspaceInput();
+      else editorEl.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    applyCurrentArticleToControls?.();
+    syncWorkspace?.();
+    renderHumanizeBadge(safeLocalLint(clean), null);
+    if (resultEl) {
+      resultEl.textContent = `已完成（审稿员原评分 ${judge.score ?? "?"}/100${
+        judge.verdict ? " · " + judge.verdict : ""
+      }）`;
+    }
+    setStatus?.("深度去 AI 味完成，请通读核对事实与语义后再发布。", "success");
+  }
+}
+
+/**
  * 老 modal 模式专用：直接把改写结果写到"当前" article。
  */
 async function _applyRewriteResultToCurrentArticle(response, sourceImages) {
@@ -1039,8 +1097,9 @@ function applyHumanizeChipState(chip, enabled, intensity, hasAccess) {
  *  3) sanitize 写回 + 重跑本地 lint
  * 复用 ai.deAiBoost 付费闸门；不自动跑（用户点按钮才触发），消耗 2 次 AI 调用。
  */
-async function runDeepHumanize() {
-  const { setStatus, showLoading, hideLoading } = _ctx;
+export async function runDeepHumanize() {
+  const { setStatus, showLoading, hideLoading, state, getCurrentArticle, syncCurrentArticleFromControls } =
+    _ctx;
   const editorEl = document.querySelector("#editor");
   const resultEl = document.querySelector("#deepHumanizeResult");
   if (!editorEl) return;
@@ -1059,16 +1118,62 @@ async function runDeepHumanize() {
     return;
   }
 
+  syncCurrentArticleFromControls?.();
   const bodyHtml = editorEl.innerHTML || "";
   if (!bodyHtml.trim()) {
     setStatus?.("正文为空，无法做深度去 AI 味。", "warning");
     return;
   }
 
-  showLoading?.("AI 审稿员正在评审…", "找出语义/论证层的 AI 痕迹，再整体重写，通常 20–60 秒。");
-  try {
-    const settings = await getSettings();
+  const current = getCurrentArticle?.() || {};
+  const useTaskCenter = state?.settings?.useTaskCenter !== false;
+  const requestId = `dh-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  if (useTaskCenter) {
+    setStatus?.(
+      "已加入「深度去 AI 味」后台任务，可继续编辑——进度见右下角任务中心。",
+      "info"
+    );
+    if (resultEl) resultEl.textContent = "后台处理中…";
+  } else {
+    showLoading?.("AI 审稿员正在评审…", "找出语义/论证层的 AI 痕迹，再整体重写，通常 20–60 秒。");
     if (resultEl) resultEl.textContent = "评审中…";
+  }
+
+  try {
+    if (useTaskCenter) {
+      const response = await chrome.runtime.sendMessage({
+        type: "DEEP_HUMANIZE",
+        payload: {
+          bodyHtml,
+          requestId,
+          articleId: current.id || "",
+          articleTitle: current.meta?.title?.trim() || "未命名"
+        }
+      });
+
+      if (!response?.ok) {
+        const code = response?.errorCode || response?.error?.code;
+        if (code === "CANCELLED") {
+          setStatus?.("已取消深度去 AI 味。", "info");
+        } else if (code === "AUTH_REQUIRED" || code === "AUTH_EXPIRED") {
+          setStatus?.("请先登录润笔账户再使用深度去 AI 味（设置页 → 我的会员）。", "warning");
+        } else if (code === "PLATFORM_QUOTA_EXCEEDED") {
+          setStatus?.("本月平台 AI 额度已用完，可升级会员或改用自定义 API Key。", "warning");
+        } else {
+          const msg =
+            typeof response?.error === "string"
+              ? response.error
+              : response?.error?.message || "未知错误";
+          setStatus?.(`深度去 AI 味失败：${msg}`, "error");
+        }
+        if (resultEl) resultEl.textContent = "";
+        return;
+      }
+      return;
+    }
+
+    const settings = await getSettings();
     const judge = await requestHumanizeJudge(settings, bodyHtml);
     if (resultEl) resultEl.textContent = `审稿员评分 ${judge.score}/100，正在重写…`;
     const rewritten = await requestDeepHumanizeRewrite(settings, bodyHtml, judge.findings);
@@ -1080,7 +1185,6 @@ async function runDeepHumanize() {
     editorEl.innerHTML = clean;
     if (typeof _ctx?.onWorkspaceInput === "function") _ctx.onWorkspaceInput();
     else editorEl.dispatchEvent(new Event("input", { bubbles: true }));
-    // 重跑本地 lint 更新 badge
     renderHumanizeBadge(safeLocalLint(clean), null);
     if (resultEl) {
       resultEl.textContent = `已完成（审稿员原评分 ${judge.score}/100${
@@ -1099,7 +1203,9 @@ async function runDeepHumanize() {
     }
     if (resultEl) resultEl.textContent = "";
   } finally {
-    hideLoading?.();
+    if (!useTaskCenter) {
+      hideLoading?.();
+    }
   }
 }
 

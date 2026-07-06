@@ -20,7 +20,8 @@ const STORAGE_KEY = "__task_registry";
 
 const MAX_PARALLEL_BY_TYPE = {
   rewrite: 2,
-  capture: 2
+  capture: 2,
+  deepHumanize: 2
 };
 
 const RECENT_DONE_LIMIT = 5;
@@ -47,7 +48,7 @@ let notifyTimer = null;
  * @typedef {Object} Task
  * @property {string} id
  * @property {string} requestId   // 与 SW broadcastRewriteProgress 兼容
- * @property {'rewrite'|'capture'} type
+ * @property {'rewrite'|'capture'|'deepHumanize'} type
  * @property {string} articleId
  * @property {string} articleTitle
  * @property {'pending'|'running'|'done'|'failed'|'cancelled'} status

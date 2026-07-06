@@ -73,7 +73,9 @@ import {
   init as initRewrite,
   rewriteArticle,
   copyManualPrompt,
-  applyRewriteTaskResult
+  applyRewriteTaskResult,
+  applyDeepHumanizeTaskResult,
+  runDeepHumanize
 } from "./workspace-rewrite.js";
 
 import {
@@ -310,6 +312,7 @@ async function bootstrap() {
     captureSource, importCurrentSourceToArticle, applyCaptureTaskResult,
     // workspace-rewrite.js
     rewriteArticle, copyManualPrompt, applyRewriteTaskResult,
+    applyDeepHumanizeTaskResult, runDeepHumanize,
     // workspace-publish.js
     publishBundle, pollPublishStatus, syncCurrentToWebEditor, maybeResumePublishPolling,
     openHistoryDrawer, closeHistoryDrawer, refreshHistoryRecords,
@@ -390,6 +393,9 @@ async function bootstrap() {
         if (task.type === "capture") {
           await ctx.applyCaptureTaskResult?.(task);
         }
+        if (task.type === "deepHumanize") {
+          await ctx.applyDeepHumanizeTaskResult?.(task);
+        }
       },
       async retryTask(task) {
         // 用户从 task chip / toast 点 [重试]：goToArticle 已切到目标 article，
@@ -398,6 +404,8 @@ async function bootstrap() {
           await rewriteArticle();
         } else if (task.type === "capture") {
           await captureSource();
+        } else if (task.type === "deepHumanize") {
+          await runDeepHumanize();
         }
       }
     });

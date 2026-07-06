@@ -226,6 +226,15 @@
   background: var(--accent-soft);
   color: var(--accent);
 }
+.task-center__chip-type--deepHumanize {
+  background: rgba(88, 86, 214, 0.12);
+  color: #5856d6;
+}
+
+.task-center__chip-pill--running {
+  background: rgba(23, 55, 34, 0.12);
+  color: var(--brand);
+}
 
 .task-center__chip-title {
   flex: 1;

@@ -196,7 +196,11 @@ async function handleTaskCompleted(task, currentArticleId, wasRunning) {
   // **关键**：TASK_LIST_CHANGED broadcast 故意不带 task.result（payload 体积优化），
   // 必须在 apply 前手动拉 result（GET_TASK_RESULT），否则 apply 函数会因 result=undefined
   // 直接 return —— 表现就是用户点[查看]后看到的还是改写前的内容（"好像没保存"）。
-  if ((task.type === "rewrite" || task.type === "capture") && task.status === "done" && _ctx?.onTaskDone) {
+  if (
+    (task.type === "rewrite" || task.type === "capture" || task.type === "deepHumanize") &&
+    task.status === "done" &&
+    _ctx?.onTaskDone
+  ) {
     const taskWithResult = await ensureTaskResult(task);
     try {
       await _ctx.onTaskDone(taskWithResult);
@@ -299,9 +303,11 @@ async function handleGoToTask(taskId) {
   }
 
   // 如果任务已 done，把完整 result 拉过来再触发 apply（TASK_LIST_CHANGED 不带 result）
-  if ((task.type === "rewrite" || task.type === "capture")
-      && task.status === "done"
-      && _ctx?.onTaskDone) {
+  if (
+    (task.type === "rewrite" || task.type === "capture" || task.type === "deepHumanize") &&
+    task.status === "done" &&
+    _ctx?.onTaskDone
+  ) {
     const taskWithResult = await ensureTaskResult(task);
     try {
       await _ctx.onTaskDone(taskWithResult);
@@ -343,7 +349,7 @@ function render() {
     body.innerHTML = `
       <div class="task-center__empty">
         <p>还没有后台任务</p>
-        <p class="task-center__empty-hint">改写或抓取时会在这里看到进度</p>
+        <p class="task-center__empty-hint">改写、抓取或深度去 AI 味时会在这里看到进度</p>
       </div>
     `;
     return;
@@ -378,10 +384,11 @@ function render() {
 function renderRunningChip(task) {
   const phaseLabel = phaseToLabel(task);
   const progressBar = renderProgressBar(task);
-  const typeLabel = task.type === "rewrite" ? "改写" : "抓取";
-  const statusBadge = task.status === "pending"
-    ? `<span class="task-center__chip-pill task-center__chip-pill--pending">排队中</span>`
-    : "";
+  const typeLabel = taskTypeLabel(task.type);
+  const statusBadge =
+    task.status === "pending"
+      ? `<span class="task-center__chip-pill task-center__chip-pill--pending">排队中</span>`
+      : `<span class="task-center__chip-pill task-center__chip-pill--running">处理中</span>`;
 
   return `
     <li class="task-center__chip task-center__chip--running" data-task-id="${escapeHtml(task.id)}">
@@ -410,8 +417,8 @@ function renderDoneChip(task) {
     task.status === "done" ? "task-center__chip--done"
       : task.status === "failed" ? "task-center__chip--failed"
         : "task-center__chip--cancelled";
-  const typeLabel = task.type === "rewrite" ? "改写" : "抓取";
-  const statusLabel = task.status === "done" ? "完成"
+  const typeLabel = taskTypeLabel(task.type);
+  const statusLabel = task.status === "done" ? "已完成"
     : task.status === "failed" ? "失败"
       : "已取消";
   // 错误 / 取消原因都用同一行展示（cancelReason 是 cross-type 自动 cancel 写的归因）
@@ -488,6 +495,10 @@ function phaseToLabel(task) {
       return "解析正文…";
     case "capture:done":
       return "抓取完成…";
+    case "deepHumanize:judge":
+      return "AI 审稿员正在评审…";
+    case "deepHumanize:rewrite":
+      return "正在整体重写…";
     default:
       return phase;
   }
@@ -528,8 +539,8 @@ function showToast(task) {
   el.className = `task-center__toast task-center__toast--${task.status}`;
   el.setAttribute("role", "status");
 
-  const typeLabel = task.type === "rewrite" ? "改写" : "抓取";
-  const statusLabel = task.status === "done" ? "完成"
+  const typeLabel = taskTypeLabel(task.type);
+  const statusLabel = task.status === "done" ? "已完成"
     : task.status === "failed" ? "失败"
       : "已取消";
   const customMessage = task._customMessage;
@@ -575,6 +586,19 @@ function showToast(task) {
 // ---------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------
+
+function taskTypeLabel(type) {
+  switch (type) {
+    case "rewrite":
+      return "改写";
+    case "capture":
+      return "抓取";
+    case "deepHumanize":
+      return "深度去 AI 味";
+    default:
+      return String(type || "任务");
+  }
+}
 
 function escapeHtml(input) {
   return String(input ?? "")
