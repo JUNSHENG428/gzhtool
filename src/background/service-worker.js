@@ -255,7 +255,8 @@ async function handleDocuearnAuthHandoff(message, sender) {
     const user = data?.user || data?.account || null;
 
     await saveAuthRecord({ token, user, issuedAt: Date.now() });
-    console.log("[auth-bridge] 已从 docuearn.com 同步登录态", user?.email || "");
+    // 不打印邮箱等账号信息进 SW 控制台日志
+    console.info("[auth-bridge] 已从 docuearn.com 同步登录态");
     return { ok: true, synced: true, email: user?.email || "" };
   } catch (err) {
     return { ok: false, error: String(err?.message || err) };
@@ -319,7 +320,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             "因抓取新内容自动取消（避免老改写覆盖新源）"
           );
           if (cancelled > 0) {
-            console.log(`[task-registry] 抓取触发取消同 article ${cancelled} 个 in-flight rewrite`);
+            console.info(`[task-registry] 抓取触发取消同 article ${cancelled} 个 in-flight rewrite`);
           }
         }
         const captureTaskHandle = registerTask({

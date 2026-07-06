@@ -2819,36 +2819,35 @@ async function initVoiceSamples() {
  * （之前 await 初始化散落在文件中段，会触发 TDZ。）
  */
 async function bootstrapOptionsPage() {
+  // 某个分区初始化失败时：console 留完整错误供排查，同时把「哪个分区坏了」
+  // 亮到页面状态条——否则用户面对的是静默空白/默认值，可能误存覆盖旧配置。
+  const initFailures = [];
+  const guardInit = async (label, fn) => {
+    try {
+      await fn();
+    } catch (err) {
+      console.error(`[options] ${label} failed:`, err);
+      initFailures.push(label);
+    }
+  };
+
   // 先把服务商下拉选项与监听器装好，hydrateForm 里 syncProviderUiFromBaseUrl
   // 会用到选项节点。
   initAiProviderSelect();
-  try {
-    await hydrateForm();
-  } catch (err) {
-    console.error("[options] hydrateForm failed:", err);
-  }
-  try {
-    await initPromptTemplates(setStatus);
-  } catch (err) {
-    console.error("[options] initPromptTemplates failed:", err);
-  }
-  try {
-    await initVoiceSamples();
-  } catch (err) {
-    console.error("[options] initVoiceSamples failed:", err);
-  }
+  await guardInit("读取已保存设置", hydrateForm);
+  await guardInit("提示词模板", () => initPromptTemplates(setStatus));
+  await guardInit("我的文风", initVoiceSamples);
   initNoviceMode();
   initChecklist();
   initQuickNav();
-  try {
-    initWechatExtras();
-  } catch (err) {
-    console.error("[options] initWechatExtras failed:", err);
-  }
-  try {
-    await initLicenseSection();
-  } catch (err) {
-    console.error("[options] initLicenseSection failed:", err);
+  await guardInit("公众号扩展设置", () => initWechatExtras());
+  await guardInit("会员与登录", initLicenseSection);
+
+  if (initFailures.length > 0) {
+    setStatus(
+      `部分设置分区加载失败（${initFailures.join("、")}）。请刷新本页重试；` +
+        "若反复出现，先不要点保存（避免覆盖旧配置），并联系 support@docuearn.com。"
+    );
   }
   // 支持从 popup 跳转过来时滚动到 #license 锚点
   if (typeof window !== "undefined" && window.location?.hash === "#license") {
