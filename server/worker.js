@@ -2321,30 +2321,52 @@ async function handleHupijiaoNotify(request, env) {
     return new Response("amount mismatch", { status: 400 });
   }
 
+  // 原子占坑：只有把 status 从 pending 翻成 paid 的那一个请求才继续发货。
+  // 上面 order.status === "paid" 的 SELECT 检查挡不住并发重放（两个回调
+  // 同时读到 pending 都会走到发货），D1 条件 UPDATE 的行级原子性在这里收口。
+  const claim = await env.DB.prepare(
+    `UPDATE orders SET status = 'paid', paid_at = ? WHERE trade_order_id = ? AND status = 'pending'`
+  )
+    .bind(Date.now(), tradeOrderId)
+    .run();
+  if (!Number(claim?.meta?.changes)) {
+    // 已被并发请求处理（或状态早已不是 pending）：直接 success 结束重试链
+    return new Response("success", { status: 200 });
+  }
+
   // 签发 license（issueProLicense 内部强制 365d 上限）
   // 39th 续 · 透传 planCode 让 license_keys.plan 写真实 monthly/yearly 而非历史 'pro' 兜底
-  const issued = await issueProLicense(env, {
-    userId: order.user_id,
-    userEmail: order.user_email || "",
-    source: "hupijiao",
-    sourceOrderId: tradeOrderId,
-    days: order.days,
-    planCode: order.plan_code || ""
-  });
+  let issued;
+  try {
+    issued = await issueProLicense(env, {
+      userId: order.user_id,
+      userEmail: order.user_email || "",
+      source: "hupijiao",
+      sourceOrderId: tradeOrderId,
+      days: order.days,
+      planCode: order.plan_code || ""
+    });
+  } catch (err) {
+    // 发货失败：把占坑回滚成 pending，让虎皮椒的下一次重试能重新走完整链路
+    console.error("[hpj] issueProLicense failed, revert claim", tradeOrderId, err);
+    await env.DB.prepare(
+      `UPDATE orders SET status = 'pending', paid_at = NULL WHERE trade_order_id = ? AND status = 'paid' AND granted_license_key IS NULL`
+    )
+      .bind(tradeOrderId)
+      .run();
+    return new Response("issue failed", { status: 500 });
+  }
 
-  // 标记 paid + 写入 license key + 存档原始回调
+  // 补写 license key + 交易号 + 存档原始回调（status/paid_at 已在占坑时写入）
   await env.DB.prepare(
     `UPDATE orders
-        SET status = 'paid',
-            paid_at = ?,
-            granted_license_key = ?,
+        SET granted_license_key = ?,
             hupijiao_open_order_id = ?,
             hupijiao_transaction_id = ?,
             notify_payload = ?
       WHERE trade_order_id = ?`
   )
     .bind(
-      Date.now(),
       issued.key,
       String(params.open_order_id || ""),
       String(params.transaction_id || ""),

@@ -3441,6 +3441,26 @@ console.log("\n运行 server/worker.js · Phase 4 helpers KV mock 集成单测 �
   console.log("✓ sendSecurityAlertEmail 7 case（throttled / sent / failed-retry / weekly-bucket / skipped × 3）");
 }
 
+console.log("\n运行 worker 支付回调幂等契约（源码文本锁）…");
+{
+  // 竞态修复（48th）：并发重放的两个 OD 回调都会通过 order.status === "paid" 的
+  // SELECT 检查，必须靠「条件 UPDATE 原子占坑」保证只有一个请求发货。
+  // 这里锁死源码里的关键契约，防止未来重构时把占坑挪回 SELECT-then-act 模式。
+  const workerSrc = fs.readFileSync(path.join(root, "server/worker.js"), "utf8");
+  assert(
+    /UPDATE orders SET status = 'paid', paid_at = \? WHERE trade_order_id = \? AND status = 'pending'/.test(workerSrc),
+    "handleHupijiaoNotify 必须先做条件 UPDATE（status='pending'）原子占坑再发货"
+  );
+  const claimIdx = workerSrc.indexOf("AND status = 'pending'");
+  const issueIdx = workerSrc.indexOf("issued = await issueProLicense(env, {");
+  assert(claimIdx > 0 && issueIdx > 0 && claimIdx < issueIdx, "占坑必须发生在 issueProLicense 之前");
+  assert(
+    /SET status = 'pending', paid_at = NULL WHERE trade_order_id = \? AND status = 'paid' AND granted_license_key IS NULL/.test(workerSrc),
+    "issueProLicense 失败时必须回滚占坑（让重试链能重新发货）"
+  );
+  console.log("✓ 支付回调幂等契约 3 case（占坑存在 / 占坑先于发货 / 失败回滚）");
+}
+
 console.log("\n运行 compliance-checker 合规检测单测 …");
 {
   const { scanCompliance, safeScanCompliance } = await import(

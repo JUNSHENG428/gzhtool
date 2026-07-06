@@ -131,3 +131,38 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   raw           TEXT NOT NULL,                   -- 原始 payload，便于排查
   processed_at  INTEGER NOT NULL
 );
+
+-- ---------- llm_usage（平台 LLM 代理 · 月度聚合用量） ----------
+-- 详见 server/migrations/003_llm_usage.sql（此处回填保证新环境按 schema.sql
+-- 一键建库即可跑通平台 AI 计量链路；生产库已由 003 迁移建出）
+CREATE TABLE IF NOT EXISTS llm_usage (
+  user_id              TEXT NOT NULL,                -- users.id
+  yyyymm               TEXT NOT NULL,                -- "2026-04" 自然月
+  prompt_tokens        INTEGER NOT NULL DEFAULT 0,
+  completion_tokens    INTEGER NOT NULL DEFAULT 0,
+  call_count           INTEGER NOT NULL DEFAULT 0,
+  last_call_at         INTEGER,                      -- unix ms
+  PRIMARY KEY (user_id, yyyymm),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_yyyymm ON llm_usage(yyyymm);
+
+-- ---------- llm_audit_log（平台 LLM 代理 · 逐次调用流水） ----------
+-- 不存任何 prompt / completion 文本、用户 IP、user agent；90 天后由 cron 清理
+CREATE TABLE IF NOT EXISTS llm_audit_log (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id              TEXT NOT NULL,                -- users.id
+  ts                   INTEGER NOT NULL,             -- unix ms
+  model                TEXT,                         -- 实际调的上游 model 名
+  tier                 TEXT,                         -- economy / standard / flagship
+  upstream             TEXT,                         -- openai / deepseek / ...
+  prompt_tokens        INTEGER DEFAULT 0,
+  completion_tokens    INTEGER DEFAULT 0,
+  duration_ms          INTEGER,
+  status               TEXT NOT NULL,                -- ok / error / rate_limited / quota_exceeded / upstream_down / suspicious_spike
+  error_code           TEXT,
+  fallback_from        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_audit_user_ts   ON llm_audit_log(user_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_llm_audit_ts        ON llm_audit_log(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_llm_audit_status    ON llm_audit_log(status);
