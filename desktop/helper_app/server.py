@@ -687,8 +687,13 @@ class HelperHandler(BaseHTTPRequestHandler):
                 {"ok": False, "error": str(exc), "errorCode": code},
             )
 
+    # 请求行里可能带 ?token=… / ?auth_token=…（header 传不了时的兜底通道），
+    # 原样写进本地日志等于把鉴权凭据落盘。落日志前统一替换为 ***。
+    _SENSITIVE_QUERY_RE = re.compile(r"((?:token|auth_token)=)[^&\s]+", re.IGNORECASE)
+
     def log_message(self, format: str, *args) -> None:  # noqa: A003
-        logging.info("%s - %s", self.address_string(), format % args)
+        message = self._SENSITIVE_QUERY_RE.sub(r"\1***", format % args)
+        logging.info("%s - %s", self.address_string(), message)
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length") or "0")
