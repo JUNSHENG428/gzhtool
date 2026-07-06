@@ -783,6 +783,181 @@ export const THEME_PRESETS = {
           "display:inline-block;margin-left:8px;font-size:11px;color:#c33d2e;font-weight:700;"
       }
     }
+  },
+
+  // 7) Financial Times \u00b7 \u4e09\u6587\u9c7c\u7c89\u8d22\u7ecf
+  "ft-salmon": {
+    label: "\u8d22\u7ecf\u9c91\u9c7c \u00b7 FT",
+    root:
+      "font-family:'Source Han Serif SC','Noto Serif SC','Songti SC',serif;color:#33302e;line-height:1.9;font-size:16px;background:#fff1e5;padding:36px 28px;border:none;border-radius:0;",
+    h1:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:34px;line-height:1.22;color:#262a33;margin:0 0 16px;font-weight:700;letter-spacing:-0.005em;",
+    subtitle:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:12px;line-height:1.75;color:#66605c;margin:0 0 26px;padding-bottom:14px;border-bottom:1px solid #ccc1b7;letter-spacing:0.16em;text-transform:uppercase;",
+    lead:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:19px;line-height:1.95;color:#262a33;background:transparent;border:none;border-radius:0;border-top:2px solid #262a33;padding:16px 0 0;margin:0 0 26px;font-style:italic;",
+    h2:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:24px;line-height:1.4;color:#262a33;margin:38px 0 14px;padding-bottom:8px;border-bottom:1px solid #ccc1b7;font-weight:700;",
+    h3:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:12px;line-height:1.65;color:#0d7680;margin:26px 0 10px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;",
+    p: "margin:0 0 18px;color:#33302e;",
+    blockquote:
+      "margin:30px 8% 30px 0;padding:0 0 0 22px;background:transparent;border:none;border-left:2px solid #990f3d;border-radius:0;color:#262a33;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:21px;line-height:1.6;font-style:italic;",
+    list: "margin:0 0 20px 0;padding-left:1.35em;color:#33302e;",
+    li: "margin:0 0 9px;",
+    figure:
+      "margin:30px 0;padding:0;background:transparent;border:none;border-radius:0;",
+    image:
+      "display:block;width:100%;border-radius:0;object-fit:cover;max-height:520px;background:#f2e2d3;",
+    figcaption:
+      "margin-top:8px;font-family:'Helvetica Neue','Arial',sans-serif;font-size:12px;color:#66605c;text-align:left;line-height:1.7;letter-spacing:0.04em;",
+    hr: "border:none;border-top:1px solid #ccc1b7;margin:32px 0;",
+    strong: "color:#990f3d;font-weight:700;",
+    cta:
+      "margin-top:36px;padding:20px 24px;background:#262a33;color:#fff1e5;border:none;border-radius:0;font-family:'Helvetica Neue','Arial',sans-serif;letter-spacing:0.04em;",
+    signature: {
+      h2Number: {
+        format: "padded",
+        style:
+          "display:block;font-family:'Helvetica Neue','Arial',sans-serif;font-size:12px;color:#0d7680;letter-spacing:0.24em;margin:0 0 6px;font-weight:700;"
+      },
+      blockquoteMark: {
+        char: "\u201c",
+        style:
+          "display:block;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:0.6;color:#990f3d;margin:0 0 8px;"
+      },
+      endMark: {
+        char: "\u25a0",
+        style: "display:inline-block;margin-left:8px;font-size:10px;color:#990f3d;vertical-align:1px;"
+      }
+    }
+  },
+
+  // 8) Kinfolk \u00b7 \u5976\u6cb9\u767d\u6162\u520a\uff08\u5c45\u4e2d\u6392\u5370 + \u5927\u7559\u767d\uff0c\u7b7e\u540d\u7ec6\u8282\u523b\u610f\u6781\u7b80\uff1a\u53ea\u7559\u4e00\u4e2a\u7ec8\u6b62\u7b26\uff09
+  "kinfolk-air": {
+    label: "\u5976\u6cb9\u6162\u520a \u00b7 Kinfolk",
+    root:
+      "font-family:'Source Han Serif SC','Noto Serif SC','Songti SC',serif;color:#4a4643;line-height:2.05;font-size:16px;background:#faf9f6;padding:42px 28px;border:none;border-radius:0;",
+    h1:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:30px;line-height:1.35;color:#2e2b28;margin:0 0 18px;font-weight:700;letter-spacing:0.05em;text-align:center;",
+    subtitle:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:11px;line-height:1.8;color:#a89f94;margin:0 0 34px;padding-bottom:0;border-bottom:none;letter-spacing:0.3em;text-transform:uppercase;text-align:center;",
+    lead:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:18px;line-height:2.05;color:#6b645d;background:transparent;border:none;border-radius:0;padding:0 6%;margin:0 0 34px;font-style:italic;text-align:center;",
+    h2:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:22px;line-height:1.5;color:#2e2b28;margin:44px 0 16px;padding:0;border:none;font-weight:700;letter-spacing:0.08em;text-align:center;",
+    h3:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:12px;line-height:1.7;color:#8a8178;margin:28px 0 12px;font-weight:700;letter-spacing:0.24em;text-transform:uppercase;text-align:center;",
+    p: "margin:0 0 20px;color:#4a4643;",
+    blockquote:
+      "margin:36px 10%;padding:0;background:transparent;border:none;border-radius:0;color:#6b645d;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:19px;line-height:1.9;font-style:italic;text-align:center;",
+    list: "margin:0 0 20px 0;padding-left:1.35em;color:#4a4643;",
+    li: "margin:0 0 10px;",
+    figure:
+      "margin:36px 0;padding:0;background:transparent;border:none;border-radius:0;",
+    image:
+      "display:block;width:100%;border-radius:0;object-fit:cover;max-height:520px;background:#efece6;",
+    figcaption:
+      "margin-top:10px;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:12px;color:#a89f94;text-align:center;line-height:1.8;font-style:italic;letter-spacing:0.06em;",
+    hr: "border:none;border-top:1px solid #ddd6cc;margin:40px 35%;",
+    strong: "color:#2e2b28;font-weight:700;",
+    cta:
+      "margin-top:44px;padding:20px 24px;background:transparent;color:#2e2b28;border:1px solid #2e2b28;border-radius:0;text-align:center;font-family:'Helvetica Neue','Arial',sans-serif;font-size:13px;letter-spacing:0.2em;",
+    signature: {
+      endMark: {
+        char: "\u00b7 \u00b7 \u00b7",
+        style:
+          "display:block;margin-top:14px;font-size:14px;color:#a89f94;text-align:center;letter-spacing:0.5em;"
+      }
+    }
+  },
+
+  // 9) arXiv / LaTeX \u00b7 \u5b66\u672f\u624b\u7a3f\uff08\u5b9a\u7406\u6846\u5f15\u7528 + \u00a7 \u8282\u53f7 + QED \u7ec8\u6b62\u7b26\uff09
+  "academic-mono": {
+    label: "\u5b66\u672f\u624b\u7a3f \u00b7 arXiv",
+    root:
+      "font-family:Georgia,'Source Han Serif SC','Noto Serif SC','Songti SC',serif;color:#1c1c1c;line-height:1.95;font-size:16px;background:#ffffff;padding:36px 26px;border:none;border-radius:0;",
+    h1:
+      "font-family:Georgia,'Source Han Serif SC','Noto Serif SC',serif;font-size:29px;line-height:1.35;color:#000;margin:0 0 14px;font-weight:700;text-align:center;",
+    subtitle:
+      "font-family:'SFMono-Regular','Menlo','Consolas',monospace;font-size:12px;line-height:1.8;color:#666;margin:0 0 30px;padding-bottom:16px;border-bottom:1px solid #d0d0d0;text-align:center;letter-spacing:0.04em;",
+    lead:
+      "font-size:15px;line-height:1.9;color:#333;background:#f7f7f7;border:1px solid #d0d0d0;border-radius:0;padding:16px 20px;margin:0 0 28px;",
+    h2:
+      "font-family:Georgia,'Source Han Serif SC','Noto Serif SC',serif;font-size:22px;line-height:1.45;color:#000;margin:38px 0 14px;padding-bottom:6px;border-bottom:1px solid #1c1c1c;font-weight:700;",
+    h3:
+      "font-family:Georgia,'Source Han Serif SC','Noto Serif SC',serif;font-size:18px;line-height:1.6;color:#1c1c1c;margin:26px 0 10px;font-weight:700;font-style:italic;",
+    p: "margin:0 0 17px;color:#1c1c1c;text-align:justify;",
+    blockquote:
+      "margin:26px 0;padding:16px 22px;background:#fafafa;border:1px solid #1c1c1c;border-radius:0;color:#1c1c1c;font-size:15px;line-height:1.85;font-style:italic;",
+    list: "margin:0 0 18px 0;padding-left:1.5em;color:#1c1c1c;",
+    li: "margin:0 0 8px;",
+    figure:
+      "margin:28px 0;padding:14px 0;background:transparent;border-top:1px solid #d0d0d0;border-bottom:1px solid #d0d0d0;border-radius:0;",
+    image:
+      "display:block;width:100%;border-radius:0;object-fit:contain;max-height:520px;background:#fcfcfc;",
+    figcaption:
+      "margin-top:10px;font-family:'SFMono-Regular','Menlo','Consolas',monospace;font-size:12px;color:#555;text-align:center;line-height:1.7;",
+    hr: "border:none;border-top:1px solid #d0d0d0;margin:30px 0;",
+    strong: "color:#000;font-weight:700;",
+    cta:
+      "margin-top:34px;padding:18px 22px;background:transparent;color:#1c1c1c;border:1px solid #1c1c1c;border-radius:0;font-family:'SFMono-Regular','Menlo','Consolas',monospace;font-size:14px;",
+    signature: {
+      h2Number: {
+        format: "padded",
+        style:
+          "display:inline-block;margin-right:12px;font-family:'SFMono-Regular','Menlo','Consolas',monospace;font-size:15px;color:#1c1c1c;font-weight:700;letter-spacing:0.06em;"
+      },
+      endMark: {
+        char: "\u220e",
+        style: "display:inline-block;margin-left:10px;font-size:14px;color:#1c1c1c;"
+      }
+    }
+  },
+
+  // 10) Esquire \u665a\u520a \u00b7 \u58a8\u591c\u5e95 + \u9999\u69df\u91d1\uff08\u7b2c\u4e8c\u5957\u6df1\u8272\u4e3b\u9898\uff0c\u8d70\u5962\u534e\u4eba\u7269\u7279\u7a3f\u611f\uff09
+  "golden-noir": {
+    label: "\u938f\u91d1\u591c\u8bdd \u00b7 Esquire",
+    root:
+      "font-family:'Source Han Serif SC','Noto Serif SC','Songti SC',serif;color:#ddd7c9;line-height:1.95;font-size:16px;background:#14161c;padding:38px 28px;border:none;border-radius:0;",
+    h1:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:34px;line-height:1.22;color:#f2ead8;margin:0 0 16px;font-weight:700;letter-spacing:0.01em;",
+    subtitle:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:11px;line-height:1.8;color:#c8a96e;margin:0 0 28px;padding-bottom:14px;border-bottom:1px solid #2c2f38;letter-spacing:0.24em;text-transform:uppercase;font-weight:600;",
+    lead:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:19px;line-height:2;color:#e6e1d6;background:transparent;border:none;border-radius:0;border-top:1px solid #c8a96e;border-bottom:1px solid #c8a96e;padding:18px 0;margin:0 0 28px;font-style:italic;",
+    h2:
+      "font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:25px;line-height:1.35;color:#f2ead8;margin:40px 0 14px;padding:0;border:none;font-weight:700;",
+    h3:
+      "font-family:'Helvetica Neue','Arial',sans-serif;font-size:12px;line-height:1.65;color:#c8a96e;margin:28px 0 10px;font-weight:700;letter-spacing:0.22em;text-transform:uppercase;",
+    p: "margin:0 0 18px;color:#ddd7c9;",
+    blockquote:
+      "margin:32px 8%;padding:0;background:transparent;border:none;border-radius:0;color:#c8a96e;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-size:21px;line-height:1.65;font-style:italic;text-align:center;",
+    list: "margin:0 0 20px 0;padding-left:1.35em;color:#ddd7c9;",
+    li: "margin:0 0 9px;",
+    figure:
+      "margin:32px 0;padding:0;background:transparent;border:1px solid #2c2f38;border-radius:0;",
+    image:
+      "display:block;width:100%;border-radius:0;object-fit:cover;max-height:520px;background:#1e2128;",
+    figcaption:
+      "margin:0;padding:10px 14px;font-family:'Helvetica Neue','Arial',sans-serif;font-size:11px;color:#8d8776;text-align:left;line-height:1.7;letter-spacing:0.14em;text-transform:uppercase;",
+    hr: "border:none;border-top:1px solid #2c2f38;margin:34px 25%;",
+    strong: "color:#c8a96e;font-weight:700;",
+    cta:
+      "margin-top:40px;padding:20px 24px;background:#c8a96e;color:#14161c;border:none;border-radius:0;font-family:'Source Han Serif SC','Noto Serif SC',serif;font-weight:700;letter-spacing:0.06em;",
+    signature: {
+      dropCap:
+        "float:left;font-family:'Source Han Serif SC','Noto Serif SC','Songti SC',serif;font-size:56px;line-height:0.92;padding:6px 10px 2px 0;color:#c8a96e;font-weight:700;",
+      blockquoteMark: {
+        char: "\u201c",
+        style:
+          "display:block;font-family:Georgia,'Times New Roman',serif;font-size:42px;line-height:0.6;color:#c8a96e;margin:0 0 10px;text-align:center;"
+      },
+      endMark: {
+        char: "\u2726",
+        style: "display:inline-block;margin-left:8px;font-size:12px;color:#c8a96e;vertical-align:1px;"
+      }
+    }
   }
 };
 
@@ -831,6 +1006,34 @@ export const MAGAZINE_THEMES = [
     pairsWith: ["文化评论", "亚文化", "独立观察", "年轻向叙述"]
   },
   {
+    id: "ft-salmon",
+    label: "财经鲑鱼",
+    inspiration: "Financial Times",
+    summary: "三文鱼粉底 + 深青节号 + 绛红引语，最适合财经深度、宏观分析、公司研究。",
+    pairsWith: ["财经商业", "宏观分析", "公司研究", "行业报告"]
+  },
+  {
+    id: "kinfolk-air",
+    label: "奶油慢刊",
+    inspiration: "Kinfolk",
+    summary: "奶油白底 + 全篇居中排印 + 大留白，适合生活方式、随笔、美学、慢节奏内容。",
+    pairsWith: ["生活方式", "随笔散文", "美学观察", "旅行记录"]
+  },
+  {
+    id: "academic-mono",
+    label: "学术手稿",
+    inspiration: "arXiv / LaTeX",
+    summary: "白底衬线 + 摘要框 + 定理式引用 + ∎ 终止符，适合论文解读、硬核科普、技术深潜。",
+    pairsWith: ["论文解读", "硬核科普", "技术深潜", "研究综述"]
+  },
+  {
+    id: "golden-noir",
+    label: "鎏金夜话",
+    inspiration: "Esquire",
+    summary: "墨夜底 + 香槟金 accent + 衬线首字下沉，适合人物特稿、品牌故事、高端生活。",
+    pairsWith: ["人物特稿", "品牌故事", "高端生活", "夜读专栏"]
+  },
+  {
     id: "editorial-green",
     label: "润笔新叶（润笔默认）",
     inspiration: "DocuEarn House",
@@ -845,7 +1048,10 @@ export const COMMON_OUTPUT_RULES = [
   "每个 section 必须包含 heading、paragraphs、bulletPoints、quote、imageRefs。",
   "imageRefs 中每一项形如 {\"index\": 1, \"caption\": \"图注\"}，index 必须引用来源图片编号。",
   "若某个字段没有内容，请返回空字符串或空数组，不要省略字段。",
-  "整篇正文（含标题、副标题、段落、列表、引用、CTA）总字符数请控制在 6000 字以内，避免发布时被截断。"
+  "整篇正文（含标题、副标题、段落、列表、引用、CTA）总字符数请控制在 6000 字以内，避免发布时被截断。",
+  "wechatTitleOptions 给 5 个策略互不相同的备选标题（反常识 / 数字 / 场景 / 利益点 / 悬念），每个 ≤ 28 字；可以有钩子但禁止失实标题党（不堆感叹号、不写「震惊/速看/千万别」）。",
+  "sections[].heading 必须是有信息量的结论句或悬念句，禁止「引言」「背景」「总结」这类空壳标题。",
+  "closing 收在具体判断或余味上，禁止「总之」「综上所述」「未来可期」。"
 ].join("\n");
 
 export const COMMON_USER_PAYLOAD = `改写目标：

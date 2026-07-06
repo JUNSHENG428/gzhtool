@@ -65,6 +65,10 @@ export async function publishViaBrowser(payload, ctx = {}) {
   const tab = await openOrFocusEditorTab();
   await waitForEditorReady(tab.id);
 
+  // 写入前账号比对（防串号）：PULL 侧早有 profile 状态点 + disabled 拦截，
+  // Push 侧此前直接找到编辑页就写——mp 登着账号 B 而草稿目标是账号 A 时会写错号。
+  await assertMpAccountMatches(tab.id, payload);
+
   const helperPayload = {
     meta: {
       title: String(first.meta.title || ""),
@@ -183,6 +187,40 @@ async function waitForEditorReady(tabId) {
     ErrorCode.WECHAT_BROWSER_EDITOR_NOT_OPEN,
     "公众号编辑页 10 秒内仍未加载完成。"
   );
+}
+
+/**
+ * 写入前比对 mp 后台当前登录账号与草稿目标账号。
+ *
+ * 比对语义与浮球 PULL 侧完全一致（wechat-editor-helper.js renderHelperDock）：
+ *   - 模糊匹配：全等或互相 includes（profile 名可能写「主号」，mp 显示「主号-认证」）
+ *   - fail-open：payload.accountName 为空（未命名 profile / 默认账号，无比对基准）、
+ *     content script 没响应、或 mp 页面读不到账号名时一律放行——
+ *     宁可漏拦不可误拦，和 PULL 侧「没读到 mp 账号 = 放行」保持同一原则。
+ * 只有「两边都读到了且确实对不上」才抛 ACCOUNT_MISMATCH 中止写入。
+ */
+async function assertMpAccountMatches(tabId, payload) {
+  const expected = String(payload?.accountName || "").trim();
+  if (!expected) return;
+
+  const probe = await chrome.tabs
+    .sendMessage(tabId, { type: "READ_MP_ACCOUNT_NAME" })
+    .catch(() => null);
+  const mpAccount = String(probe?.account || "").replace(/\s+/g, " ").trim();
+  if (!mpAccount) return;
+
+  const matches =
+    expected === mpAccount ||
+    expected.includes(mpAccount) ||
+    mpAccount.includes(expected);
+  if (!matches) {
+    throw browserError(
+      ErrorCode.WECHAT_BROWSER_ACCOUNT_MISMATCH,
+      `mp 后台当前登录的是「${mpAccount}」，但这篇文章的发布账号是「${expected}」。` +
+        "为防止内容写进错误的公众号，已中止同步。" +
+        `请在 mp 后台切换到「${expected}」再重试，或回编辑台把「发布账号」改成「${mpAccount}」。`
+    );
+  }
 }
 
 function browserError(code, detail) {

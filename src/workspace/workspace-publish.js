@@ -488,11 +488,15 @@ export async function publishBundle(mode) {
     const profileIndex = Number(_ctx.controls.wechatProfileSelect?.value ?? -1);
     const profiles = Array.isArray(state.settings.wechatProfiles) ? state.settings.wechatProfiles : [];
     let accountOverride = null;
+    // accountName 只在用户真的给 profile 起了名时非空——它是浏览器模式写入前
+    // 账号比对的基准；「账号 N」这类生成式 fallback 不参与比对（会必然 mismatch）。
+    let accountName = "";
     // 缺失 mode 字段视为 "api"，保护历史 profile（向后兼容契约）
     let publishChannel = "api";
     if (profileIndex >= 0 && profiles[profileIndex]) {
       const profile = profiles[profileIndex];
-      accountLabel = profile.name?.trim() || `账号 ${profileIndex + 1}`;
+      accountName = profile.name?.trim() || "";
+      accountLabel = accountName || `账号 ${profileIndex + 1}`;
       publishChannel = profile.mode === "browser" ? "browser" : "api";
 
       if (publishChannel === "api") {
@@ -526,6 +530,7 @@ export async function publishBundle(mode) {
     const payload = await _buildWechatPublishPayload(mode, { channel: publishChannel });
     payload.accountOverride = accountOverride;
     payload.accountLabel = accountLabel;
+    payload.accountName = accountName;
     payload.profileIndex = profileIndex;
     // 浏览器登录模式让 SW 短路到 wechat-browser-bridge.js，跳过 cgi-bin 链路
     if (publishChannel === "browser") {
@@ -611,13 +616,32 @@ export async function publishBundle(mode) {
 
     const failedImages = response.data.failedImages || [];
     if (response.data?.mode === "browser") {
-      // 浏览器登录模式：内容已写入 mp 后台编辑页，提醒用户手动完成最后 3 步
+      // 浏览器登录模式：内容已写入 mp 后台编辑页，提醒用户手动完成最后 3 步。
+      // fields 是 helper 逐字段回报的写入结果——部分失败（如摘要选择器没命中）
+      // 此前被笼统的成功文案吞掉，用户发出去才发现摘要是空的。
+      const fields = response.data?.fields || {};
+      // 注意：helper 的 setFieldValue 对「值本来就是空」也返回 false，
+      // 所以必须先看发过去的 meta 里该字段有没有内容，有内容却没写进去才算缺失。
+      const sentMeta = payload.articles?.[0]?.meta || {};
+      const fieldLabels = [
+        ["titleWritten", "标题", sentMeta.title],
+        ["bodyWritten", "正文", payload.articles?.[0]?.html],
+        ["digestWritten", "摘要", sentMeta.digest],
+        ["authorWritten", "作者", sentMeta.author],
+        ["sourceUrlWritten", "原文链接", sentMeta.contentSourceUrl]
+      ];
+      const missed = fieldLabels
+        .filter(([key, , sentValue]) => String(sentValue || "").trim() && fields[key] === false)
+        .map(([, label]) => label);
+      const missedTail = missed.length
+        ? ` ⚠️ 以下字段未能自动写入，请在 mp 编辑器手动补上：${missed.join("、")}。`
+        : "";
       const tail = response.data?.requiresMultiArticleManual
-        ? "（多图文：当前仅同步了第一篇，其余请在 mp 后台「添加一条」后用『复制正文 HTML』粘贴。）"
+        ? "（多图文：当前仅同步了第一篇，其余请在 mp 后台「添加一条」后用『复制公众号正文』粘贴。）"
         : "";
       setStatus(
-        `账号「${accountLabel}」已写入公众号编辑器：请在 mp 后台手动 ① 上传封面图 ② 点「保存为草稿」。${tail}`,
-        "success"
+        `账号「${accountLabel}」已写入公众号编辑器：请在 mp 后台手动 ① 上传封面图 ② 点「保存为草稿」。${missedTail}${tail}`,
+        missed.length ? "warning" : "success"
       );
     } else if (failedImages.length > 0) {
       const lines = failedImages.map(

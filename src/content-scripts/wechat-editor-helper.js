@@ -53,10 +53,29 @@
   // 模块级保存 banner 的 60s 刷新定时器：重渲染 / 移除前必须 clearInterval，
   // 否则旧 banner 被 remove 后定时器仍在 detached 节点上跑，长生命周期 mp 编辑页会累积僵尸定时器。
   let syncBannerTimer = null;
+  // 「最后一公里」防丢（浏览器模式不代点保存是合规底线，只能提醒）：
+  // 写入成功后 banner 常驻「尚未保存」警示，探测到用户点了保存/发表类按钮才转「已保存」。
+  // syncBannerRefresh 持有当前 banner 的重绘函数，保存探测命中后立即刷新状态行。
+  let syncBannerRefresh = null;
+  let mpDraftSaveState = ""; // "" 无待保存内容 / "unsaved" 已写入未保存 / "saved" 已检测到保存动作
+  let saveWatchInstalled = false;
   // 39th 续³ Batch 9：草稿箱列表页的 pending banner（"已收到推送但当前不是新建图文页"引导）
   const PENDING_PULL_BANNER_ID = "wechat-pending-pull-banner";
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Push 前账号比对探针（wechat-browser-bridge.js 写入前调用）：
+    // 复用浮球 PULL 的 readCurrentMpAccountName 启发式，读不到返回空串由 bridge 端 fail-open。
+    if (message.type === "READ_MP_ACCOUNT_NAME") {
+      sendResponse({ ok: true, account: readCurrentMpAccountName() });
+      return false;
+    }
+
+    // 后台任务（改写/深度去味）完成 → 浮球拉草稿球亮红点徽标（task-registry 主动推送）
+    if (message.type === "RUNBI_DRAFT_READY") {
+      showDraftReadyBadge(message.payload || {});
+      return false;
+    }
+
     if (message.type !== "IMPORT_ARTICLE_TO_WECHAT_EDITOR") {
       return false;
     }
@@ -148,6 +167,25 @@
     renderFloatingBallStrip();
   }
 
+  // ── 「有新草稿可拉」徽标（RUNBI_DRAFT_READY，task-registry 任务完成推送）──
+  // 状态驱动而不是直接 DOM append：refreshPullBallStatus 会整体重建 strip.innerHTML，
+  // 徽标必须从 draftReadyInfo 渲染出来才能在刷新后存活。
+  let draftReadyInfo = null; // null = 无提示；{ articleTitle } = 徽标亮
+
+  function showDraftReadyBadge(info) {
+    if (!STATE.floatingBallEnabled) return;
+    draftReadyInfo = info || {};
+    const strip = document.getElementById(STRIP_ID);
+    if (strip) refreshPullBallStatus(strip);
+  }
+
+  function clearDraftReadyBadge() {
+    if (!draftReadyInfo) return;
+    draftReadyInfo = null;
+    const strip = document.getElementById(STRIP_ID);
+    if (strip) refreshPullBallStatus(strip);
+  }
+
   function renderFloatingBallStrip() {
     ensureStripStyles(); // <style> 注入一次（hover/grab/reduced-motion 守卫等需要 :hover 选择器，inline style 做不到）
     let strip = document.getElementById(STRIP_ID);
@@ -217,6 +255,18 @@
         white-space: nowrap;
         pointer-events: none;
         letter-spacing: 0.2px;
+      }
+      #${STRIP_ID} .rb-ball-badge {
+        position: absolute;
+        top: -2px;
+        left: -2px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #e5484d;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 1px rgba(28,38,32,0.10);
+        pointer-events: none;
       }
       #${STRIP_ID} button[data-strip-action]:hover {
         transform: scale(1.08);
@@ -373,7 +423,16 @@
     const lastSyncSuffix = lastSync
       ? `\n上次同步：《${lastSync.title}》· ${formatAgo(lastSync.syncedAt)}`
       : "";
-    const pullTooltip = (!isEditorPage()
+    // 徽标亮时 tooltip 先说「有什么新东西」，比通用说明更有行动力
+    const draftReadyPrefix =
+      draftReadyInfo && !pullDisabled
+        ? `🔴 润笔有新草稿可拉${
+            String(draftReadyInfo.articleTitle || "").trim()
+              ? `：《${String(draftReadyInfo.articleTitle).trim()}》`
+              : ""
+          }，点击写入 mp 编辑器\n`
+        : "";
+    const pullTooltip = draftReadyPrefix + (!isEditorPage()
       ? "不在 mp 编辑页，无法写入"
       : pullDisabled
         ? "mp 后台账号与草稿目标账号不一致，已禁用以防写错号"
@@ -385,7 +444,7 @@
     const cell = (action, emoji, label, tooltip, opts = {}) =>
       `<div class="rb-ball-cell">
         <button data-strip-action="${action}" type="button" tabindex="0" aria-label="${escapeHtml(tooltip)}" title="${escapeHtml(tooltip)}" style="${ballStyle(opts)}">
-          <span class="rb-ball-emoji" aria-hidden="true">${emoji}</span>${opts.primary ? profileDotHtml() : ""}
+          <span class="rb-ball-emoji" aria-hidden="true">${emoji}</span>${opts.primary ? profileDotHtml() : ""}${opts.primary && draftReadyInfo ? '<span class="rb-ball-badge" aria-hidden="true"></span>' : ""}
         </button>
         <span class="rb-ball-label">${label}</span>
       </div>`;
@@ -489,6 +548,7 @@
 
       if (action === "pull") {
         if (isPullDisabled()) return;
+        clearDraftReadyBadge(); // 用户已响应「有新草稿」提示
         const drafts = Array.isArray(STATE.payload?.drafts) ? STATE.payload.drafts : [];
         if (drafts.length > 1) {
           renderDraftPickerPopover(button);
@@ -746,12 +806,42 @@
     document.body.appendChild(banner);
   }
 
+  /**
+   * 开始监视「保存草稿」动作。capture 阶段监听全文档 click，命中文本含
+   * 保存/发表/发布/群发 的按钮类元素即认为用户完成了保存（启发式，探测不到
+   * 也只是警示行不消失，不影响任何功能）。监听器全局只装一次。
+   */
+  function beginUnsavedSaveWatch() {
+    mpDraftSaveState = "unsaved";
+    if (saveWatchInstalled) return;
+    saveWatchInstalled = true;
+    document.addEventListener(
+      "click",
+      (ev) => {
+        if (mpDraftSaveState !== "unsaved") return;
+        const btn =
+          ev.target instanceof Element
+            ? ev.target.closest("button, a, [role='button'], .weui-desktop-btn")
+            : null;
+        const text = normalizeText(btn?.textContent || "");
+        // 长文本说明命中的是段落/链接而不是操作按钮，忽略
+        if (!text || text.length > 12) return;
+        if (/保存|发表|发布|群发/.test(text)) {
+          mpDraftSaveState = "saved";
+          if (typeof syncBannerRefresh === "function") syncBannerRefresh();
+        }
+      },
+      true
+    );
+  }
+
   function renderSyncBanner(record) {
     // 清掉上一个 banner 的刷新定时器，避免泄漏到 detached 节点
     if (syncBannerTimer) {
       clearInterval(syncBannerTimer);
       syncBannerTimer = null;
     }
+    syncBannerRefresh = null;
     document.getElementById(SYNC_BANNER_ID)?.remove();
     document.getElementById(PENDING_PULL_BANNER_ID)?.remove(); // 与 pending banner 互斥
     if (!record) return;
@@ -788,11 +878,17 @@
         ? ` · 第 ${record.bundleIndex}/${record.bundleTotal} 篇`
         : "";
       const charsHint = record.bodyChars > 0 ? ` · ${record.bodyChars} 字` : "";
+      const saveLine =
+        mpDraftSaveState === "unsaved"
+          ? `<br /><span style="color:#c77700;">⚠️ 内容已写入但<strong>尚未保存</strong>——请点编辑器右上方「保存为草稿」，直接关页会丢失。</span>`
+          : mpDraftSaveState === "saved"
+            ? `<br /><span style="color:${TOKEN.brand};">✓ 已检测到保存操作。</span>`
+            : "";
       banner.innerHTML = `
         <span style="font-size:14px;">📥</span>
         <span style="flex:1;min-width:0;">
           <strong style="color:${TOKEN.brand};">已同步《${escapeHtmlAttr(record.title)}》</strong>
-          <span style="color:${TOKEN.inkSecondary};">来自润笔${bundleHint}${charsHint} · ${agoText}</span>
+          <span style="color:${TOKEN.inkSecondary};">来自润笔${bundleHint}${charsHint} · ${agoText}</span>${saveLine}
         </span>
         <button type="button" data-banner-action="goto" style="flex:none;padding:4px 10px;border:1px solid ${TOKEN.line};background:transparent;color:${TOKEN.brand};border-radius:6px;cursor:pointer;font-size:11px;">📂 查看在润笔</button>
         <button type="button" data-banner-action="close" aria-label="关闭" style="flex:none;width:22px;height:22px;border:none;background:transparent;color:${TOKEN.softInk};font-size:16px;line-height:1;cursor:pointer;border-radius:4px;">×</button>
@@ -814,11 +910,13 @@
           clearInterval(syncBannerTimer);
           syncBannerTimer = null;
         }
+        syncBannerRefresh = null;
         banner.remove();
       });
     };
     updateAgo();
     syncBannerTimer = setInterval(updateAgo, 60000);
+    syncBannerRefresh = updateAgo;
 
     document.documentElement.appendChild(banner);
   }
@@ -1078,6 +1176,8 @@
       };
       // 强制重置 dismissedAt 让 banner 必现
       STATE.lastSyncBannerDismissedAt = 0;
+      // 每次写入都重置为「尚未保存」并确保保存动作探测在监听
+      beginUnsavedSaveWatch();
       renderSyncBanner(STATE.lastSyncRecord);
     }
     renderHelperDock(result);
@@ -1515,7 +1615,7 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           ${pullButton}
           <button data-helper-action="retry" style="${buttonStyle()}">重试导入</button>
-          <button data-helper-action="copy" style="${buttonStyle()}">复制正文 HTML</button>
+          <button data-helper-action="copy" style="${buttonStyle()}">复制公众号正文</button>
           <button data-helper-action="close" style="${buttonStyle("#3f4f43")}">关闭</button>
         </div>
       </div>

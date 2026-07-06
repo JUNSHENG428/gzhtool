@@ -140,7 +140,38 @@ export function completeTask(taskId, { status, error, result } = {}) {
   promotePendingTask(task.type);
 
   schedulePersistAndNotify();
+  notifyMpTabsDraftReady(task);
   return task;
+}
+
+// 浮球「有新草稿」徽标（FloatingBall.tsx 注释里规划的 PUSH_FLOATING_BALL_STATE 的最小实现）：
+// 改写 / 深度去味任务成功后主动通知所有 mp 后台 tab，浮球亮徽标提示可拉新草稿，
+// 用户在 mp 后台等任务时不用切回编辑台确认。尽力而为：mp tab 不存在 / content script
+// 未注入 / 浮球未开启都静默忽略，不影响任务主流程。
+const DRAFT_READY_TASK_TYPES = new Set(["rewrite", "deepHumanize"]);
+
+function notifyMpTabsDraftReady(task) {
+  if (task?.status !== "done" || !DRAFT_READY_TASK_TYPES.has(task?.type)) return;
+  // smoke 测试在 Node 里 import 本模块（chrome 仅部分 mock），没有 tabs API 时静默跳过
+  if (typeof chrome === "undefined" || !chrome.tabs?.query) return;
+  chrome.tabs
+    .query({ url: ["https://mp.weixin.qq.com/*"] })
+    .then((tabs) => {
+      for (const tab of tabs) {
+        if (!tab?.id) continue;
+        chrome.tabs
+          .sendMessage(tab.id, {
+            type: "RUNBI_DRAFT_READY",
+            payload: {
+              taskType: task.type,
+              articleId: String(task.articleId || ""),
+              articleTitle: String(task.articleTitle || "")
+            }
+          })
+          .catch(() => {});
+      }
+    })
+    .catch(() => {});
 }
 
 export function cancelTask(taskId) {

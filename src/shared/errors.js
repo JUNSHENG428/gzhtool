@@ -29,9 +29,11 @@ export const ErrorCode = Object.freeze({
   //   - NOT_LOGGED_IN：mp 后台 cookie 失效或未登录，开编辑页直接被踢回登录页
   //   - EDITOR_NOT_OPEN：tab 已开但 10s 内 status 仍未 complete，或被反爬挂在中间态
   //   - INJECT_FAILED：编辑页选择器全部命中失败（mp 改版概率事件）
+  //   - ACCOUNT_MISMATCH：mp 后台当前登录账号 ≠ 草稿的目标发布账号（防串号，写入前拦截）
   WECHAT_BROWSER_NOT_LOGGED_IN: "WECHAT_BROWSER_NOT_LOGGED_IN",
   WECHAT_BROWSER_EDITOR_NOT_OPEN: "WECHAT_BROWSER_EDITOR_NOT_OPEN",
   WECHAT_BROWSER_INJECT_FAILED: "WECHAT_BROWSER_INJECT_FAILED",
+  WECHAT_BROWSER_ACCOUNT_MISMATCH: "WECHAT_BROWSER_ACCOUNT_MISMATCH",
   UNKNOWN: "UNKNOWN"
 });
 
@@ -78,7 +80,9 @@ const USER_MESSAGES = {
   [ErrorCode.WECHAT_BROWSER_EDITOR_NOT_OPEN]:
     "浏览器登录模式：公众号编辑页没能在 10 秒内打开。\n可能是网络较慢或 mp 后台被反爬拦了一下；可以手动到公众号后台「素材管理 → 新建图文」打开编辑页，然后回扩展重试。",
   [ErrorCode.WECHAT_BROWSER_INJECT_FAILED]:
-    "浏览器登录模式：编辑页结构识别失败，可能是公众号后台改版了。\n临时兜底：在编辑页右下角的助手 dock 上点「复制正文 HTML」，然后到公众号后台正文区右上角『&lt;&gt; HTML 源码』粘贴。",
+    "浏览器登录模式：编辑页结构识别失败，可能是公众号后台改版了。\n临时兜底：在编辑页右下角的助手 dock 上点「复制公众号正文」，然后到公众号后台正文区右上角『&lt;&gt; HTML 源码』粘贴。",
+  [ErrorCode.WECHAT_BROWSER_ACCOUNT_MISMATCH]:
+    "浏览器登录模式：mp 后台当前登录的公众号与你选择的发布账号不一致，为防止内容写进错误的公众号，已中止同步。\n请在 mp 后台切换到目标账号，或回编辑台改「发布账号」后重试。",
   [ErrorCode.UNKNOWN]:
     "操作失败，请稍后再试。"
 };
@@ -140,6 +144,15 @@ export function classifyError(error, context) {
   }
   if (browserModeCode === ErrorCode.WECHAT_BROWSER_INJECT_FAILED) {
     return make(ErrorCode.WECHAT_BROWSER_INJECT_FAILED, true);
+  }
+  if (browserModeCode === ErrorCode.WECHAT_BROWSER_ACCOUNT_MISMATCH) {
+    // bridge 抛错时 message 里带了「mp 实际账号 vs 目标账号」两个具体名字，
+    // 比固定文案更可操作——优先透传，缺失才落到 USER_MESSAGES 兜底。
+    return {
+      code: ErrorCode.WECHAT_BROWSER_ACCOUNT_MISMATCH,
+      message: rawMessage || USER_MESSAGES[ErrorCode.WECHAT_BROWSER_ACCOUNT_MISMATCH],
+      retryable: false
+    };
   }
 
   // ── Chrome 扩展系统报错（host 权限不够 / 不能在内部页执行脚本）──

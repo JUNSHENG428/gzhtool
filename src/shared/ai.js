@@ -465,6 +465,19 @@ function buildVoiceSampleMessage(sample) {
   return lines.join("\n");
 }
 
+// 各字段的「编辑手艺」要求。改写 / 创作两个 system prompt 共用，
+// 单独抽出来避免两边漂移。只谈质量标准，不谈 JSON schema（schema 在各自 prompt 里）。
+const CRAFT_QUALITY_RULES = [
+  "各字段的质量标准（公众号编辑手艺）：",
+  "- title / wechatTitleOptions：给 5 个策略互不相同的备选标题（如：反常识结论 / 具体数字 / 场景对话 / 利益点 / 悬念留白），每个 ≤ 28 字。可以有钩子，但禁止夸张失实的标题党：不堆感叹号、不写「震惊/惊呆/速看/千万别」。title 取其中信息最扎实的一个。",
+  "- subtitle：一句话补足 title 没说完的语境或立场，不复述 title 的字面。",
+  "- lead：前两行决定读者是否读下去。直接进入最有张力的事实、场景或冲突，禁止「今天我们来聊聊」「最近，XX 火了」这类热身式开场。",
+  "- sections[].heading：必须是有信息量的结论句或悬念句，让只扫标题的读者也能拼出文章骨架；禁止「引言」「背景介绍」「总结」这类空壳标题。",
+  "- sections[].quote：只放最有分量的一句话——来源原话或提炼出的金句，全篇 1-3 处即可，不要每个 section 都塞。",
+  "- closing：收在一个具体判断、一个画面或一句留有余味的话上；禁止「总之」「综上所述」「未来可期」「让我们拭目以待」。",
+  "- keywords：3-6 个读者真的会搜的词（具体名词优先），不放「科技」「分析」这类大而空的词。"
+].join("\n");
+
 const DEFAULT_SYSTEM_PROMPT = [
   "你是一名资深微信公众号编辑，负责把网页内容改写成适合公众号发布的原创风格文章。",
   "必须遵守这些规则：",
@@ -476,7 +489,9 @@ const DEFAULT_SYSTEM_PROMPT = [
   "6. 每个 section 必须包含 heading、paragraphs、bulletPoints、quote、imageRefs、codeBlocks、tables、mathBlocks。",
   "7. imageRefs 中每一项形如 {\"index\": 1, \"caption\": \"图注\"}，index 必须引用来源图片编号。",
   "8. codeBlocks 中每一项形如 {\"language\": \"python\", \"text\": \"...\"}；tables 形如 {\"headers\": [...], \"rows\": [[...], ...]}；mathBlocks 形如 {\"latex\": \"E=mc^2\", \"display\": true}。",
-  "9. 若某个字段没有内容，请返回空字符串或空数组，不要省略字段。"
+  "9. 若某个字段没有内容，请返回空字符串或空数组，不要省略字段。",
+  "",
+  CRAFT_QUALITY_RULES
 ].join("\n");
 
 // 45th 续 · 「自拟主题创作」模式（source.origin === "brief"）专用 system prompt。
@@ -495,7 +510,9 @@ const CREATION_SYSTEM_PROMPT = [
   "6. 每个 section 必须包含 heading、paragraphs、bulletPoints、quote、imageRefs、codeBlocks、tables、mathBlocks。",
   "7. imageRefs 中每一项形如 {\"index\": 1, \"caption\": \"图注\"}，index 必须引用来源图片编号；没有可用图片素材时一律返回空数组。",
   "8. codeBlocks 中每一项形如 {\"language\": \"python\", \"text\": \"...\"}；tables 形如 {\"headers\": [...], \"rows\": [[...], ...]}；mathBlocks 形如 {\"latex\": \"E=mc^2\", \"display\": true}。",
-  "9. 若某个字段没有内容，请返回空字符串或空数组，不要省略字段。"
+  "9. 若某个字段没有内容，请返回空字符串或空数组，不要省略字段。",
+  "",
+  CRAFT_QUALITY_RULES
 ].join("\n");
 
 const DEFAULT_USER_TEMPLATE = `请将下面的来源材料改写成公众号文章。
@@ -1098,9 +1115,14 @@ function stripCodeFence(text) {
 
 /**
  * 通用单轮 chat（复用平台 /api/llm/chat 与 BYOK 两条路由 + 统一错误码），返回 content 字符串。
- * 给「AI 合规改写 / 第二模型评审 / 深度去 AI 味重写」等一次性任务复用，避免各处重复路由代码。
+ * 给「AI 合规改写 / 第二模型评审 / 深度去 AI 味重写 / AI 选题总监」等一次性任务复用，
+ * 避免各处重复路由代码（反例 #36：任何 AI 入口都必须按 aiSourceMode 分流，不能只认 apiKey）。
+ *
+ * options.signal：AbortSignal，调用方可用它做超时中断；中断时抛 AbortError 原样透传。
+ * 空响应统一抛 err.code = "AI_EMPTY_RESPONSE"，并附 diagnoseEmptyChatPayload 诊断线索，
+ * 让调用方能区分「值得重试的空响应」与鉴权/配额类硬错误。
  */
-export async function requestPlainChat(settings, messages, { temperature = 0.5, context = "AI 接口" } = {}) {
+export async function requestPlainChat(settings, messages, { temperature = 0.5, context = "AI 接口", signal } = {}) {
   if (isPlatformMode(settings)) {
     const authRecord = await getAuthRecord();
     const jwt = authRecord?.token;
@@ -1123,9 +1145,11 @@ export async function requestPlainChat(settings, messages, { temperature = 0.5, 
       response = await fetch(`${apiBase}/api/llm/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
-        body: JSON.stringify({ tier, temperature, messages })
+        body: JSON.stringify({ tier, temperature, messages }),
+        signal
       });
     } catch (netErr) {
+      if (netErr?.name === "AbortError") throw netErr;
       const err = new Error(`平台 AI 网络错误：${netErr?.message || "未知"}`);
       err.code = "NETWORK";
       throw err;
@@ -1153,7 +1177,11 @@ export async function requestPlainChat(settings, messages, { temperature = 0.5, 
       throw new Error(payload?.error?.message || payload?.error || `平台 AI 返回错误 ${response.status}`);
     }
     const content = extractChatContent(payload);
-    if (!content) throw new Error("平台 AI 返回内容为空。");
+    if (!content) {
+      const err = new Error("平台 AI 返回内容为空。" + diagnoseEmptyChatPayload(payload));
+      err.code = "AI_EMPTY_RESPONSE";
+      throw err;
+    }
     return content;
   }
 
@@ -1168,12 +1196,16 @@ export async function requestPlainChat(settings, messages, { temperature = 0.5, 
     model,
     temperature,
     messages
-  });
+  }, { signal });
   if (!response.ok) {
     throw new Error(payload?.error?.message || payload?.message || `AI 接口返回错误 ${response.status}`);
   }
   const content = extractChatContent(payload);
-  if (!content) throw new Error("AI 返回内容为空。");
+  if (!content) {
+    const err = new Error("AI 返回内容为空。" + diagnoseEmptyChatPayload(payload));
+    err.code = "AI_EMPTY_RESPONSE";
+    throw err;
+  }
   return content;
 }
 

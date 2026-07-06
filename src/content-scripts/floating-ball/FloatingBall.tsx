@@ -84,6 +84,9 @@ export function FloatingBall() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const [expanded, setExpanded] = useState(false); // 贴边态下 hover 唤醒标志
+  // 「有新草稿可拉」徽标：task-registry 在改写/深度去味任务 done 时广播 RUNBI_DRAFT_READY。
+  // null = 无提示；非 null = 徽标亮（值是文章标题，可为空串）。拉草稿动作即清除。
+  const [draftReadyTitle, setDraftReadyTitle] = useState<string | null>(null);
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<{
@@ -125,6 +128,20 @@ export function FloatingBall() {
     };
     // mpAccount 故意不进 deps：每 500ms 自取就行，进 deps 会无限重建 interval
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── 任务完成推送：改写/深度去味任务 done → 主球亮红点徽标 ──
+  useEffect(() => {
+    const onRuntimeMessage = (message: {
+      type?: string;
+      payload?: { articleTitle?: string };
+    }) => {
+      if (message?.type === "RUNBI_DRAFT_READY") {
+        setDraftReadyTitle(String(message.payload?.articleTitle || ""));
+      }
+    };
+    chrome.runtime.onMessage.addListener(onRuntimeMessage);
+    return () => chrome.runtime.onMessage.removeListener(onRuntimeMessage);
   }, []);
 
   // ── 拖拽（仅纵向）──
@@ -235,6 +252,7 @@ export function FloatingBall() {
 
   // ── 拉草稿 ──
   const triggerPull = useCallback(async (articleId?: string) => {
+    setDraftReadyTitle(null); // 用户已响应「有新草稿」徽标
     try {
       const reply = await sendMessage("PULL_DRAFT_TO_MP_EDITOR", articleId ? { articleId } : {});
       if (reply.ok) {
@@ -291,6 +309,11 @@ export function FloatingBall() {
       : swState.drafts.length > 1
         ? `从润笔工作台取草稿（${swState.drafts.length} 篇可选）`
         : "从润笔工作台取当前激活草稿到 mp 编辑器";
+  // 徽标亮且球可点时，tooltip 直接说"有什么新东西"，比通用说明更有行动力
+  const pullTooltipFinal =
+    draftReadyTitle != null && !pullDisabled
+      ? `润笔有新草稿可拉${draftReadyTitle ? `：《${draftReadyTitle}》` : ""}，点击写入 mp 编辑器`
+      : pullTooltip;
 
   if (!settings) return null; // 还没读到 settings，不渲染（防闪烁）
 
@@ -326,28 +349,30 @@ export function FloatingBall() {
       >
         <Ball
           primary
-          label="砚"
-          tooltip={pullTooltip}
+          icon="📥"
+          label="取草稿"
+          tooltip={pullTooltipFinal}
           disabled={pullDisabled}
           mounted={mounted}
           index={0}
           onClick={onPullClick}
           dotColor={profileDotColor(profileMatch, swState.profile?.targetProfileName)}
           dotTitle={profileDotTitle(profileMatch, mpAccount, swState.profile?.targetProfileName)}
+          badge={draftReadyTitle != null}
         />
-        <Ball label="编" tooltip="打开润笔工作台" mounted={mounted} index={1}
+        <Ball icon="✍️" label="编辑台" tooltip="打开润笔工作台（写 / 改 / 排版）" mounted={mounted} index={1}
           onClick={() =>
             void sendMessage("OPEN_EXTENSION_PAGE", { path: "src/workspace/workspace.html" })
           } />
-        <Ball label="热" tooltip="热点抓题" mounted={mounted} index={2}
+        <Ball icon="🔥" label="热点" tooltip="热点抓题（找选题）" mounted={mounted} index={2}
           onClick={() =>
             void sendMessage("OPEN_EXTENSION_PAGE", { path: "src/pages/hot-topics.html" })
           } />
-        <Ball label="设" tooltip="打开设置" mounted={mounted} index={3}
+        <Ball icon="⚙️" label="设置" tooltip="打开设置" mounted={mounted} index={3}
           onClick={() =>
             void sendMessage("OPEN_EXTENSION_PAGE", { path: "src/options/options.html" })
           } />
-        <Ball label="问" tooltip="帮助与教程" mounted={mounted} index={4}
+        <Ball icon="❓" label="帮助" tooltip="帮助与教程" mounted={mounted} index={4}
           onClick={() =>
             void sendMessage("OPEN_EXTENSION_PAGE", { path: "src/pages/help.html" })
           } />
@@ -417,6 +442,9 @@ export function FloatingBall() {
 
 type BallProps = {
   primary?: boolean;
+  /** 球内 emoji 图标（📥/✍️/🔥/⚙️/❓，与 vanilla strip 同一套） */
+  icon: string;
+  /** 球下常驻小字功能名（取草稿/编辑台/热点/设置/帮助）——不靠 hover 也能感知功能 */
   label: string;
   tooltip: string;
   disabled?: boolean;
@@ -425,12 +453,32 @@ type BallProps = {
   onClick: () => void;
   dotColor?: string;
   dotTitle?: string;
+  /** 「有新草稿可拉」红点徽标（左上角，与右上角 profile 状态点错开） */
+  badge?: boolean;
 };
+
+// 与 vanilla strip 的 .rb-ball-emoji 同一 emoji 字体栈，保证两套实现渲染一致
+const EMOJI_FONT =
+  '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 
 function Ball(props: BallProps) {
   const isPrimary = !!props.primary;
   const size = isPrimary ? PRIMARY_SIZE : SECONDARY_SIZE;
   return (
+    // 入场动画（opacity + translateX + stagger）在 cell 层做，让球和小字一起滑入；
+    // hover 的 scale 反馈仍留在 button 上，避免放大时把小字也一起顶开。
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "2px",
+        opacity: props.mounted ? 1 : 0,
+        transform: props.mounted ? "translateX(0)" : "translateX(-5px)",
+        transition: `opacity ${ENTER_DURATION}ms ${tokens.easeOut}, transform ${ENTER_DURATION}ms ${tokens.easeOut}`,
+        transitionDelay: props.mounted ? `${props.index * STAGGER_MS}ms` : "0ms"
+      }}
+    >
     <button
       type="button"
       title={props.tooltip}
@@ -450,7 +498,7 @@ function Ball(props: BallProps) {
         background: isPrimary ? tokens.brand : tokens.surfaceElevated,
         border: `1px solid ${isPrimary ? tokens.brand : tokens.line}`,
         color: isPrimary ? tokens.cream : tokens.brand,
-        fontFamily: tokens.fontSerif,
+        fontFamily: EMOJI_FONT,
         fontWeight: 700,
         fontSize: isPrimary ? "20px" : "16px",
         lineHeight: 1,
@@ -458,29 +506,27 @@ function Ball(props: BallProps) {
         alignItems: "center",
         justifyContent: "center",
         cursor: props.disabled ? "not-allowed" : "pointer",
-        opacity: props.disabled ? 0.5 : props.mounted ? 1 : 0,
+        opacity: props.disabled ? 0.5 : 1,
         padding: 0,
         outline: 0,
         position: "relative",
         boxShadow: isPrimary ? tokens.ballShadowPrimary : tokens.ballShadowSecondary,
-        transition: `opacity ${ENTER_DURATION}ms ${tokens.easeOut}, transform ${ENTER_DURATION}ms ${tokens.easeOut}, box-shadow 220ms ${tokens.easeOut}, background 180ms ${tokens.easeOut}, border-color 180ms ${tokens.easeOut}, color 180ms ${tokens.easeOut}`,
-        transform: props.mounted ? "translateX(0)" : "translateX(-5px)",
-        transitionDelay: props.mounted ? `${props.index * STAGGER_MS}ms` : "0ms"
+        transition: `transform ${ENTER_DURATION}ms ${tokens.easeOut}, box-shadow 220ms ${tokens.easeOut}, background 180ms ${tokens.easeOut}, border-color 180ms ${tokens.easeOut}, color 180ms ${tokens.easeOut}`
       }}
       onMouseEnter={(e) => {
         if (props.disabled) return;
-        e.currentTarget.style.transform = "translateX(0) scale(1.08)";
+        e.currentTarget.style.transform = "scale(1.08)";
         e.currentTarget.style.boxShadow = tokens.shadowLg;
       }}
       onMouseLeave={(e) => {
         if (props.disabled) return;
-        e.currentTarget.style.transform = "translateX(0) scale(1)";
+        e.currentTarget.style.transform = "scale(1)";
         e.currentTarget.style.boxShadow = isPrimary
           ? tokens.ballShadowPrimary
           : tokens.ballShadowSecondary;
       }}
     >
-      {props.label}
+      <span aria-hidden="true">{props.icon}</span>
       {props.dotColor && (
         <span
           title={props.dotTitle || ""}
@@ -498,7 +544,38 @@ function Ball(props: BallProps) {
           }}
         />
       )}
+      {props.badge && (
+        <span
+          style={{
+            position: "absolute",
+            top: "1px",
+            left: "1px",
+            width: "10px",
+            height: "10px",
+            borderRadius: "50%",
+            background: "#e5484d",
+            border: `2px solid ${tokens.cream}`,
+            boxShadow: "0 0 0 1px rgba(28,38,32,0.10)",
+            pointerEvents: "none"
+          }}
+        />
+      )}
     </button>
+    <span
+      style={{
+        fontSize: "10px",
+        lineHeight: 1,
+        fontWeight: 600,
+        color: tokens.inkSecondary,
+        fontFamily: tokens.fontSans,
+        whiteSpace: "nowrap",
+        pointerEvents: "none",
+        letterSpacing: "0.2px"
+      }}
+    >
+      {props.label}
+    </span>
+    </div>
   );
 }
 
