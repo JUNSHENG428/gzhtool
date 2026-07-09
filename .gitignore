@@ -44,3 +44,7 @@ docs/JOURNEY_REPORT.md
 
 # Claude Code 个人偏好（项目级 .claude/launch.json 等仍可 commit）
 .claude/settings.local.json
+
+.dev.vars*
+!.dev.vars.example
+!.env.example
