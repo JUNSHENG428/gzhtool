@@ -24,7 +24,9 @@ import {
   isEditorBodySubstantiveForRewrite,
   requestComplianceRewrite,
   requestHumanizeJudge,
-  requestDeepHumanizeRewrite
+  requestDeepHumanizeRewrite,
+  requestInsightJudge,
+  requestInsightRewrite
 } from "../shared/ai.js";
 import { scanCompliance, parseCustomComplianceTerms } from "../shared/compliance-checker.js";
 import { applyCachedComplianceRules } from "../shared/compliance-remote.js";
@@ -251,6 +253,14 @@ export function init(ctx) {
     void runDeepHumanize();
   });
 
+  // 「提升思想密度」按钮（付费 · AI 主编评审平庸段落 + 定向重写；防抖在 click handler，反例 #13）
+  document.querySelector("#insightBoostBtn")?.addEventListener("click", () => {
+    const now = Date.now();
+    if (now - _lastInsightBoostClickAt < REWRITE_CLICK_DEBOUNCE_MS) return;
+    _lastInsightBoostClickAt = now;
+    void runInsightBoost();
+  });
+
   // 「去 AI 味」开关 chip：与 settings.humanizeEnabled 双向绑定
   initHumanizeToggleChip();
 
@@ -423,6 +433,7 @@ const REWRITE_CLICK_DEBOUNCE_MS = 1000;
 let _lastRewriteClickAt = 0;
 let _lastComplianceClickAt = 0;
 let _lastDeepHumanizeClickAt = 0;
+let _lastInsightBoostClickAt = 0;
 
 /**
  * 44th · 同一篇文章已有 in-flight 改写任务时拒绝再排一单。
@@ -852,6 +863,178 @@ export async function applyDeepHumanizeTaskResult(task) {
       }）`;
     }
     setStatus?.("深度去 AI 味完成，请通读核对事实与语义后再发布。", "success");
+  }
+}
+
+/**
+ * 提升思想密度（内容层二次增强，与 runDeepHumanize 同构）：
+ *  1) AI 主编评审：找出正确的废话 / 骑墙 / 无代价判断 / 伪具体（本地 lintInsight 命中先喂给它当已知靶子）
+ *  2) 拿 findings（含改法建议）定向重写——允许把骑墙改成表态，但新表态必须由文中已有事实支撑
+ *  3) sanitize 写回
+ * 复用 ai.deAiBoost 付费闸门（同属「AI 二次增强」权益桶）；用户点按钮才触发，消耗 2 次 AI 调用。
+ */
+export async function runInsightBoost() {
+  const { setStatus, showLoading, hideLoading, state, getCurrentArticle, syncCurrentArticleFromControls } =
+    _ctx;
+  const editorEl = document.querySelector("#editor");
+  const resultEl = document.querySelector("#deepHumanizeResult");
+  if (!editorEl) return;
+
+  const access = await checkDeAiBoostAccess();
+  if (!access.ok) {
+    const meta = PAID_FEATURES["ai.deAiBoost"];
+    showUpgradeModal({
+      featureName: "提升思想密度",
+      hint: access.hint || meta?.hint || "提升思想密度是会员功能。",
+      bullets: [
+        "AI 主编枪毙「正确的废话」和骑墙表述，把描述改成有代价分析的判断",
+        "免费版仍可用主改写自带的写作质量约束"
+      ]
+    });
+    return;
+  }
+
+  syncCurrentArticleFromControls?.();
+  const bodyHtml = editorEl.innerHTML || "";
+  if (!bodyHtml.trim()) {
+    setStatus?.("正文为空，无法提升思想密度。", "warning");
+    return;
+  }
+
+  const current = getCurrentArticle?.() || {};
+  const useTaskCenter = state?.settings?.useTaskCenter !== false;
+  const requestId = `ib-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  if (useTaskCenter) {
+    setStatus?.("已加入「提升思想密度」后台任务，可继续编辑——进度见右下角任务中心。", "info");
+    if (resultEl) resultEl.textContent = "后台处理中…";
+  } else {
+    showLoading?.("AI 主编正在评审…", "找出平庸段落和骑墙表述，再定向重写，通常 20–60 秒。");
+    if (resultEl) resultEl.textContent = "评审中…";
+  }
+
+  try {
+    if (useTaskCenter) {
+      const response = await chrome.runtime.sendMessage({
+        type: "INSIGHT_BOOST",
+        payload: {
+          bodyHtml,
+          requestId,
+          articleId: current.id || "",
+          articleTitle: current.meta?.title?.trim() || "未命名"
+        }
+      });
+
+      if (!response?.ok) {
+        const code = response?.errorCode || response?.error?.code;
+        if (code === "CANCELLED") {
+          setStatus?.("已取消思想密度提升。", "info");
+        } else if (code === "AUTH_REQUIRED" || code === "AUTH_EXPIRED") {
+          setStatus?.("请先登录润笔账户再使用思想密度提升（设置页 → 我的会员）。", "warning");
+        } else if (code === "PLATFORM_QUOTA_EXCEEDED") {
+          setStatus?.("本月平台 AI 额度已用完，可升级会员或改用自定义 API Key。", "warning");
+        } else {
+          const msg =
+            typeof response?.error === "string"
+              ? response.error
+              : response?.error?.message || "未知错误";
+          setStatus?.(`思想密度提升失败：${msg}`, "error");
+        }
+        if (resultEl) resultEl.textContent = "";
+        return;
+      }
+      return;
+    }
+
+    const settings = await getSettings();
+    const judge = await requestInsightJudge(settings, bodyHtml);
+    if (resultEl) resultEl.textContent = `主编评分 ${judge.score}/100，正在重写…`;
+    const rewritten = await requestInsightRewrite(settings, bodyHtml, judge.findings);
+    const clean = preserveImagesInRewrittenHtml(bodyHtml, sanitizeHtml(rewritten));
+    if (!clean || !clean.trim()) {
+      setStatus?.("思想密度提升没有返回有效内容，请重试。", "warning");
+      return;
+    }
+    editorEl.innerHTML = clean;
+    if (typeof _ctx?.onWorkspaceInput === "function") _ctx.onWorkspaceInput();
+    else editorEl.dispatchEvent(new Event("input", { bubbles: true }));
+    if (resultEl) {
+      resultEl.textContent = `已完成（主编原评分 ${judge.score}/100${
+        judge.verdict ? " · " + judge.verdict : ""
+      }）`;
+    }
+    setStatus?.("思想密度提升完成——观点变锋利了，请通读确认表态符合你的立场再发布。", "success");
+  } catch (err) {
+    const code = err?.code;
+    if (code === "AUTH_REQUIRED" || code === "AUTH_EXPIRED") {
+      setStatus?.("请先登录润笔账户再使用思想密度提升（设置页 → 我的会员）。", "warning");
+    } else if (code === "PLATFORM_QUOTA_EXCEEDED") {
+      setStatus?.("本月平台 AI 额度已用完，可升级会员或改用自定义 API Key。", "warning");
+    } else {
+      setStatus?.(`思想密度提升失败：${err?.message || "未知错误"}`, "error");
+    }
+    if (resultEl) resultEl.textContent = "";
+  } finally {
+    if (!useTaskCenter) {
+      hideLoading?.();
+    }
+  }
+}
+
+/**
+ * 任务中心异步完成后的写回（与 applyDeepHumanizeTaskResult 同构）。
+ */
+export async function applyInsightBoostTaskResult(task) {
+  const result = task?.result;
+  if (!result?.bodyHtml) return;
+
+  const {
+    state,
+    applyCurrentArticleToControls,
+    syncWorkspace,
+    schedulePersist,
+    setStatus
+  } = _ctx;
+
+  const articleId = task.articleId || result.articleId || "";
+  const idx = articleId ? state.articleBundle.findIndex((a) => a.id === articleId) : -1;
+  if (idx < 0) {
+    setStatus?.(
+      `《${task.articleTitle || "未命名"}》思想密度提升已完成，但目标稿件已删除，结果未写回。`,
+      "warning"
+    );
+    return;
+  }
+
+  const sourceBodyHtml = result.sourceBodyHtml || "";
+  const clean = preserveImagesInRewrittenHtml(
+    sourceBodyHtml,
+    sanitizeHtml(result.bodyHtml)
+  );
+  if (!clean || !clean.trim()) return;
+
+  const target = state.articleBundle[idx];
+  target.bodyHtml = clean;
+  schedulePersist();
+
+  const judge = result.judge || {};
+  const resultEl = document.querySelector("#deepHumanizeResult");
+
+  if (state.currentArticleIndex === idx) {
+    const editorEl = document.querySelector("#editor");
+    if (editorEl) {
+      editorEl.innerHTML = clean;
+      if (typeof _ctx?.onWorkspaceInput === "function") _ctx.onWorkspaceInput();
+      else editorEl.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    applyCurrentArticleToControls?.();
+    syncWorkspace?.();
+    if (resultEl) {
+      resultEl.textContent = `已完成（主编原评分 ${judge.score ?? "?"}/100${
+        judge.verdict ? " · " + judge.verdict : ""
+      }）`;
+    }
+    setStatus?.("思想密度提升完成——观点变锋利了，请通读确认表态符合你的立场再发布。", "success");
   }
 }
 

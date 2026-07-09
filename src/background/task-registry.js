@@ -21,7 +21,8 @@ const STORAGE_KEY = "__task_registry";
 const MAX_PARALLEL_BY_TYPE = {
   rewrite: 2,
   capture: 2,
-  deepHumanize: 2
+  deepHumanize: 2,
+  insightBoost: 2
 };
 
 const RECENT_DONE_LIMIT = 5;
@@ -148,7 +149,7 @@ export function completeTask(taskId, { status, error, result } = {}) {
 // 改写 / 深度去味任务成功后主动通知所有 mp 后台 tab，浮球亮徽标提示可拉新草稿，
 // 用户在 mp 后台等任务时不用切回编辑台确认。尽力而为：mp tab 不存在 / content script
 // 未注入 / 浮球未开启都静默忽略，不影响任务主流程。
-const DRAFT_READY_TASK_TYPES = new Set(["rewrite", "deepHumanize"]);
+const DRAFT_READY_TASK_TYPES = new Set(["rewrite", "deepHumanize", "insightBoost"]);
 
 function notifyMpTabsDraftReady(task) {
   if (task?.status !== "done" || !DRAFT_READY_TASK_TYPES.has(task?.type)) return;

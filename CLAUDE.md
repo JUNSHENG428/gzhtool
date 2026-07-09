@@ -16,13 +16,17 @@
 
 ---
 
-## 当前焦点（更新于 2026-07-06 · 49th 续 session）
+## 当前焦点（更新于 2026-07-09 · 50th session）
 
-**49th 续 · AI 选题规划平台模式修复（反例 #36 第四例）**：`runTopicPlanning` 只走 BYOK 直连 + 前端权限只认 `apiBaseUrl`，平台 AI 用户报「AI 返回内容为空」。修成 `requestPlainChat` 模式分流（+signal 超时 / `AI_EMPTY_RESPONSE` 诊断）+ 空响应/解析失败 80s 预算内自动重试 1 次 + 错误分码文案 + `ensureAiHostPermissionFromGesture` + 生成中可收起 + loading 三阶段进度点；smoke +2 断言锁死。判定原则升级：**新增 AI 调用入口前必须 grep `apiBaseUrl`/`apiKey`/`aiSourceMode` 确认分流**。详见 progress.md 顶部「49th 续」段。
+**50th · 思想密度落库 + 金句卡片扩展 + 选题空响应排查收尾**：① `insight-rules.js` / 立论 pass / `INSIGHT_BOOST` 从待 commit 落库；② 金句卡片：`comic-prompt.js` + 种草文案/封面标题 AI 链 + 9 主题 + `CARD_FONTS` 文字编辑器 + 封面卡，PNG 去 hook/水印；③ BYOK 选题空响应排查（200 空 payload，上游偶发；埋点已清）。详见 progress.md「50th」段。
+
+历史 · **48th 并发 · 续 · 思想密度流水线**：`insight-rules.js` + 立论 pass + `INSIGHT_BOOST`（闸门复用 ai.deAiBoost）。**✅ 50th 已落库**。后续：观点注入 → lint badge → 多源素材 → 黄金评测集。
+
+历史 · **49th 续 · AI 选题规划平台模式修复（反例 #36 第四例）**：`runTopicPlanning` 只走 BYOK 直连 + 前端权限只认 `apiBaseUrl`，平台 AI 用户报「AI 返回内容为空」。修成 `requestPlainChat` 模式分流（+signal 超时 / `AI_EMPTY_RESPONSE` 诊断）+ 空响应/解析失败 80s 预算内自动重试 1 次 + 错误分码文案 + `ensureAiHostPermissionFromGesture` + 生成中可收起 + loading 三阶段进度点；smoke +2 断言锁死。判定原则升级：**新增 AI 调用入口前必须 grep `apiBaseUrl`/`apiKey`/`aiSourceMode` 确认分流**。详见 progress.md 顶部「49th 续」段。
 
 历史 · **全面优化 + Chrome Web Store 上线前准备**（16 commits）：Phase 0 基线固化 + 增强抓取调用契约修复（`0a1a7e9`，`__gzhRunCapture` 不存在从未跑通）+ deepHumanize 任务中心（`adf1702`）→ Phase 1 阻塞项（privacy §3.1 / 版本漂移 / helper 日志脱敏 / 删 WAR）→ Phase 2 全栈（**Worker 虎皮椒+Lemon webhook 幂等原子占坑 `885435f`+`7e60318` 待 `wrangler deploy`**；官网 4 页 SKU 硬错误）→ Phase 3 上架（zip 6.14MB ⚠️ 混入并发会话 WIP 须重跑 release:cws；D 节 7 组真机用例；19 条 host 权限用途表）。反例增至 **41 条**（#40 perf 基准 harness 底噪对照 / #41 webhook 幂等原子占坑）。详见 [progress.md](memory-bank/progress.md) 顶部 48th 段。
 
-**48th 并发会话（同日）· 杂志母版×4 + 改写提示词手艺层 + 推送防串号三件套 + 浮球直观化（全绿待 commit）**：即上面待办 ③ 的实体。新增 4 套母版（FT 财经鲑鱼/Kinfolk 奶油慢刊/arXiv 学术手稿/Esquire 鎏金夜话）；`CRAFT_QUALITY_RULES` 注入改写+创作双 prompt；浏览器 Push 写入前账号比对（`WECHAT_BROWSER_ACCOUNT_MISMATCH`，清掉「Pull 有 Push 没有」）+ 字段级写入反馈 + banner 未保存警示 + `RUNBI_DRAFT_READY` 浮球红点；React 浮球对齐 emoji+小字。反例增至 **42 条**（#42 innerHTML 整体重建的组件禁事后 DOM append 装饰元素）。详见 progress.md 顶部「48th 并发会话」段。
+**48th 并发会话（同日）· 杂志母版×4 + 改写提示词手艺层 + 推送防串号三件套 + 浮球直观化**：新增 4 套母版；`CRAFT_QUALITY_RULES`；Push 账号比对 + 字段级反馈 + 浮球红点。反例 **42**。详见 progress.md「48th 并发会话」段。
 
 历史 · **47th（2026-06-17）AI 文章字段对象化 `[object Object]` 修复**：`normalizeArticle`/`normalizeGeneratedText` 边界归一化 + `test-article-normalization` 接入 npm test（反例 #39）。详见 progress.md 47th 段。
 
@@ -32,14 +36,15 @@
 
 近期（44th 系列，已 push）：核心三链路审计 47 项 → 三波修复清零（`187d712`→`a8f8fe5`→`5ae0e70`）+ 文风指纹提取平台模式修复（`59a6a79`，反例 #36 第三例）。43rd：设置页重塑年费闸门四批次 + `docs/COPY_GLOSSARY.md` 文案 SSOT。反例约定增至 **38 条**（#38：仓库根=扩展根，`_` 前缀目录让 Chrome 拒载整个扩展，临时工件一律进 `dist/`）。
 
-待办候选（48th 后，前四条有先后）：
+待办候选（50th 后，前四条有先后）：
 - **① `cd server && wrangler deploy`**（`885435f`+`7e60318` 两个 webhook 幂等修复待上线）
-- **② 真机验收** `docs/MANUAL_VERIFY_CHECKLIST.md` D1–D7（覆盖旧「排版真机/锁定弹窗/文风/S2/轮询」各条）
-- **③ 并发会话改动定稿提交后重跑 `npm run release:cws`** 出干净 zip（当前 zip 混入 WIP）→ 实测 + $5 注册上架（并发会话改动已定稿全绿，剩 commit + 重打包）
+- **② 真机验收** `docs/MANUAL_VERIFY_CHECKLIST.md` D1–D7 + 立论/思想密度/金句新面板
+- **③ 重跑 `npm run release:cws`** 出干净 zip（思想密度+金句扩展已落库）→ 实测 + $5 注册上架
 - ④ helper 下次发版 bump version.py 0.2.0→0.3.0（含 Inbox 归档/批量抓取/契约修复/日志脱敏增量）
-- ~~Push 同步 mp 登录账号比对（Pull 有，Push 没有）~~ ✅ 已决：48th 并发会话落地 `assertMpAccountMatches` + `WECHAT_BROWSER_ACCOUNT_MISMATCH`，见 progress.md「48th 并发会话」段；UX 遗留：改写成果卡 / 额度 80% 提醒 / 免登录试用
+- ~~Push 同步 mp 登录账号比对（Pull 有，Push 没有）~~ ✅ 已决：48th 并发会话落地 `assertMpAccountMatches` + `WECHAT_BROWSER_ACCOUNT_MISMATCH`；UX 遗留：改写成果卡 / 额度 80% 提醒 / 免登录试用
 - 金句手动编辑/增删（当前纯 AI 提炼）；issueProLicense 按 sourceOrderId 幂等第二道保险；官网「开通 Pro 会员」CTA 按 COPY_GLOSSARY 退场
 - **本地排版结构 lint** / **基础配图能力** / Phase 6 设备反伪造 / admin dashboard / activeContext.md archive 切分
+- 思想密度后续：观点注入 → lintInsight badge → 多源素材 → 黄金评测集
 
 ---
 
@@ -165,3 +170,5 @@ cd desktop && python build.py   # 桌面助手打包（需 python.org Python，�
 - 2026-07-06 48th session：当前焦点更新为全面优化 + CWS 上线前准备（16 commits，Phase 0–3）；反例约定 39→41 条（#40 perf harness 底噪 / #41 webhook 幂等原子占坑）；待办候选重排（wrangler deploy → 真机 D1–D7 → 重跑 release:cws → helper 0.3.0）
 - 2026-07-06 48th 并发会话：追加当前焦点段（杂志母版×4 / CRAFT_QUALITY_RULES 双 prompt / Push 账号比对+字段级反馈+未保存警示+浮球红点 / React 浮球对齐 emoji+小字）；反例 41→42 条（#42 innerHTML 重建组件禁事后 append 装饰元素）；待办「Push 账号比对」标记已落地
 - 2026-07-06 49th 续 session：当前焦点更新为 AI 选题规划平台模式修复（反例 #36 第四例：runTopicPlanning 只认 apiKey → requestPlainChat 模式分流 + 自动重试 + 错误分码 + loading 三阶段进度）；工作区四股改动（48th 并发 / 49th E2E+文案 / 热点源多实例 / 本修复）分组 commit 落库
+- 2026-07-06 48th 并发 · 续：当前焦点更新为思想密度流水线（insight-rules.js 单一真源 / 立论 pass requestThesisBrief + buildRewriteMessages 第 6 参 / INSIGHT_BOOST 思想批评 pass 镜像 deepHumanize / 闸门复用 ai.deAiBoost）；smoke +insight 4 case；待 commit 9+1 文件
+- 2026-07-09 50th session：当前焦点更新为思想密度落库 + 金句卡片扩展（comic-prompt / 种草文案 / 封面标题 / 9 主题 / CARD_FONTS 文字编辑器）+ 选题空响应排查收尾；待办重排（wrangler deploy → 真机 → release:cws）

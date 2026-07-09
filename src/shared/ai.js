@@ -9,6 +9,8 @@ import {
   getHumanizeProfile,
   getTopRuleCards
 } from "./humanize-rules.js";
+import { INSIGHT_PRESSURE_RULES, lintInsight } from "./insight-rules.js";
+import { repairComicData } from "./comic-prompt.js";
 import { ensureOptionalHostPermission } from "./host-permissions.js";
 import { normalizeText } from "./utils.js";
 // 39th session · 平台 LLM 代理（reverse gating）
@@ -196,8 +198,11 @@ function buildBlocksFromBodyHtml(bodyHtml, images) {
  * @param {object} [template]        当前激活的 prompt 模板
  * @param {object} [voiceSample]     可选的「我的文风」样本（已抽取过 fingerprint）
  *                                   stage 3 注入；为 null 时不影响任何已有行为。
+ * @param {object} [thesisBrief]     可选的「立论骨架」（requestThesisBrief 产出）。
+ *                                   非空时以独立 system message 注入，要求成稿围绕骨架展开；
+ *                                   为 null 时不影响任何已有行为（立论失败降级为普通改写）。
  */
-export function buildRewriteMessages(source, preferences, settings, template, voiceSample = null) {
+export function buildRewriteMessages(source, preferences, settings, template, voiceSample = null, thesisBrief = null) {
   const snapshot = createSourceSnapshot(source);
   const requestedLength = LENGTH_LABELS[preferences.length] || LENGTH_LABELS.medium;
   // 45th 续 · 自拟主题创作模式：source 不是网页采集物，而是用户填的「主题 + 想法要点」。
@@ -251,6 +256,9 @@ export function buildRewriteMessages(source, preferences, settings, template, vo
       role: "system",
       content: buildHardConstraintMessage(requestedLength, template)
     });
+    if (thesisBrief) {
+      messages.push({ role: "system", content: buildThesisBriefMessage(thesisBrief) });
+    }
     if (effectiveVoiceSample) {
       messages.push({
         role: "system",
@@ -290,6 +298,9 @@ export function buildRewriteMessages(source, preferences, settings, template, vo
     role: "system",
     content: buildHardConstraintMessage(requestedLength, template)
   });
+  if (thesisBrief) {
+    messages.push({ role: "system", content: buildThesisBriefMessage(thesisBrief) });
+  }
   if (effectiveVoiceSample) {
     messages.push({
       role: "system",
@@ -298,6 +309,27 @@ export function buildRewriteMessages(source, preferences, settings, template, vo
   }
   messages.push({ role: "user", content: userPrompt });
   return messages;
+}
+
+/**
+ * 把立论骨架翻译成 system message。骨架来自 requestThesisBrief 的前置分析调用——
+ * 文章有没有思想在立论这一步就决定了，成稿只是把骨架长肉，所以这条 message
+ * 用「必须围绕」的强约束语气，并附思想密度正向压力规则。
+ */
+function buildThesisBriefMessage(brief) {
+  const lines = ["【立论骨架（先前分析产出，成稿必须围绕它展开，不得偏题另立）】", ""];
+  if (brief.thesis) lines.push(`- 核心判断（thesis，全文主轴）：${brief.thesis}`);
+  if (brief.angle) lines.push(`- 切入角度：${brief.angle}`);
+  if (Array.isArray(brief.argumentChain) && brief.argumentChain.length) {
+    lines.push("- 论证链（按此顺序推进）：");
+    brief.argumentChain.forEach((step, i) => lines.push(`  ${i + 1}. ${step}`));
+  }
+  if (brief.counterView) lines.push(`- 必须正面回应的反方观点：${brief.counterView}`);
+  if (brief.stakes) lines.push(`- 代价与输家分析：${brief.stakes}`);
+  if (brief.forecast) lines.push(`- 可验证推断（写进结尾附近）：${brief.forecast}`);
+  lines.push("");
+  lines.push(INSIGHT_PRESSURE_RULES);
+  return lines.join("\n");
 }
 
 /**
@@ -668,7 +700,7 @@ async function requestRewriteViaPlatform(settings, source, preferences, template
   if (!tier) tier = "economy";
 
   // 3. 拼 OpenAI-compatible body（messages + 采样参数完全复用 BYOK 同源逻辑）
-  const messages = buildRewriteMessages(source, preferences, settings, template, voiceSample);
+  const messages = buildRewriteMessages(source, preferences, settings, template, voiceSample, options.thesisBrief || null);
   const temperatureSource =
     template && template.temperature != null && template.temperature !== ""
       ? template.temperature
@@ -807,7 +839,7 @@ async function requestRewriteViaPlatformStreaming(settings, source, preferences,
   }
   if (!tier) tier = "economy";
 
-  const messages = buildRewriteMessages(source, preferences, settings, template, voiceSample);
+  const messages = buildRewriteMessages(source, preferences, settings, template, voiceSample, options.thesisBrief || null);
   const temperatureSource =
     template && template.temperature != null && template.temperature !== ""
       ? template.temperature
@@ -958,13 +990,30 @@ async function requestRewriteViaPlatformStreaming(settings, source, preferences,
 }
 
 export async function requestRewrite(settings, source, preferences, template, voiceSample = null, options = {}) {
+  // 立论 pass（preferences.deepThesis 触发，多一次 AI 调用）：先想清楚再动笔。
+  // 尽力而为——立论失败（解析/超时/额度）静默降级为普通改写，绝不阻塞主链路；
+  // 取消信号（options.signal）原样透传，用户取消时立论也一起中断。
+  let thesisBrief = null;
+  if (preferences?.deepThesis) {
+    options.onProgress?.({ phase: "thesis", current: 0, total: 1 });
+    try {
+      thesisBrief = await requestThesisBrief(settings, source, preferences, {
+        signal: options.signal
+      });
+    } catch (err) {
+      if (err?.name === "AbortError" || err?.code === "CANCELLED") throw err;
+      thesisBrief = null;
+    }
+  }
+  const optionsWithThesis = thesisBrief ? { ...options, thesisBrief } : options;
+
   // 39th session · 平台 LLM 代理分支（aiSourceMode === "platform"）
   if (isPlatformMode(settings)) {
     // 39th 续 · Phase 3 · 流式开关（settings.platformStreaming 默认 false）
     if (settings?.platformStreaming) {
-      return requestRewriteViaPlatformStreaming(settings, source, preferences, template, voiceSample, options);
+      return requestRewriteViaPlatformStreaming(settings, source, preferences, template, voiceSample, optionsWithThesis);
     }
-    return requestRewriteViaPlatform(settings, source, preferences, template, voiceSample, options);
+    return requestRewriteViaPlatform(settings, source, preferences, template, voiceSample, optionsWithThesis);
   }
 
   // 39th session · BYOK 闸门：年费独享
@@ -993,7 +1042,8 @@ export async function requestRewrite(settings, source, preferences, template, vo
     preferences,
     settings,
     template,
-    voiceSample
+    voiceSample,
+    optionsWithThesis.thesisBrief || null
   );
   const model =
     String(template?.model || "").trim() || String(settings.model || "").trim();
@@ -1301,6 +1351,325 @@ export async function requestPunchlines(settings, bodyHtmlOrText, { max = 5 } = 
     if (out.length >= Math.max(1, Math.min(8, max))) break;
   }
   return out;
+}
+
+/**
+ * 吸睛封面标题：从正文里生成 5-6 个适合做成「封面卡片」的抓眼球标题。
+ * 每个标题附带钩子类型标签（痛点型 / 反直觉 / 数字型等），供封面卡片顶部徽章展示。
+ * 走 requestPlainChat 复用平台/BYOK 双路由（反例 #36）。
+ *
+ * @param {object} settings 用户设置
+ * @param {string} bodyHtmlOrText 正文 HTML 或纯文本
+ * @param {object} [opts] { max = 6 }
+ * @returns {Promise<Array<{title:string, hook:string}>>}
+ */
+export async function requestCoverTitles(settings, bodyHtmlOrText, { max = 6 } = {}) {
+  const text = stripHtmlToPlain(bodyHtmlOrText);
+  if (!text) throw new Error("正文为空，无法生成封面标题。");
+  const cap = Math.max(3, Math.min(8, max));
+  const sys = [
+    "你是公众号 / 小红书爆款标题专家。从给定文章里生成最适合做成「封面卡片」的吸睛标题。",
+    "要求：",
+    "1. 每个标题 12-24 字，独立成立、有点击欲，适合印在封面图上。",
+    "2. 标题必须忠于文章核心观点，不得编造文中没有的事实、数据或结论。",
+    "3. 钩子类型 hook 从以下选：痛点型、反直觉、数字型、故事型、悬念型、对比型、共鸣型。",
+    "4. 5-6 个标题风格要多样，避免句式雷同；按吸睛程度从强到弱排序。",
+    "5. 不要写「震惊」「必看」等廉价词，用信息密度和角度取胜。",
+    `6. 最多 ${cap} 个，宁缺毋滥。`,
+    "只输出合法 JSON，不要解释、不要 markdown 代码块：",
+    '{ "titles": [{ "title": "吸睛标题", "hook": "反直觉" }, ...] }'
+  ].join("\n");
+  const content = await requestPlainChat(
+    settings,
+    [
+      { role: "system", content: sys },
+      { role: "user", content: text.slice(0, 8000) }
+    ],
+    { temperature: 0.85, context: "封面标题接口" }
+  );
+  const parsed = extractJson(content) || {};
+  const raw = Array.isArray(parsed.titles) ? parsed.titles : [];
+  const seen = new Set();
+  const out = [];
+  for (const item of raw) {
+    const title = String(item?.title || item || "")
+      .trim()
+      .replace(/^[「"'']+|[」"'']+$/g, "")
+      .trim();
+    if (!title || title.length < 6) continue;
+    if (seen.has(title)) continue;
+    seen.add(title);
+    const hook = String(item?.hook || "").trim().replace(/型$/, "").slice(0, 8);
+    out.push({ title: title.slice(0, 36), hook });
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+/**
+ * 逻辑链漫画拆解：把正文（或话题）拆成一张「逻辑链漫画信息图」的结构化数据，
+ * 供 comic-prompt.js buildComicPrompt() 拼出可直接投喂文生图模型的中文 prompt。
+ * 移植自 prompt-forge，走 requestPlainChat 复用平台/BYOK 双路由（反例 #36）。
+ *
+ * @param {object} settings 用户设置（同 requestRewrite）
+ * @param {string} bodyHtmlOrText 正文 HTML / 纯文本 / 话题短句
+ * @param {object} [opts] { template = "auto", signal }
+ * @returns {Promise<object>} 结构化数据（已过 repairComicData 归一化）
+ */
+export async function requestComicChain(settings, bodyHtmlOrText, { template = "auto", signal } = {}) {
+  const text = stripHtmlToPlain(bodyHtmlOrText);
+  if (!text) throw new Error("正文为空，无法拆解逻辑链。");
+  const sys = [
+    "你是一位「逻辑链漫画信息图」结构化设计助手。",
+    "你的任务是把用户给出的【文章内容】提炼成一张可视化逻辑链漫画的结构化数据，并选择最合适的布局模板。",
+    "",
+    "# 可选模板（4 种）",
+    "1. circular（环形闭环）：6-8 个节点围成圆，中心放代表\"应对力量\"的吉祥物。适用于因果循环、闭环逻辑、恶性循环类话题。",
+    "2. horizontal（横向 Stage）：Stage 1→2→3→4 横向流转，每个 Stage 一张大卡片。适用于传导链路、数据传导、A→B→C 的过程。",
+    "3. matrix（矩阵分层）：多行多列，每行是一个逻辑层级（如根因→传导→症状→恶性循环）。适用于多维度深度分析、复杂系统问题。",
+    "4. columns（多列分组）：多个 Stage 列，每列纵向堆叠多张卡片。适用于改革举措、方案对比、问题→举措→效果→目标。",
+    "",
+    "# 选择规则",
+    template === "auto"
+      ? "- 请根据文章的逻辑特征自选最合适的模板。"
+      : `- 用户已指定模板：${template}，请直接使用它。`,
+    "- 节点数量建议：circular 6-8 个；horizontal 3-5 个 Stage；matrix 3-4 行每行 2-4 节点；columns 3-4 列每列 2-4 卡片。",
+    "",
+    "# 必须遵守",
+    "- 节点文字必须简洁（2-12 字），像信息图标签，不是句子。",
+    "- 每个节点要提供 scene 画面提示（8-30 字，描述卡通插画该画什么：角色、表情、道具、动作）。",
+    "- 所有节点内容必须来自文章本身，不得编造文章没有的事实、数字或结论。",
+    "- 中心吉祥物 / 应对块要呼应文章主题（经济类用猫头鹰撑伞、科技类用 AI 机器人、健康类用医生熊猫等）。",
+    "- 标题要朗朗上口，带\"逻辑链 / 闭环 / 传导链\"等词汇。",
+    "- 所有文本必须是简体中文。",
+    "- 严格按 JSON Schema 输出，不要任何额外解释、不要 markdown 代码块包裹。",
+    "",
+    "# 输出 JSON Schema（按所选 template 输出对应结构）",
+    '// circular: { "template": "circular", "title": "string", "nodes": [{ "text": "string", "scene": "string" }], "centerRole": "string", "centerKeywords": ["string"], "loopDescription": "string" }',
+    '// horizontal: { "template": "horizontal", "title": "string", "stages": [{ "stageTitle": "string", "nodeText": "string", "scene": "string" }] }',
+    '// matrix: { "template": "matrix", "title": "string", "rows": [{ "layerName": "string", "layerHint": "string", "nodes": [{ "text": "string", "scene": "string" }] }], "policyTitle": "string", "policyItems": ["string"] }',
+    '// columns: { "template": "columns", "title": "string", "columns": [{ "stageTitle": "string", "stageHint": "string", "nodes": [{ "text": "string", "scene": "string" }] }], "footerNote": "string" }'
+  ].join("\n");
+  const content = await requestPlainChat(
+    settings,
+    [
+      { role: "system", content: sys },
+      { role: "user", content: `文章内容：\n${text.slice(0, 8000)}\n\n请严格按 JSON Schema 输出对应模板的结构化数据。` }
+    ],
+    { temperature: 0.7, context: "逻辑链漫画拆解接口", signal }
+  );
+  return repairComicData(extractJson(content));
+}
+
+/**
+ * 贴图种草文案：根据编辑台正文（+ 可选的逻辑链结构概览 / 自动标签）直接生成
+ * 小红书标题 / 正文 / 公众号导语 / 话题标签 / 封面文字，配合金句卡片或逻辑链漫画贴图发布。
+ *
+ * 与 prompt-forge 的差异：原仓库只拼「社媒 agent prompt」让用户复制去别处跑；
+ * 本扩展自带 AI 双路由（requestPlainChat，反例 #36），直接出成品文案。
+ *
+ * @param {object} settings 用户设置（同 requestRewrite）
+ * @param {string} bodyHtmlOrText 正文 HTML 或纯文本
+ * @param {object} [opts] { outline = "", tags = [], signal }
+ * @returns {Promise<{titles:string[], post:string, gzhIntro:string, hashtags:string[], covers:string[]}>}
+ */
+export async function requestSocialPost(settings, bodyHtmlOrText, { outline = "", tags = [], signal } = {}) {
+  const text = stripHtmlToPlain(bodyHtmlOrText);
+  if (!text) throw new Error("正文为空，无法生成种草文案。");
+  const sys = [
+    "你是一名小红书 / 公众号种草文案专家。请基于给定的文章内容（和可选的逻辑链信息图结构），生成配合贴图发布的中文种草/科普文案。",
+    "要求：",
+    "1. 所有内容必须来自文章本身，不得编造文章没有的事实、数据、机构或结论；需要事实支撑时用「可能」「值得关注」等表达。",
+    "2. titles：5 个小红书标题，每个 12-24 字，有点击欲但不夸张（数字型、反直觉型、痛点型、故事型混搭）。",
+    "3. post：1 篇小红书正文，结构为开头钩子 + 逻辑拆解 + 读者启发 + 互动提问，总字数 300-600 字，语气自然、有信息密度，适合配合贴图发布。",
+    "4. gzhIntro：1 个更适合公众号长文开头的导语版本，100-180 字。",
+    "5. hashtags：12-18 个话题标签，混合垂类词、情绪词、场景词，不带 # 号。",
+    "6. covers：3 组封面文字建议，每组不超过 16 字。",
+    "只输出合法 JSON，不要解释、不要 markdown 代码块：",
+    '{ "titles": ["…"], "post": "…", "gzhIntro": "…", "hashtags": ["…"], "covers": ["…"] }'
+  ].join("\n");
+  const user = [
+    outline ? `逻辑链信息图结构（文案要与贴图内容呼应）：\n${outline}` : "",
+    tags.length ? `已有自动标签（可参考补充）：${tags.map((t) => `#${t}`).join(" ")}` : "",
+    `文章内容：\n${text.slice(0, 8000)}`
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const content = await requestPlainChat(
+    settings,
+    [
+      { role: "system", content: sys },
+      { role: "user", content: user }
+    ],
+    { temperature: 0.8, context: "种草文案接口", signal }
+  );
+  const parsed = extractJson(content) || {};
+  const strList = (v, max, itemMax) =>
+    (Array.isArray(v) ? v : [])
+      .map((s) => String(s || "").trim().replace(/^#+/, ""))
+      .filter(Boolean)
+      .slice(0, max)
+      .map((s) => s.slice(0, itemMax));
+  const result = {
+    titles: strList(parsed.titles, 5, 40),
+    post: String(parsed.post || "").trim(),
+    gzhIntro: String(parsed.gzhIntro || "").trim(),
+    hashtags: strList(parsed.hashtags, 18, 20),
+    covers: strList(parsed.covers, 3, 20)
+  };
+  if (!result.post && !result.titles.length) {
+    const err = new Error("AI 没有返回可用的种草文案，请重试。");
+    err.code = "AI_EMPTY_RESPONSE";
+    throw err;
+  }
+  return result;
+}
+
+/**
+ * 立论 pass（成稿前的前置分析调用）：从来源素材里提炼「核心判断 + 论证链 + 反方观点 +
+ * 代价分析 + 可验证推断」骨架，供 buildRewriteMessages 注入成稿 prompt。
+ *
+ * 设计约束：
+ *   - 这是**尽力而为**的增强：任何失败（解析/超时/额度）都应由调用方降级为普通改写，
+ *     绝不阻塞主链路（requestRewrite 内部已 try-catch）。
+ *   - 走 requestPlainChat 复用平台/BYOK 双路由（反例 #36）。
+ *   - 温度偏低（0.4）：立论要的是想清楚，不是文采。
+ *
+ * @returns {Promise<{thesis:string, angle:string, argumentChain:string[], counterView:string, stakes:string, forecast:string}|null>}
+ *   所有字段都可能为空串；thesis 为空时返回 null（骨架没立起来不如不注入）。
+ */
+export async function requestThesisBrief(settings, source, preferences = {}, { signal } = {}) {
+  const snapshot = createSourceSnapshot(source);
+  const sys = [
+    "你是一位以判断力著称的中文主编。在动笔写公众号文章之前，先完成立论——想清楚这篇文章到底要说什么。",
+    "",
+    INSIGHT_PRESSURE_RULES,
+    "",
+    "事实约束：立论只能基于给定素材，不得编造数据、引语或事件；素材撑不起的判断宁可收窄。",
+    "只输出合法 JSON，不要解释、不要 markdown 代码块：",
+    '{ "thesis": "一句话核心判断，<=60字，必须可被反驳", "angle": "切入角度<=30字", "argumentChain": ["论证步骤1", "论证步骤2", "论证步骤3"], "counterView": "最强反方观点及文章如何回应<=80字", "stakes": "这个判断的代价与输家<=60字", "forecast": "12-18个月可验证推断<=60字" }',
+    "argumentChain 3-5 步；某字段素材不足时给空字符串，不要硬编。"
+  ].join("\n");
+  const user = [
+    preferences.angle ? `作者期望的切入方向（优先尊重）：${preferences.angle}` : "",
+    "素材（已结构化）：",
+    JSON.stringify(snapshot, null, 2).slice(0, 9000)
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const content = await requestPlainChat(
+    settings,
+    [
+      { role: "system", content: sys },
+      { role: "user", content: user }
+    ],
+    { temperature: 0.4, context: "立论分析接口", signal }
+  );
+  const parsed = extractJson(content) || {};
+  const thesis = String(parsed.thesis || "").trim().slice(0, 80);
+  if (!thesis) return null;
+  return {
+    thesis,
+    angle: String(parsed.angle || "").trim().slice(0, 50),
+    argumentChain: (Array.isArray(parsed.argumentChain) ? parsed.argumentChain : [])
+      .map((s) => String(s || "").trim().slice(0, 80))
+      .filter(Boolean)
+      .slice(0, 5),
+    counterView: String(parsed.counterView || "").trim().slice(0, 120),
+    stakes: String(parsed.stakes || "").trim().slice(0, 90),
+    forecast: String(parsed.forecast || "").trim().slice(0, 90)
+  };
+}
+
+/**
+ * 思想密度评审（LLM-as-judge，内容层）：与 requestHumanizeJudge（形式层）平行——
+ * 那边找「像 AI 写的」，这边找「平庸/骑墙/正确的废话」。本地 lintInsight 的命中
+ * 直接列给模型当已知靶子，让它把额度花在语义层的平庸上。
+ *
+ * @returns {Promise<{score:number, verdict:string, findings:Array<{excerpt:string, kind:string, reason:string, fix:string}>}>}
+ *   score 0-100 越高思想密度越高。
+ */
+export async function requestInsightJudge(settings, bodyHtml) {
+  const text = stripHtmlToPlain(bodyHtml);
+  if (!text) throw new Error("正文为空，无法评审。");
+  const localHits = lintInsight(text).hits.slice(0, 6);
+  const localLines = localHits.length
+    ? "本地规则已命中的平庸句式（无需重复报告，找它们之外的问题）：\n" +
+      localHits.map((h) => `- ${h.label}：「${h.excerpt}」`).join("\n")
+    : "";
+  const sys = [
+    "你是一位以挑剔著称的中文主编，专门枪毙「四平八稳但毫无观点」的稿子。",
+    "评审下面这篇公众号文章的**思想密度**——不看文笔，只看有没有真判断。重点找：",
+    "- 正确的废话：删掉后文章毫无损失的句子（「值得关注」「有待观察」「双刃剑」）",
+    "- 骑墙：摆完两边观点不下判断，或用「辩证看待」「见仁见智」逃避表态",
+    "- 无代价判断：只说好处不说代价和输家的观点（那是口号不是判断）",
+    "- 伪具体：看似有细节实际不可验证（「不少专家」「大量案例」「显著提升」）",
+    "- 缺主轴：全文没有一个可被反驳的核心判断，只是信息罗列",
+    localLines,
+    "只输出合法 JSON，不要解释、不要 markdown 代码块：",
+    '{ "score": 0到100整数(越高思想密度越高), "verdict": "一句话总评<=40字", "findings": [ { "excerpt": "有问题的原文片段<=40字", "kind": "废话|骑墙|无代价|伪具体|缺主轴", "reason": "为什么平庸<=30字", "fix": "改成什么样的判断<=50字" } ] }',
+    "findings 最多 6 条挑最致命的；fix 必须是具体的改法而不是「加强观点」这类空话。"
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const content = await requestPlainChat(
+    settings,
+    [
+      { role: "system", content: sys },
+      { role: "user", content: text.slice(0, 8000) }
+    ],
+    { temperature: 0.3, context: "思想密度评审接口" }
+  );
+  const parsed = extractJson(content) || {};
+  const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)));
+  const findings = Array.isArray(parsed.findings)
+    ? parsed.findings
+        .map((f) => ({
+          excerpt: String(f?.excerpt || "").slice(0, 60),
+          kind: String(f?.kind || "").slice(0, 10),
+          reason: String(f?.reason || "").slice(0, 50),
+          fix: String(f?.fix || "").slice(0, 80)
+        }))
+        .filter((f) => f.excerpt)
+        .slice(0, 6)
+    : [];
+  return { score, verdict: String(parsed.verdict || "").slice(0, 60), findings };
+}
+
+/**
+ * 思想密度重写：拿评审 findings（含 fix 建议）当靶子，定向把平庸段落改成有判断的段落。
+ * 与 requestDeepHumanizeRewrite 的关键差异：那边不许动事实和结论，这边**允许把骑墙改成
+ * 表态**（这正是目的），但新表态必须由文中已有事实支撑，不得引入新事实。
+ */
+export async function requestInsightRewrite(settings, bodyHtml, findings = []) {
+  const html = String(bodyHtml || "").trim();
+  if (!html) throw new Error("正文为空，无需改写。");
+  const findingLines = (Array.isArray(findings) ? findings : [])
+    .slice(0, 6)
+    .map((f, i) => `${i + 1}. [${f.kind || "平庸"}]「${f.excerpt}」—— ${f.reason}${f.fix ? `；改法：${f.fix}` : ""}`)
+    .join("\n");
+  const sys = [
+    "你是一位以判断力著称的中文主编，任务是把一篇「四平八稳」的稿子改得有思想。",
+    "整体重写下面这篇公众号正文，重点消灭主编指出的平庸段落：把骑墙改成明确表态、",
+    "把正确的废话删掉或换成具体判断、给只讲好处的观点补上代价和输家。",
+    "",
+    INSIGHT_PRESSURE_RULES,
+    "",
+    "严格边界：① 新的表态和判断必须由文中已有事实支撑——不得新增数据、引语、人名、案例；",
+    "② 图片、代码、表格、小标题层级一律保留原样；③ 篇幅 ±15% 以内；",
+    "④ 保持原有语言风格与节奏（这次改的是思想不是文风）；",
+    "⑤ 直接输出重写后的正文 HTML，不要 JSON / markdown 代码块 / 任何解释。",
+    findingLines ? `\n主编指出的平庸点（务必逐条处理）：\n${findingLines}` : ""
+  ].join("\n");
+  const content = await requestPlainChat(
+    settings,
+    [
+      { role: "system", content: sys },
+      { role: "user", content: html }
+    ],
+    { temperature: 0.6, context: "思想密度重写接口" }
+  );
+  return stripCodeFence(content);
 }
 
 /**

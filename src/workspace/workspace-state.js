@@ -361,7 +361,10 @@ export function collectRewritePreferences() {
     tone: controls.tone.value.trim(),
     angle: controls.angle.value.trim(),
     cta: controls.cta.value.trim(),
-    length: controls.length.value
+    length: controls.length.value,
+    // 深度立论：改写前先跑 requestThesisBrief 立骨架（+1 次 AI 调用）。
+    // 可选控件（?.）：老页面/测试 fixture 没有该 checkbox 时安全为 false。
+    deepThesis: Boolean(controls.deepThesis?.checked)
   };
 }
 

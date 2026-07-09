@@ -16,8 +16,10 @@
     return;
   }
 
+  // share/social 必须用词边界：GitHub CSS modules 常见 SharedPageLayout /
+  // SharedMarkdownContent，裸写 share 会把整篇 README 当噪声滤掉。
   const BOILERPLATE_RE =
-    /comment|comments?-list|disqus|sidebar|widget|related|recommend|share|social|breadcrumb|toolbar|advert|ad-|ads-|promo|subscribe|newsletter|footer|header-nav|reading-list|toc-|table-of|author-bio|meta-info|hentry-meta|post-tags|post-categories|next-prev|pagination|wp-block-latest|outbrain|taboola|prevnext|paywall|signup|cta-block|popup-overlay|modal-backdrop|cookie-banner|consent-banner|notification-bar|trending-list|popular-list|more-from|read-next|continue-reading|see-also|reaction-bar|engagement-bar|byline-block|tip-jar|membership-cta|mailing-list/i;
+    /comment|comments?-list|disqus|sidebar|widget|related|recommend|\bshare\b|\bsocial\b|breadcrumb|toolbar|advert|ad-|ads-|promo|subscribe|newsletter|footer|header-nav|reading-list|toc-|table-of|author-bio|meta-info|hentry-meta|post-tags|post-categories|next-prev|pagination|wp-block-latest|outbrain|taboola|prevnext|paywall|signup|cta-block|popup-overlay|modal-backdrop|cookie-banner|consent-banner|notification-bar|trending-list|popular-list|more-from|read-next|continue-reading|see-also|reaction-bar|engagement-bar|byline-block|tip-jar|membership-cta|mailing-list/i;
 
   /**
    * 域名特化提取规则（38th 续 7）：通用 ROOT_SELECTORS 在大型 SPA 站点上经常
@@ -94,6 +96,19 @@
       hostMatch: /(^|\.)jianshu\.com$/i,
       rootSelectors: ["article", "._gp-ck", ".ouvJEz"],
       extraBoilerplate: /note-bottom|recommended-notes|signup-modal/i
+    },
+    {
+      // GitHub README / blob：正文在 article.markdown-body；外层常有
+      // SharedPageLayout / SharedMarkdownContent（CSS modules），若 root 落到
+      // body/main，旧 BOILERPLATE 的 share 子串会把块全滤光。
+      hostMatch: /(^|\.)github\.com$/i,
+      rootSelectors: [
+        "article.markdown-body",
+        ".markdown-body",
+        "#readme article",
+        "#readme"
+      ],
+      extraBoilerplate: /LayoutHeader|AppHeader|prc-Dialog|react-file-name|Box-header|js-repo-nav/i
     }
   ];
 
@@ -1179,7 +1194,13 @@
           el.remove();
         } catch (_) {}
       });
-    return normalizeText(clone.innerText || clone.textContent || "");
+    // 保留换行：调用方用 \n{2,} 切段。若这里 normalizeText 压成单行，
+    // fallback 永远只能产出 1 个超长 paragraph（GitHub 等站点会踩）。
+    return String(clone.innerText || clone.textContent || "")
+      .replace(/\u00a0/g, " ")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
   }
 
   function minTextLenForTag(tagName) {

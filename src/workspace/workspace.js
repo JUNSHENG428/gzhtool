@@ -75,7 +75,9 @@ import {
   copyManualPrompt,
   applyRewriteTaskResult,
   applyDeepHumanizeTaskResult,
-  runDeepHumanize
+  runDeepHumanize,
+  applyInsightBoostTaskResult,
+  runInsightBoost
 } from "./workspace-rewrite.js";
 
 import {
@@ -150,6 +152,7 @@ const controls = {
   tone: document.querySelector("#toneInput"),
   angle: document.querySelector("#angleInput"),
   length: document.querySelector("#lengthSelect"),
+  deepThesis: document.querySelector("#deepThesisCheck"),
   theme: document.querySelector("#themeSelect"),
   coverImageIndex: document.querySelector("#coverImageSelect"),
   coverUploadInput: document.querySelector("#coverUploadInput"),
@@ -313,6 +316,7 @@ async function bootstrap() {
     // workspace-rewrite.js
     rewriteArticle, copyManualPrompt, applyRewriteTaskResult,
     applyDeepHumanizeTaskResult, runDeepHumanize,
+    applyInsightBoostTaskResult, runInsightBoost,
     // workspace-publish.js
     publishBundle, pollPublishStatus, syncCurrentToWebEditor, maybeResumePublishPolling,
     openHistoryDrawer, closeHistoryDrawer, refreshHistoryRecords,
@@ -396,6 +400,9 @@ async function bootstrap() {
         if (task.type === "deepHumanize") {
           await ctx.applyDeepHumanizeTaskResult?.(task);
         }
+        if (task.type === "insightBoost") {
+          await ctx.applyInsightBoostTaskResult?.(task);
+        }
       },
       async retryTask(task) {
         // 用户从 task chip / toast 点 [重试]：goToArticle 已切到目标 article，
@@ -406,6 +413,8 @@ async function bootstrap() {
           await captureSource();
         } else if (task.type === "deepHumanize") {
           await runDeepHumanize();
+        } else if (task.type === "insightBoost") {
+          await runInsightBoost();
         }
       }
     });

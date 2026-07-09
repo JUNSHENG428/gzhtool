@@ -1471,6 +1471,56 @@ console.log("\n运行 desktop helper 抓取脚本调用契约回归 …");
   );
 }
 
+console.log("\n运行 GitHub README 抓取防回归（Shared* / share 误伤）…");
+{
+  // debug c66304：BOILERPLATE_RE 裸写 share 命中 GitHub CSS modules
+  // SharedPageLayout / SharedMarkdownContent → 块全滤光 → fallback 1 段 →
+  // assertCaptureHealth 因 blocks<2 误杀。锁死：share/social 词边界 + github SITE_RULES
+  // + 健康检查以字数为准。
+  const scrapeSrc = fs.readFileSync(
+    path.join(root, "src/content-scripts/scrape-article.js"),
+    "utf8"
+  );
+  const swSrc = fs.readFileSync(
+    path.join(root, "src/background/service-worker.js"),
+    "utf8"
+  );
+
+  assert(
+    /\\bshare\\b/.test(scrapeSrc) && /\\bsocial\\b/.test(scrapeSrc),
+    "BOILERPLATE_RE 的 share/social 必须带词边界，避免 Shared* CSS modules 误伤"
+  );
+  assert(
+    /github\\.com/.test(scrapeSrc) && /article\.markdown-body/.test(scrapeSrc),
+    "SITE_RULES 必须包含 github.com 且优先锁定 article.markdown-body"
+  );
+  assert(
+    !/\bconst\s+CAPTURE_MIN_BLOCKS\b/.test(swSrc),
+    "assertCaptureHealth 不应再定义 CAPTURE_MIN_BLOCKS 误杀单块长文"
+  );
+  assert(
+    /CAPTURE_MIN_TEXT_LEN/.test(swSrc),
+    "assertCaptureHealth 必须以 CAPTURE_MIN_TEXT_LEN（字数）判定内容太少"
+  );
+
+  // 运行时核对：Shared* 类名不再命中 share
+  const boilerMatch = scrapeSrc.match(/const BOILERPLATE_RE\s*=\s*\/([\s\S]*?)\/i;/);
+  assert(boilerMatch, "找不到 BOILERPLATE_RE");
+  const boilerRe = new RegExp(boilerMatch[1], "i");
+  assert(
+    !boilerRe.test("SharedPageLayout-module__content__IwGAp"),
+    "SharedPageLayout 不得命中 BOILERPLATE_RE"
+  );
+  assert(
+    !boilerRe.test("DirectoryRichtextContent-module__SharedMarkdownContent__hHXUL"),
+    "SharedMarkdownContent 不得命中 BOILERPLATE_RE"
+  );
+  assert(
+    boilerRe.test("share-buttons") || boilerRe.test("share"),
+    "真实 share 噪声类名仍应命中 BOILERPLATE_RE"
+  );
+}
+
 console.log("\n运行 drission helper errorCode 映射单测 …");
 {
   const drission = await import("../src/shared/drission.js");
@@ -3703,6 +3753,236 @@ console.log("\n运行 buildRewriteMessages 自拟主题创作（brief）分支�
   );
 
   console.log("✓ buildRewriteMessages brief 分支 3 case（创作语义/模板忽略/改写不回归）");
+}
+
+console.log("\n运行 思想密度（insight）· 立论注入 + 平庸 lint 单测 …");
+{
+  const ai = await import("../src/shared/ai.js");
+  const { lintInsight, INSIGHT_PRESSURE_RULES } = await import("../src/shared/insight-rules.js");
+
+  // ① 三个新 AI 入口存在（立论 / 思想评审 / 思想重写）
+  for (const fn of ["requestThesisBrief", "requestInsightJudge", "requestInsightRewrite"]) {
+    assert(typeof ai[fn] === "function", `ai.js 应导出 ${fn}`);
+  }
+
+  // ② 正向压力规则关键锚点（prompt 与 lint 共用单一真源）
+  assert(
+    INSIGHT_PRESSURE_RULES.includes("可以被反驳") && INSIGHT_PRESSURE_RULES.includes("代价"),
+    "INSIGHT_PRESSURE_RULES 必须包含「可被反驳的判断」与「代价分析」锚点"
+  );
+
+  // ③ buildRewriteMessages 第 6 参 thesisBrief 注入
+  const prefs = { length: "medium" };
+  const src = {
+    title: "t",
+    url: "https://x.com",
+    images: [],
+    blocks: [{ type: "paragraph", text: "x" }]
+  };
+  const brief = {
+    thesis: "标记THESIS_X：副业热潮的真正输家是时间",
+    angle: "成本视角",
+    argumentChain: ["步骤一", "步骤二"],
+    counterView: "反方Y",
+    stakes: "代价Z",
+    forecast: "推断W"
+  };
+  const withThesis = ai.buildRewriteMessages(src, prefs, {}, null, null, brief);
+  const thesisMsg = withThesis.find(
+    (m) => m.role === "system" && m.content.includes("立论骨架")
+  );
+  assert(thesisMsg, "传入 thesisBrief 时必须注入「立论骨架」system message");
+  assert(
+    thesisMsg.content.includes("标记THESIS_X") && thesisMsg.content.includes("反方Y"),
+    "立论骨架 message 必须包含 thesis 与 counterView 内容"
+  );
+  const withoutThesis = ai.buildRewriteMessages(src, prefs, {}, null, null, null);
+  assert(
+    !withoutThesis.some((m) => m.content.includes("立论骨架")),
+    "thesisBrief 为 null 时不得注入立论骨架（普通改写零影响）"
+  );
+
+  // ④ 平庸句式 lint：命中骑墙/废话，干净判断不误报
+  const bad = lintInsight(
+    "这项技术是一把双刃剑，最终效果还有待观察。至于谁能胜出，让我们拭目以待。"
+  );
+  assert(bad.hits.length >= 3, `平庸样本应命中 ≥3 处（实际 ${bad.hits.length}）`);
+  assert(bad.platitudeScore >= 9, "平庸样本扣分应 ≥9");
+  const good = lintInsight(
+    "我的判断是：2026 年 Q3 之前，至少一半的独立开发者会放弃订阅制——因为退款率已经从 3% 涨到 11%。"
+  );
+  assert(good.hits.length === 0, "有具体判断的文本不应命中平庸句式");
+  assert(good.specificity.numbers >= 3, "具体度信号应统计到数字");
+
+  console.log("✓ insight 思想密度 4 case（新入口×3/压力规则锚点/立论注入+null 零影响/平庸 lint 命中+不误报）");
+}
+
+console.log("\n运行 comic-prompt 逻辑链漫画 Prompt 单测（prompt-forge 移植）…");
+{
+  const ai = await import("../src/shared/ai.js");
+  const {
+    buildComicPrompt,
+    repairComicData,
+    buildComicOutline,
+    generateComicTags,
+    COMIC_ASPECT_RATIOS,
+    COMIC_TEMPLATE_META
+  } = await import("../src/shared/comic-prompt.js");
+
+  // ① AI 入口存在（走 requestPlainChat 双路由，反例 #36）
+  assert(typeof ai.requestComicChain === "function", "ai.js 应导出 requestComicChain");
+  assert(typeof ai.requestSocialPost === "function", "ai.js 应导出 requestSocialPost");
+
+  // ② 元数据完整：5 画幅 / 4 模板
+  assert(Object.keys(COMIC_ASPECT_RATIOS).length === 5, "COMIC_ASPECT_RATIOS 应有 5 种画幅");
+  assert(Object.keys(COMIC_TEMPLATE_META).length === 4, "COMIC_TEMPLATE_META 应有 4 种模板");
+
+  // ③ horizontal prompt 含标题 / 节点 / 画幅描述；grounded 追加事实约束
+  const horizontal = {
+    template: "horizontal",
+    title: "副业热潮传导链",
+    stages: [
+      { stageTitle: "起点", nodeText: "平台补贴", scene: "角色撒钱" },
+      { stageTitle: "传导", nodeText: "跟风入场", scene: "人群奔跑" },
+      { stageTitle: "结果", nodeText: "时间被吞噬", scene: "沙漏流尽" }
+    ]
+  };
+  const hp = buildComicPrompt(horizontal, "9:16");
+  assert(hp.includes("副业热潮传导链") && hp.includes("平台补贴") && hp.includes("9:16 竖版"), "horizontal prompt 应包含标题/节点/画幅");
+  assert(!hp.includes("事实依据要求"), "grounded 未开启时不追加事实约束段");
+  const hpGrounded = buildComicPrompt(horizontal, "9:16", { grounded: true });
+  assert(hpGrounded.includes("事实依据要求"), "grounded=true 应追加事实约束段");
+
+  // ④ 4 种模板都能出 prompt，未知模板抛错
+  const circular = repairComicData({ template: "circular", title: "闭环", nodes: [{ text: "a" }], centerRole: "猫头鹰" });
+  assert(buildComicPrompt(circular).includes("猫头鹰"), "circular prompt 应包含中心吉祥物");
+  const matrix = repairComicData({ template: "matrix", title: "分层", rows: [{ layerName: "根因", nodes: [{ text: "x" }] }] });
+  assert(buildComicPrompt(matrix).includes("根因"), "matrix prompt 应包含层级名");
+  const columns = repairComicData({ template: "columns", title: "对比", columns: [{ stageTitle: "举措", nodes: [{ text: "y" }] }] });
+  assert(buildComicPrompt(columns).includes("举措"), "columns prompt 应包含列标题");
+  let threw = false;
+  try {
+    buildComicPrompt({ template: "nope", title: "t" });
+  } catch {
+    threw = true;
+  }
+  assert(threw, "未知模板应抛错");
+
+  // ⑤ repairComicData：缺 template 时按特征推断 + 补默认值
+  const inferredMatrix = repairComicData({ title: "t", rows: [{ nodes: [{}] }] });
+  assert(inferredMatrix.template === "matrix", "含 rows 应推断为 matrix");
+  const inferredFallback = repairComicData({});
+  assert(inferredFallback.template === "horizontal", "空数据应回退 horizontal");
+  assert(inferredFallback.stages.length >= 3, "horizontal 回退应补足 ≥3 个 stage");
+  assert(buildComicPrompt(inferredFallback).length > 100, "修复后的数据必须能直接出 prompt");
+
+  // ⑥ buildComicOutline：多行概览含模板名 / 标题 / 节点
+  const outline = buildComicOutline(horizontal);
+  assert(
+    outline.includes("横向 Stage") && outline.includes("副业热潮传导链") && outline.includes("平台补贴"),
+    "outline 应包含模板名/标题/节点文字"
+  );
+  assert(outline.split("\n").length >= 4, "horizontal outline 应至少 4 行");
+  const columnsOutline = buildComicOutline(
+    repairComicData({
+      template: "columns",
+      title: "对比",
+      columns: [{ stageTitle: "举措", nodes: [{ text: "y" }] }],
+      footerNote: "备注N"
+    })
+  );
+  assert(columnsOutline.includes("注释：备注N"), "columns outline 应带 footerNote 注释行");
+
+  // ⑦ generateComicTags：去重 / 2-16 字过滤 / ≤10 个 / 不带 # 号
+  const tags = generateComicTags("这个暑假，我决定让孩子玩一个月", horizontal);
+  assert(tags.length > 0 && tags.length <= 10, `标签应 1-10 个（实际 ${tags.length}）`);
+  assert(tags.every((t) => !t.startsWith("#") && t.length >= 2 && t.length <= 16), "标签应去 # 且 2-16 字");
+  assert(new Set(tags).size === tags.length, "标签应去重");
+  assert(tags.includes("这个暑假"), "话题拆词应进标签");
+  // 候选不足 10 个时兜底标签要能顶上
+  const sparseTags = generateComicTags("", { template: "horizontal", title: "短题", stages: [] });
+  assert(sparseTags.includes("逻辑链") && sparseTags.includes("信息图"), "候选稀疏时应包含固定兜底标签");
+
+  console.log("✓ comic-prompt 7 case（入口×2/元数据/grounded 约束/4 模板+未知抛错/结构修复推断/概览/自动标签）");
+}
+
+console.log("\n运行 quote-cards 封面标题卡片单测 …");
+{
+  const ai = await import("../src/shared/ai.js");
+  const {
+    buildQuoteCardSvg,
+    buildCoverCardSvg,
+    normalizeTextStyle,
+    CARD_SIZES,
+    CARD_THEMES,
+    CARD_FONTS
+  } = await import("../src/shared/quote-cards.js");
+
+  assert(typeof ai.requestCoverTitles === "function", "ai.js 应导出 requestCoverTitles");
+  assert(Object.keys(CARD_THEMES).length >= 9, `CARD_THEMES 应 ≥9 套（实际 ${Object.keys(CARD_THEMES).length}）`);
+  assert(Object.keys(CARD_FONTS).length >= 6, `CARD_FONTS 应 ≥6 套艺术字体（实际 ${Object.keys(CARD_FONTS).length}）`);
+  for (const key of ["night", "sunset", "paper", "lavender", "amber", "ocean"]) {
+    assert(CARD_THEMES[key]?.bg && CARD_THEMES[key]?.ink, `主题 ${key} 应有 bg/ink`);
+  }
+
+  const title = "这个暑假，我决定让孩子玩一个月";
+  const coverSvg = buildCoverCardSvg(title, {
+    themeName: "ink",
+    sizeId: "square",
+    index: 1,
+    total: 3,
+    accountName: "@测试号",
+    hook: "反直觉"
+  });
+  assert(coverSvg.includes("这个暑假") && !coverSvg.includes("反直觉"), "封面 SVG 应含标题但不含钩子标签");
+  assert(coverSvg.includes('text-anchor="middle"'), "封面标题应居中排版");
+  assert(!coverSvg.includes("&#8220;"), "封面卡片不应使用金句大引号装饰");
+
+  const quoteSvg = buildQuoteCardSvg("金句测试", { themeName: "ink", sizeId: "square", index: 1 });
+  assert(quoteSvg.includes("&#8220;"), "金句卡片应保留引号装饰，与封面区分");
+
+  const v1 = buildCoverCardSvg(title, { themeName: "forest", index: 1, hook: "痛点" });
+  const v2 = buildCoverCardSvg(title, { themeName: "forest", index: 2, hook: "数字" });
+  const v3 = buildCoverCardSvg(title, { themeName: "forest", index: 3, hook: "悬念" });
+  assert(v1 !== v2 && v2 !== v3, "三种 index 应产出不同版式 SVG");
+
+  assert(CARD_SIZES.square.w === 1080 && CARD_THEMES.ink.accent, "尺寸与主题元数据应保持");
+
+  const styled = buildQuoteCardSvg("样式测试句子够长一点", {
+    themeName: "mint",
+    textStyle: {
+      color: "#ff0000",
+      bg: "#112233",
+      accent: "#00ffaa",
+      fontFamily: "kai",
+      fontSize: 64,
+      letterSpacing: 4,
+      bold: true,
+      highlight: true,
+      highlightColor: "#ffe566",
+      underline: true,
+      align: "center",
+      vAlign: "top"
+    }
+  });
+  assert(styled.includes("#ff0000") && styled.includes('font-size="64"'), "textStyle 应覆盖字色与字号");
+  assert(styled.includes("#112233") && styled.includes("#00ffaa"), "textStyle 应覆盖背景与点缀色");
+  assert(styled.includes("Kaiti") || styled.includes("KaiTi") || styled.includes("楷体"), "艺术字体楷体应写入 font-family");
+  assert(styled.includes('letter-spacing="4"'), "字距应写入 SVG");
+  assert(styled.includes("#ffe566") && styled.includes('opacity="0.55"'), "高亮底条应出现");
+  assert(styled.includes('text-anchor="middle"'), "align=center 应居中");
+  const righted = buildCoverCardSvg("右对齐标题", {
+    themeName: "night",
+    textStyle: { align: "right", underline: true }
+  });
+  assert(righted.includes('text-anchor="end"'), "align=right 应右对齐");
+  assert(!righted.includes("痛点") && !righted.includes("反直觉"), "封面 SVG 不应含钩子字样");
+  const noWm = buildCoverCardSvg("无水印", { themeName: "ink", index: 3, total: 6 });
+  assert(!noWm.includes('opacity="0.07"'), "第 3 张封面不应再有大号序号水印");
+  const norm = normalizeTextStyle({ align: "nope", fontSize: 999, color: "red", fontFamily: "nope" });
+  assert(norm.align === "auto" && norm.fontSize === 140 && norm.color === "" && norm.fontFamily === "theme", "normalizeTextStyle 应钳制非法值");
+
+  console.log("✓ quote-cards 封面+样式 10 case（主题≥9/字体≥6/钩子不进图/无水印/字色背景字体字距/对齐/归一化）");
 }
 
 console.log("\n运行 humanize-checker 45th 续 · 实测样本复盘检测器单测 …");

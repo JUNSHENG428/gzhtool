@@ -3,6 +3,8 @@ import {
   requestRewrite,
   requestHumanizeJudge,
   requestDeepHumanizeRewrite,
+  requestInsightJudge,
+  requestInsightRewrite,
   testAiConnection,
   requestPlainChat
 } from "../shared/ai.js";
@@ -690,6 +692,129 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true, data: { aborted: true } });
         } else {
           sendResponse({ ok: true, data: { aborted: false, reason: "no-inflight" } });
+        }
+        break;
+      }
+      case "INSIGHT_BOOST": {
+        // 思想密度提升（评审→定向重写），与 DEEP_HUMANIZE 同构：
+        // 那边消灭「像 AI 写的」（形式层），这边消灭「平庸/骑墙/正确的废话」（内容层）。
+        // 闸门刻意复用 ai.deAiBoost（同属「AI 二次增强」权益桶）——新开 feature key
+        // 要同步 worker.js PAID_FEATURE_KEYS + 14 处 SKU 文案（反例 #34/#18），
+        // 等它成为独立 SKU 卖点时再拆。
+        const insightAccess = await checkDeAiBoostAccess();
+        if (!insightAccess.ok) {
+          sendResponse({
+            ok: false,
+            error: insightAccess.hint || PAID_FEATURES["ai.deAiBoost"].hint,
+            errorCode: "LICENSE_FEATURE_LOCKED",
+            meta: { feature: "ai.deAiBoost" }
+          });
+          break;
+        }
+
+        const insightBodyHtml = String(message.payload?.bodyHtml || "").trim();
+        if (!insightBodyHtml) {
+          sendResponse({ ok: false, error: "正文为空，无法提升思想密度。" });
+          break;
+        }
+
+        const insightArticleId = String(message.payload?.articleId || "").trim();
+        const insightArticleTitle =
+          String(message.payload?.articleTitle || "").trim() || "未命名";
+        const insightRequestId =
+          String(message.payload?.requestId || "").trim() || `ib-${Date.now()}`;
+
+        const insightTaskHandle = registerTask({
+          type: "insightBoost",
+          articleId: insightArticleId,
+          articleTitle: insightArticleTitle,
+          requestId: insightRequestId
+        });
+        const insightTaskId = insightTaskHandle.taskId;
+
+        if (!insightTaskHandle.started) {
+          const runnable = await waitTaskRunnable(insightTaskId);
+          if (!runnable) {
+            sendResponse({
+              ok: false,
+              error: { code: "CANCELLED", message: "任务在排队时被取消。", retryable: false }
+            });
+            break;
+          }
+        }
+
+        try {
+          const settings = await getSettings();
+          broadcastRewriteProgress(insightRequestId, {
+            phase: "insightBoost:judge",
+            current: 0,
+            total: 2
+          });
+
+          const judge = await withRetry(
+            () => requestInsightJudge(settings, insightBodyHtml),
+            MAX_RETRIES,
+            "思想密度评审"
+          );
+
+          broadcastRewriteProgress(insightRequestId, {
+            phase: "insightBoost:rewrite",
+            current: 1,
+            total: 2
+          });
+
+          const rewritten = await withRetry(
+            () => requestInsightRewrite(settings, insightBodyHtml, judge.findings),
+            MAX_RETRIES,
+            "思想密度重写"
+          );
+
+          const clean = String(rewritten || "").trim();
+          if (!clean) {
+            completeRegistryTask(insightTaskId, {
+              status: "failed",
+              error: "思想密度提升没有返回有效内容，请重试。"
+            });
+            sendResponse({
+              ok: false,
+              error: "思想密度提升没有返回有效内容，请重试。"
+            });
+            break;
+          }
+
+          broadcastRewriteProgress(insightRequestId, { phase: "done", current: 2, total: 2 });
+
+          const taskAfterRun = findTaskByReqId(insightRequestId);
+          if (taskAfterRun?.status === "cancelled") {
+            sendResponse({ ok: false, errorCode: "CANCELLED", error: "已取消思想密度提升。" });
+            break;
+          }
+
+          const responsePayload = {
+            ok: true,
+            data: {
+              bodyHtml: clean,
+              sourceBodyHtml: insightBodyHtml,
+              judge,
+              articleId: insightArticleId,
+              articleTitle: insightArticleTitle
+            }
+          };
+          sendResponse(responsePayload);
+          completeRegistryTask(insightTaskId, {
+            status: "done",
+            result: responsePayload.data
+          });
+        } catch (insightErr) {
+          if (insightErr?.code === "CANCELLED") {
+            sendResponse({ ok: false, errorCode: "CANCELLED", error: "已取消思想密度提升。" });
+            break;
+          }
+          completeRegistryTask(insightTaskId, {
+            status: "failed",
+            error: String(insightErr?.message || insightErr || "未知错误")
+          });
+          throw insightErr;
         }
         break;
       }
@@ -1559,20 +1684,41 @@ function isScrapableUrl(url = "") {
   }
 }
 
-// 后台静默抓取的健全检查：抓到 1 个 block / 极少正文，
-// 几乎可确定是登录墙、错误页、403 拦截页、或 SPA 还没 hydrate。
-// 这种情况直接抛错让上层告知用户，不要静默落 session。
-const CAPTURE_MIN_BLOCKS = 2;
+// 后台静默抓取的健全检查：极少正文几乎可确定是登录墙、错误页、403、
+// 或 SPA 还没 hydrate。以字数为准——单块超长正文（如 GitHub README）
+// 不算「太少」，不要静默落空 session。
 const CAPTURE_MIN_TEXT_LEN = 300;
 function assertCaptureHealth(capture, targetUrl) {
   if (!capture || !Array.isArray(capture.blocks) || capture.blocks.length === 0) {
     throw new Error("抓取失败或正文为空，请确认目标站点支持免登录公开访问。");
   }
   const textLen = capture.blocks
-    .filter((b) => b && (b.type === "paragraph" || b.type === "heading" || b.type === "quote"))
-    .map((b) => String(b.text || "").length)
+    .filter(
+      (b) =>
+        b &&
+        (b.type === "paragraph" ||
+          b.type === "heading" ||
+          b.type === "quote" ||
+          b.type === "list" ||
+          b.type === "code" ||
+          b.type === "table")
+    )
+    .map((b) => {
+      if (b.type === "list") return (b.items || []).join("").length;
+      if (b.type === "table") {
+        const headers = (b.headers || []).join("").length;
+        const rows = (b.rows || []).reduce(
+          (sum, row) => sum + (Array.isArray(row) ? row.join("").length : 0),
+          0
+        );
+        return headers + rows;
+      }
+      return String(b.text || "").length;
+    })
     .reduce((a, b) => a + b, 0);
-  if (capture.blocks.length < CAPTURE_MIN_BLOCKS || textLen < CAPTURE_MIN_TEXT_LEN) {
+  // 登录墙典型是「字少」。单块超长正文（如 GitHub README 被滤成 1 段）
+  // 不应再按块数阈值误杀。
+  if (textLen < CAPTURE_MIN_TEXT_LEN) {
     const hint = `（抓到 ${capture.blocks.length} 块 / ${textLen} 字）`;
     throw new Error(
       `抓到的内容太少 ${hint}，可能命中了登录墙、错误页或反爬拦截页。请在浏览器里打开 ${targetUrl} 确认页面正常，或换一种抓取方式。`

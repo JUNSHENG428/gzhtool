@@ -197,7 +197,7 @@ async function handleTaskCompleted(task, currentArticleId, wasRunning) {
   // 必须在 apply 前手动拉 result（GET_TASK_RESULT），否则 apply 函数会因 result=undefined
   // 直接 return —— 表现就是用户点[查看]后看到的还是改写前的内容（"好像没保存"）。
   if (
-    (task.type === "rewrite" || task.type === "capture" || task.type === "deepHumanize") &&
+    (task.type === "rewrite" || task.type === "capture" || task.type === "deepHumanize" || task.type === "insightBoost") &&
     task.status === "done" &&
     _ctx?.onTaskDone
   ) {
@@ -304,7 +304,7 @@ async function handleGoToTask(taskId) {
 
   // 如果任务已 done，把完整 result 拉过来再触发 apply（TASK_LIST_CHANGED 不带 result）
   if (
-    (task.type === "rewrite" || task.type === "capture" || task.type === "deepHumanize") &&
+    (task.type === "rewrite" || task.type === "capture" || task.type === "deepHumanize" || task.type === "insightBoost") &&
     task.status === "done" &&
     _ctx?.onTaskDone
   ) {
@@ -499,6 +499,12 @@ function phaseToLabel(task) {
       return "AI 审稿员正在评审…";
     case "deepHumanize:rewrite":
       return "正在整体重写…";
+    case "insightBoost:judge":
+      return "AI 主编正在评审…";
+    case "insightBoost:rewrite":
+      return "正在锐化观点…";
+    case "thesis":
+      return "正在立论…";
     default:
       return phase;
   }
@@ -595,6 +601,8 @@ function taskTypeLabel(type) {
       return "抓取";
     case "deepHumanize":
       return "深度去 AI 味";
+    case "insightBoost":
+      return "提升思想密度";
     default:
       return String(type || "任务");
   }

@@ -382,10 +382,11 @@
                 <ul class="humanize-panel-issues" aria-label="可优化项列表"></ul>
                 <div class="humanize-panel-actions">
                   <button id="deepHumanizeBtn" type="button" class="compliance-ai-btn">🔬 深度去 AI 味<span class="section-tag soft">会员</span></button>
+                  <button id="insightBoostBtn" type="button" class="compliance-ai-btn">🧠 提升思想密度<span class="section-tag soft">会员</span></button>
                   <span class="muted" id="deepHumanizeResult" aria-live="polite"></span>
                 </div>
                 <p class="humanize-panel-foot">
-                  本地检测只看词汇/句式；「深度去 AI 味」会用 AI 当审稿员找出语义/论证层的 AI 痕迹再整体重写（消耗 2 次 AI 调用）。
+                  本地检测只看词汇/句式；「深度去 AI 味」让 AI 审稿员找出语义层 AI 痕迹再重写；「提升思想密度」让 AI 主编枪毙正确的废话和骑墙表述、把描述改成判断（各消耗 2 次 AI 调用）。
                 </p>
               </div>
             </div>
@@ -562,6 +563,10 @@
               <label>
                 <span>排版主题</span>
                 <select id="themeSelect"></select>
+              </label>
+              <label class="checkbox-inline" title="改写前先让 AI 完成立论（核心判断 / 论证链 / 反方观点 / 代价分析），成稿围绕骨架展开。文章更有观点，多消耗 1 次 AI 调用、多等 10–20 秒。">
+                <input type="checkbox" id="deepThesisCheck" />
+                <span>深度立论 · 先想清楚再动笔（+1 次 AI 调用）</span>
               </label>
             </div>
 
@@ -904,6 +909,12 @@
                       <option value="ink">墨韵书香 · 宣纸朱红</option>
                       <option value="forest">新叶专栏 · 深绿薄荷</option>
                       <option value="mint">清新知识卡 · 白底翠绿</option>
+                      <option value="night">午夜蓝调 · 深蓝冷光</option>
+                      <option value="sunset">落日珊瑚 · 暗底暖橙</option>
+                      <option value="paper">素纸铅字 · 白底墨黑</option>
+                      <option value="lavender">雾紫信笺 · 浅紫丁香</option>
+                      <option value="amber">琥珀暖光 · 深褐金黄</option>
+                      <option value="ocean">深海青瓷 · 浅青碧色</option>
                     </select>
                   </label>
                   <label class="cards-control">
@@ -927,11 +938,198 @@
 
                 <p id="cardsStatus" class="cards-status" aria-live="polite"></p>
 
+                <div id="cardTextEditor" class="card-text-editor" hidden>
+                  <div class="card-text-editor-head">
+                    <div>
+                      <p class="card-text-editor-kicker">实时预览</p>
+                      <span id="cardTextEditorLabel">编辑卡片文字</span>
+                    </div>
+                    <button id="cardTextEditorClose" class="ghost card-text-editor-close" type="button">关闭</button>
+                  </div>
+
+                  <label class="card-text-editor-field">
+                    <span>正文</span>
+                    <textarea id="cardEditText" rows="3" maxlength="80" spellcheck="false" placeholder="在这里改卡片上的文字…"></textarea>
+                  </label>
+
+                  <div class="card-text-editor-section">
+                    <p class="card-text-editor-section-title">艺术字体</p>
+                    <div id="cardEditFontFamily" class="card-font-grid" role="listbox" aria-label="艺术字体"></div>
+                  </div>
+
+                  <div class="card-text-editor-section">
+                    <p class="card-text-editor-section-title">颜色</p>
+                    <div class="card-text-editor-row card-color-row">
+                      <label class="card-color-chip">
+                        <span>字色</span>
+                        <input id="cardEditColor" type="color" value="#23211c" />
+                      </label>
+                      <label class="card-color-chip">
+                        <span>背景</span>
+                        <input id="cardEditBg" type="color" value="#f4eee1" />
+                      </label>
+                      <label class="card-color-chip">
+                        <span>点缀</span>
+                        <input id="cardEditAccent" type="color" value="#b23a2e" />
+                      </label>
+                      <label class="card-color-chip">
+                        <span>高亮</span>
+                        <input id="cardEditHighlightColor" type="color" value="#ffe566" />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="card-text-editor-section">
+                    <p class="card-text-editor-section-title">排版</p>
+                    <div class="card-text-editor-row">
+                      <label class="card-text-editor-field card-text-editor-grow">
+                        <span>字号 <em id="cardEditFontSizeVal">自动</em></span>
+                        <input id="cardEditFontSize" type="range" min="0" max="120" step="2" value="0" />
+                      </label>
+                      <label class="card-text-editor-field card-text-editor-grow">
+                        <span>字距 <em id="cardEditLetterSpacingVal">默认</em></span>
+                        <input id="cardEditLetterSpacing" type="range" min="0" max="16" step="1" value="0" />
+                      </label>
+                    </div>
+                    <div class="card-text-editor-row card-text-editor-toggles">
+                      <label class="card-text-toggle"><input id="cardEditBold" type="checkbox" /> 加粗</label>
+                      <label class="card-text-toggle"><input id="cardEditHighlight" type="checkbox" /> 高亮底</label>
+                      <label class="card-text-toggle"><input id="cardEditUnderline" type="checkbox" /> 下划线</label>
+                      <label class="card-text-editor-field">
+                        <span>水平</span>
+                        <select id="cardEditAlign">
+                          <option value="auto">默认</option>
+                          <option value="left">左对齐</option>
+                          <option value="center">居中</option>
+                          <option value="right">右对齐</option>
+                        </select>
+                      </label>
+                      <label class="card-text-editor-field">
+                        <span>垂直</span>
+                        <select id="cardEditVAlign">
+                          <option value="middle">居中</option>
+                          <option value="top">偏上</option>
+                          <option value="bottom">偏下</option>
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="card-text-editor-actions">
+                    <button id="cardEditReset" class="ghost" type="button">重置样式</button>
+                    <button id="cardEditApplyTitle" class="ghost" type="button" hidden>用此标题</button>
+                  </div>
+                </div>
+
                 <div id="cardsEmpty" class="cards-empty">
                   <p>还没有金句卡片。先去「编辑排版」改写或粘贴一篇正文，再回来一键生成。</p>
                 </div>
 
                 <ul id="cardsGrid" class="cards-grid" role="list" aria-label="金句卡片预览"></ul>
+
+                <div class="cards-divider" aria-hidden="true"></div>
+
+                <div class="cover-cards-section">
+                  <h3 class="cover-cards-heading">封面标题卡片</h3>
+                  <p class="field-hint">
+                    AI 从正文生成 5-6 个吸睛标题，每张排成一张封面贴图——居中大字 + 钩子标签 + 三种版式轮换，适合做公众号头图 / 小红书封面。
+                  </p>
+                  <div class="cards-actions">
+                    <button id="generateCoverCardsButton" class="primary" type="button">🎯 AI 生成吸睛标题并做封面卡片</button>
+                    <button id="downloadAllCoversButton" class="ghost" type="button" hidden>⬇️ 全部下载封面</button>
+                    <button id="insertAllCoversButton" class="ghost" type="button" hidden>↩️ 全部插入正文</button>
+                  </div>
+                  <p id="coverStatus" class="cards-status" aria-live="polite"></p>
+                  <div id="coversEmpty" class="cards-empty">
+                    <p>还没有封面卡片。正文写好后来这里一键生成多个标题备选。</p>
+                  </div>
+                  <ul id="coversGrid" class="cards-grid" role="list" aria-label="封面标题卡片预览"></ul>
+                </div>
+              </section>
+
+              <section class="panel comic-panel">
+                <div class="section-header">
+                  <div>
+                    <p class="section-kicker">配图 · 文生图</p>
+                    <h2>逻辑链漫画 Prompt</h2>
+                  </div>
+                  <span class="ui-nav-badge">PRO</span>
+                </div>
+                <p class="field-hint">
+                  AI 把当前正文拆成一张「逻辑链漫画信息图」的结构化描述，生成可直接投喂
+                  即梦 / Midjourney / DALL·E 等文生图模型的中文 Prompt——米黄底 + 马卡龙色卡通信息图，适合做头图或正文配图。
+                </p>
+
+                <div class="cards-controls">
+                  <label class="cards-control">
+                    <span>布局模板</span>
+                    <select id="comicTemplateSelect">
+                      <option value="auto">自动（AI 按文章逻辑自选）</option>
+                      <option value="circular">环形闭环 · 因果循环</option>
+                      <option value="horizontal">横向 Stage · 传导链路</option>
+                      <option value="matrix">矩阵分层 · 多维分析</option>
+                      <option value="columns">多列分组 · 方案对比</option>
+                    </select>
+                  </label>
+                  <label class="cards-control">
+                    <span>画幅</span>
+                    <select id="comicRatioSelect">
+                      <option value="16:9">16:9 横版 · 公众号头图</option>
+                      <option value="9:16">9:16 竖版 · 小红书 / 抖音</option>
+                      <option value="4:5">4:5 竖版 · 朋友圈</option>
+                      <option value="1:1">1:1 方形 · 微博卡片</option>
+                      <option value="3:4">3:4 竖版 · iPad / 打印</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="cards-actions">
+                  <button id="generateComicPromptButton" class="primary" type="button">🎨 AI 拆解逻辑链并生成 Prompt</button>
+                  <button id="copyComicPromptButton" class="ghost" type="button" hidden>📋 复制 Prompt</button>
+                </div>
+
+                <p id="comicStatus" class="cards-status" aria-live="polite"></p>
+
+                <div id="comicResult" class="comic-result" hidden>
+                  <div class="comic-block">
+                    <div class="comic-block-head"><span>📐 结构概览</span></div>
+                    <p id="comicOutline" class="comic-outline"></p>
+                  </div>
+                  <div class="comic-block">
+                    <div class="comic-block-head">
+                      <span>🏷️ 自动标签</span>
+                      <button id="copyComicTagsButton" class="ghost comic-block-copy" type="button">复制</button>
+                    </div>
+                    <p id="comicTags" class="comic-tags"></p>
+                  </div>
+                  <div class="comic-block">
+                    <div class="comic-block-head"><span>📝 生成的 Prompt</span></div>
+                    <textarea id="comicPromptText" class="comic-prompt-text" readonly rows="12" spellcheck="false"></textarea>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel comic-panel">
+                <div class="section-header">
+                  <div>
+                    <p class="section-kicker">涨粉 · 文案</p>
+                    <h2>贴图种草文案</h2>
+                  </div>
+                  <span class="ui-nav-badge">PRO</span>
+                </div>
+                <p class="field-hint">
+                  AI 根据当前正文直接写出配合贴图发布的成品文案：5 个小红书标题 + 种草正文 +
+                  公众号导语 + 话题标签 + 封面文字建议。若已拆解逻辑链漫画，会一并参考让文与图呼应。
+                </p>
+
+                <div class="cards-actions">
+                  <button id="generateSocialPostButton" class="primary" type="button">✍️ AI 生成种草文案</button>
+                  <button id="copySocialPostButton" class="ghost" type="button" hidden>📋 复制文案</button>
+                </div>
+
+                <p id="socialStatus" class="cards-status" aria-live="polite"></p>
+
+                <textarea id="socialPostText" class="comic-prompt-text" readonly rows="18" spellcheck="false" hidden></textarea>
               </section>
             </div>
           </section>
