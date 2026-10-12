@@ -9,7 +9,8 @@
     "test:extract-chat": "node scripts/test-extract-chat.mjs",
     "test:article-normalization": "node scripts/test-article-normalization.mjs",
     "test:scrape-article": "node scripts/test-scrape-article.mjs",
-    "test": "npm run test:smoke && npm run test:extract-chat && npm run test:article-normalization && npm run test:scrape-article",
+    "test:p1": "node --test scripts/test-p1-regressions.mjs",
+    "test": "npm run test:smoke && npm run test:p1 && npm run test:rewrite-quality && npm run test:wechat-import && npm run test:extract-chat && npm run test:article-normalization && npm run test:scrape-article",
     "fonts:sync": "bash scripts/sync-fonts.sh",
     "version:sync": "node scripts/version-sync.mjs",
     "build:zip": "node scripts/build-zip.mjs",
@@ -23,7 +24,9 @@
     "build:floating-ball": "node scripts/build-floating-ball.mjs",
     "dev:floating-ball": "node scripts/build-floating-ball.mjs --watch",
     "check:bundle-fresh": "node scripts/check-bundle-fresh.mjs",
-    "release:cws": "npm run build:floating-ball && npm run test && npm run build:zip"
+    "release:cws": "npm run build:floating-ball && npm run test && npm run build:zip",
+    "test:rewrite-quality": "node --test scripts/test-rewrite-quality.mjs",
+    "test:wechat-import": "node --test scripts/test-wechat-import.mjs"
   },
   "keywords": [
     "chrome-extension",

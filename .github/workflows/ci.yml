@@ -18,3 +18,12 @@ jobs:
         run: npm ci
       - name: Smoke
         run: npm run test:smoke
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Auth, payment and session regression tests
+        run: npm run test:p1
+      - name: Rewrite readability regression tests
+        run: npm run test:rewrite-quality
+      - name: WeChat import regression tests
+        run: npm run test:wechat-import

@@ -6,7 +6,7 @@
 
 import { deleteSnapshot, listSnapshots, loadSnapshot, saveSnapshot } from "../shared/history.js";
 import { getSettings } from "../shared/storage.js";
-import { WECHAT_WEB_EDITOR_URL, THEME_PRESETS } from "../shared/defaults.js";
+import { THEME_PRESETS } from "../shared/defaults.js";
 import { clampIndex, formatRuntimeError } from "../shared/utils.js";
 import { prepareHtmlForWechat } from "../shared/wechat-html.js";
 import { ensureHostPermissionFromGesture } from "../shared/host-permissions.js";
@@ -43,7 +43,7 @@ async function _hasInFlightRewriteTask(articleId) {
     const running = resp?.data?.running || [];
     const pending = resp?.data?.pending || [];
     return [...running, ...pending].some(
-      (t) => t?.type === "rewrite" && t?.articleId === articleId
+      (t) => ["rewrite", "deepHumanize", "insightBoost"].includes(t?.type) && t?.articleId === articleId
     );
   } catch {
     // LIST_TASKS 失败不阻塞主流程（task center 关闭等场景），保守返回 false
@@ -87,7 +87,7 @@ function _bindPublishEvents() {
 
   // 发布 / 草稿
   document.querySelector("#publishCurrentButton").addEventListener("click", () =>
-    publishBundle(controls.publishMode.value)
+    publishBundle("draft")
   );
   // 立即发布是危险操作（直连 mass/sendall 推到粉丝可见无法撤回），加二次确认 modal
   document.querySelector("#publishNowButton").addEventListener("click", () =>
@@ -97,7 +97,7 @@ function _bindPublishEvents() {
   document.querySelector("#publishConfirmBackdrop")?.addEventListener("click", _closePublishConfirmModal);
   document.querySelector("#confirmPublishNowButton")?.addEventListener("click", () => {
     _closePublishConfirmModal();
-    void publishBundle("publish");
+    void publishBundle("publish", { confirmed: true });
   });
   document.querySelector("#pollStatusButton").addEventListener("click", () =>
     pollPublishStatus({ auto: false })
@@ -135,6 +135,12 @@ function _bindPublishEvents() {
   // SW 不能直接调拼装链路因为它依赖 DOMParser（MV3 SW 无 DOM API）。
   if (chrome?.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type === "WECHAT_IMPORT_STATUS") {
+        state.lastWebSyncResult = message.data;
+        _ctx.syncWorkspace();
+        _ctx.schedulePersist();
+        return false;
+      }
       if (message?.type !== "BUILD_PULL_READY_PAYLOAD") return false;
       // payload.articleId（可选，多草稿选择器 v0.2）：指明拉哪一篇；不传则拉当前激活那篇
       const requestedArticleId = String(message.payload?.articleId || "").trim();
@@ -195,15 +201,8 @@ function _bindPublishEvents() {
       if (!article) return;
       article.meta = { ...article.meta, publishEnabled: target.checked };
 
-      // 39th 续³ Batch 8 · Bug 1 修复：勾选时同步更新 currentArticleIndex。
-      // 浮球 PULL strip 按钮不传 articleId（[wechat-editor-helper.js#1362] sendMessage
-      // 不带 payload），workspace `_buildPullReadyPayload` fallback 用 currentArticleIndex
-      // 选篇。不同步的话用户在「发布」页勾第 N 篇，但浮球 PULL 拉的还是 bundle[0]
-      // （或上次「编辑排版」页看的那篇），与用户期望不符——表现为「推送的是旧草稿没更新」。
-      // 只在勾选=true 时更新，取消勾选不动；多篇都勾选时取最后勾的那个（符合 LRU 直觉）。
-      if (target.checked && Number.isFinite(idx) && idx >= 0 && idx < state.articleBundle.length) {
-        state.currentArticleIndex = idx;
-      }
+      // 切篇必须先保存旧篇控件并重绘新篇，避免索引与编辑区内容错位。
+      if (target.checked && idx !== state.currentArticleIndex) _ctx.switchArticle(idx);
       _ctx.schedulePersist();
       renderPublishArticleList();
     });
@@ -405,7 +404,8 @@ async function _copyCurrentArticleHtmlForPaste() {
 // 放函数体而非 click handler：错误条 [重试]、未来新增入口同样不该并发发布。
 let _sendOutInFlight = false;
 
-export async function publishBundle(mode) {
+export async function publishBundle(mode, { confirmed = false } = {}) {
+  if (mode === "publish" && !confirmed) { _openPublishConfirmModal(); return; }
   const {
     state,
     setStatus,
@@ -518,7 +518,7 @@ export async function publishBundle(mode) {
     if (publishChannel === "browser") {
       showLoading(
         `正在通过浏览器登录模式同步到公众号编辑器 · 账号「${accountLabel}」`,
-        "扩展会自动打开 mp 后台编辑页，把内容写入；最后一步『保存草稿』需要你在 mp 后台手动点。"
+        "扩展会打开公众号编辑页，请核对稿件与账号后确认导入，再手动保存草稿。"
       );
     } else {
       showLoading(
@@ -591,6 +591,14 @@ export async function publishBundle(mode) {
       throw err;
     }
 
+    if (response.data?.mode === "browser") {
+      state.lastWebSyncResult = { ...response.data, syncedAt: new Date().toISOString() };
+      syncWorkspace(); schedulePersist();
+      setStatus(response.data.message, "info");
+      resetRetryCount();
+      return;
+    }
+
     state.lastPublishResult = {
       ...response.data,
       title: state.articleBundle[0]?.meta.title || "",
@@ -615,35 +623,7 @@ export async function publishBundle(mode) {
     }
 
     const failedImages = response.data.failedImages || [];
-    if (response.data?.mode === "browser") {
-      // 浏览器登录模式：内容已写入 mp 后台编辑页，提醒用户手动完成最后 3 步。
-      // fields 是 helper 逐字段回报的写入结果——部分失败（如摘要选择器没命中）
-      // 此前被笼统的成功文案吞掉，用户发出去才发现摘要是空的。
-      const fields = response.data?.fields || {};
-      // 注意：helper 的 setFieldValue 对「值本来就是空」也返回 false，
-      // 所以必须先看发过去的 meta 里该字段有没有内容，有内容却没写进去才算缺失。
-      const sentMeta = payload.articles?.[0]?.meta || {};
-      const fieldLabels = [
-        ["titleWritten", "标题", sentMeta.title],
-        ["bodyWritten", "正文", payload.articles?.[0]?.html],
-        ["digestWritten", "摘要", sentMeta.digest],
-        ["authorWritten", "作者", sentMeta.author],
-        ["sourceUrlWritten", "原文链接", sentMeta.contentSourceUrl]
-      ];
-      const missed = fieldLabels
-        .filter(([key, , sentValue]) => String(sentValue || "").trim() && fields[key] === false)
-        .map(([, label]) => label);
-      const missedTail = missed.length
-        ? ` ⚠️ 以下字段未能自动写入，请在 mp 编辑器手动补上：${missed.join("、")}。`
-        : "";
-      const tail = response.data?.requiresMultiArticleManual
-        ? "（多图文：当前仅同步了第一篇，其余请在 mp 后台「添加一条」后用『复制公众号正文』粘贴。）"
-        : "";
-      setStatus(
-        `账号「${accountLabel}」已写入公众号编辑器：请在 mp 后台手动 ① 上传封面图 ② 点「保存为草稿」。${missedTail}${tail}`,
-        missed.length ? "warning" : "success"
-      );
-    } else if (failedImages.length > 0) {
+    if (failedImages.length > 0) {
       const lines = failedImages.map(
         (f) => `第 ${f.articleIndex} 篇 · ${f.type === "cover" ? "封面" : "正文图片"}：${f.error || "上传失败"}`
       );
@@ -792,6 +772,8 @@ async function _buildWechatPublishPayload(mode, { channel = "api" } = {}) {
  */
 async function _buildPullReadyPayload(articleId = "") {
   const { state, buildExportHtmlForArticle } = _ctx;
+  _ctx.syncCurrentArticleFromControls();
+  state.settings = await getSettings();
   const bundle = Array.isArray(state.articleBundle) ? state.articleBundle : [];
 
   if (bundle.length === 0) {
@@ -817,6 +799,9 @@ async function _buildPullReadyPayload(articleId = "") {
     if (chosenIndex < 0 || chosenIndex >= bundle.length) chosenIndex = 0;
   }
   const article = bundle[chosenIndex];
+  if (!String(article?.bodyHtml || "").replace(/<[^>]*>/g, "").trim() && !/<img\b/i.test(article?.bodyHtml || "")) {
+    throw new Error("当前稿件正文为空，请先填写内容再导入。");
+  }
 
   if (!String(article?.meta?.title || "").trim()) {
     const err = new Error(
@@ -1045,38 +1030,13 @@ export async function syncCurrentToWebEditor() {
     // 用户往往保存后才发现（mp 不会拦编辑态的空草稿）。
     const hasTitle = Boolean(String(current?.meta?.title || "").trim());
     const hasBody = Boolean(String(current?.bodyHtml || "").trim());
-    if (!hasTitle && !hasBody) {
-      setStatus("当前稿件还没有标题和正文，请先填写内容再同步。", "warning");
+    if (!hasTitle || !hasBody) {
+      setStatus("请先填写当前稿件的标题和正文，再送到公众号。", "warning");
       return;
     }
-    showLoading(
-      "正在同步到公众号网页编辑器",
-      "将打开公众号网页编辑器，并自动写入正文。"
-    );
-    // 38th 续 12：紧急 revert——c7ea3f0 加的 prepareHtmlForWechat 清洗对 mp
-    // web editor DOM 注入逻辑不兼容（unwrap div→section + strip class + 白名单
-    // 属性，mp 编辑器吃不下导致 section 内容被 fold 掉，用户实测 7000 字草稿
-    // 同步过去只剩 15 字）。prepareHtmlForWechat 仅适合 cgi-bin add_draft API。
-    // mp web editor 走 contenteditable 注入路径，需要保留 div + class + 完整
-    // inline style 让编辑器自己 sanitize。
-    // 直发 buildExportHtmlForArticle 产物（含主题样式）即可——虽然与 publishBundle
-    // 经过 prepareHtmlForWechat 后的视觉**不完全一致**，但有内容比"对齐了但全
-    // 是空白"重要 100 倍。HTML 一致性问题留待 wechat-editor-helper.js importArticle
-    // sanitizer 升级后再做（需要确认它能接受什么标签集）。
-    const html = buildExportHtmlForArticle(current);
-    const response = await chrome.runtime.sendMessage({
-      type: "SYNC_TO_WECHAT_WEB_EDITOR",
-      payload: {
-        meta: {
-          title: current.meta.title,
-          author: current.meta.author,
-          digest: current.meta.digest,
-          contentSourceUrl: current.meta.contentSourceUrl
-        },
-        html,
-        editorUrl: WECHAT_WEB_EDITOR_URL
-      }
-    });
+    showLoading("正在准备公众号导入", "请到公众号页面核对稿件、账号，并确认导入。");
+    const { payload } = await _buildPullReadyPayload(current.id);
+    const response = await chrome.runtime.sendMessage({ type: "SYNC_TO_WECHAT_WEB_EDITOR", payload });
 
     if (!response?.ok) {
       throw new Error(formatRuntimeError(response?.error, "同步网页编辑器失败。"));
@@ -1089,12 +1049,7 @@ export async function syncCurrentToWebEditor() {
     };
     syncWorkspace();
     schedulePersist();
-    setStatus(
-      response.data.bodyWritten
-        ? "已尝试同步到网页编辑器。若正文未自动落入，请看编辑页右下角助手面板。"
-        : "已打开网页编辑器，但未完全自动写入。请看编辑页右下角助手面板。",
-      "warning"
-    );
+    setStatus(response.data.message || "请到公众号页面确认导入。", "info");
     resetRetryCount();
   } catch (error) {
     setErrorStatus(

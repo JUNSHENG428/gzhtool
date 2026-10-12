@@ -4,7 +4,7 @@
  * 「去 AI 味」二次润色 pass
  *
  * 在主 pass 已经产出结构化 article 后，再过一次 LLM。本 pass 只做
- * "去 AI 味"，绝不改结构、绝不改事实，让结果在 lint 报告上把分数推到 90+。
+ * 表达编辑，保留结构与事实，以清楚、连贯为目标，不追逐 lint 分数。
  *
  * 调用入口：service-worker.js REWRITE_ARTICLE 完成主 pass 后，依据
  *   - settings.humanizeEnabled
@@ -48,15 +48,8 @@
  *   - lead 单独走一次（短文本，单独 prompt 更稳）。
  */
 
-import {
-  AI_VOCAB_BLACKLIST,
-  AI_PHRASE_BLACKLIST,
-  PUNCTUATION_LIMITS,
-  BURSTINESS_TARGET,
-  getHumanizeProfile,
-  getTopRuleCards,
-  AI_VOCAB_REPLACEMENTS
-} from "./humanize-rules.js";
+import { getHumanizeProfile, PUNCTUATION_LIMITS } from "./humanize-rules.js";
+import { EDITORIAL_RULES } from "./editorial-rules.js";
 import { extractChatContent, postChatCompletionWithReasoningFallback, requestPlainChat } from "./ai.js";
 import { ensureOptionalHostPermission } from "./host-permissions.js";
 import { lintArticle } from "./humanize-checker.js";
@@ -474,20 +467,13 @@ async function rewriteSnippet({
   const model =
     String(template?.model || "").trim() || String(settings.model || "").trim();
 
-  // 用更高的 temperature 推动多样性；frequency_penalty 比主 pass 更狠，
-  // 防止"换皮还是同一套套话"。
+  // 润色优先稳定表达；不主动提高温度或词频惩罚来制造“随机性”。
   const body = {
     model,
-    temperature: clamp(
-      (settings.temperature === "" || settings.temperature == null || Number.isNaN(Number(settings.temperature))
-        ? 0.85
-        : Number(settings.temperature)) + 0.05,
-      0.5,
-      1.2
-    ),
-    top_p: numberOrSkip(settings.topP) ?? 0.92,
-    frequency_penalty: numberOrSkip(settings.frequencyPenalty) ?? 0.6,
-    presence_penalty: numberOrSkip(settings.presencePenalty) ?? 0.4,
+    temperature: clamp(numberOrSkip(settings.temperature) ?? 0.4, 0, 0.6),
+    top_p: numberOrSkip(settings.topP) ?? 1,
+    frequency_penalty: numberOrSkip(settings.frequencyPenalty) ?? 0,
+    presence_penalty: numberOrSkip(settings.presencePenalty) ?? 0,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user }
@@ -538,23 +524,6 @@ async function rewriteSnippet({
 // ---------------------------------------------------------------------
 
 function buildHumanizeSystemPrompt({ profile, intensity, issues, voiceSample, template }) {
-  const cards = getTopRuleCards(intensity === "strong" ? 12 : 10);
-  const cardLines = cards.map((c) => `- 【${c.label}】${c.do}（避免：${c.dont}）`);
-  // S2 是专项返工，黑名单喂得比 S1 更全（strong 档全量高权重词）
-  const blacklistTop = AI_VOCAB_BLACKLIST.filter((x) => x.weight >= 5)
-    .slice(0, intensity === "strong" ? 24 : 18)
-    .map((x) => x.phrase);
-  const phraseTop = AI_PHRASE_BLACKLIST.filter((x) => x.weight >= 7)
-    .slice(0, 14)
-    .map((x) => x.phrase);
-  const dictLines = AI_VOCAB_REPLACEMENTS.slice(0, 12).map(
-    ([from, to]) => `「${from}」→ ${to}`
-  );
-
-  const stdMin = Number(profile.burstinessMin || BURSTINESS_TARGET.minStdOverMean).toFixed(2);
-  const dashLimit = Number(profile.dashesPer500 || PUNCTUATION_LIMITS.dashesPer500);
-  const allowFp = profile.allowFirstPerson !== false;
-
   // 把 issues 拆成三类，分别给 LLM 更精确的指令：
   //  - repeated：用户在样本里"过度模仿真人"导致的同一短语反复（如"说实话×4"）
   //    → 必须把多余的删掉，最多保留 1 处
@@ -592,48 +561,12 @@ function buildHumanizeSystemPrompt({ profile, intensity, issues, voiceSample, te
   const includeVoice = voiceSample && usePolicy !== "force-off";
 
   const lines = [
-    "你是一位资深公众号编辑，正在为一篇已经写好的稿件做「去 AI 味」专项润色。",
-    "",
-    "你只做一件事：把段落重写成更像真人写的版本。事实、数据、人名、产品名、引号内文字、列表项、代码块、表格行均不得新增或删减；只改写措辞、节奏、句式与情绪。",
-    "",
-    "【输出要求】",
-    "- 直接输出重写后的段落正文，段落之间用一个空行分隔。",
-    "- 不要输出 markdown 代码块、不要输出解释、不要输出 JSON。",
-    "- 段落数量与原文偏差应控制在 50% 以内（可合并或拆分相邻段，但不要从 5 段变 1 段）。",
-    "",
-    "【硬约束 · 句长突发性】",
-    `- 句长策略：${BURSTINESS_TARGET.ratioGuide}。整段标准差/均值 ≥ ${stdMin}。`,
-    "- 相邻三句不得长度相同；至少出现 1 处 1–2 句的短段当节奏呼吸。",
-    "",
-    "【硬约束 · 流畅衔接（别为了节奏把句子切碎）】",
-    "- 相邻句子要逻辑承接：前句抛点、后句接住或反驳，是一条连贯思路，不是互不相关的碎片。",
-    "- 衔接靠语义和指代（它/这/那套/结果）自然完成，少量口语连接词（所以/可/这就）点缀即可；不要每句都用「然而/因此/与此同时」书面过渡词起头。",
-    "- 短句用于强调换气，但不能把一个完整意思砍成「实操层面。出事故。兜底。」式连串残句；短句之间仍要有清晰逻辑链。",
-    "",
-    "【硬约束 · 高优先级规则卡】",
-    ...cardLines,
-    "",
-    "【硬约束 · 黑名单（绝不出现）】",
-    "- 抽象壳词与套话动词：" + blacklistTop.join(" / "),
-    "- 套话短语：" + phraseTop.join(" ／ "),
-    `- 破折号「——」每 500 字不超过 ${dashLimit} 个；感叹号每 500 字不超过 ${PUNCTUATION_LIMITS.exclamPer500} 个。`,
-    "- 「**标签**：内容」式的内联标题列表禁止出现在新文里。",
-    "- 「希望对您有帮助 / 当然可以 / 让我为您 / 您说得对 / 好问题」等聊天残留必须删除。",
-    "",
-    "【硬约束 · 信息噪声】",
-    "- 数字 / 时间 / 场景必须保留原文具体值；不要把具体值替换成「大量 / 显著 / 明显 / 重要」。",
-    "- 「专家认为 / 业内人士指出 / 多个来源显示」等模糊归因必须改成具体名字或删除。",
-    "",
-    "【硬约束 · 反三段式】",
-    "- 「不仅…而且…」「既要…也要…」「首先…其次…最后」必须改写。",
-    "- 连续 3 项及以上并列必须收成 2 项或拆成不同句子。",
-    "",
-    allowFp
-      ? "【允许】可在段落里加 1–2 处带主观判断的句子（说实话…/讲真…/回过头看…），让稿子有真人观察。"
-      : "【约束】保持客观，不要出现第一人称或情绪表达。",
-    "",
-    "【AI 词替换字典（参考）】",
-    ...dictLines.map((s) => "- " + s)
+    "你是一位中文编辑，为已有段落做表达润色。优先修复理解障碍，已通顺的表达不必改动。",
+    EDITORIAL_RULES,
+    "【素材边界】你只收到当前段落，不是原始来源。不得新增或删减事实、数字、人名、单位、时间、引语；不能补造具体来源。无法确定的指代不要猜测。",
+    "【输出要求】直接输出段落正文，用空行分段；不要 JSON、Markdown 代码块或解释。段落数量与原文偏差不超过 50%。",
+    "【检查方式】下列本地词表提示仅供参考，先判断是否影响理解；不能为清除提示而更改原意或正常的列举关系。",
+    profile.allowFirstPerson === false ? "保持客观，不出现第一人称。" : "不新增个人经历、情绪或口头禅。"
   ];
 
   // 反「伪去 AI 味」：当用户有重复使用的口语词（说实话×4 这种），
@@ -644,24 +577,24 @@ function buildHumanizeSystemPrompt({ profile, intensity, issues, voiceSample, te
     for (const it of repeatedIssues.slice(0, 6)) {
       const phrase = it.phrase || it.text || "";
       const count = it.count || "若干";
-      lines.push(`- 「${phrase}」当前出现 ${count} 次 → 全文最多保留 1 处；其它位置改用具体动作 / 数字 / 场景代替。`);
+      lines.push(`- 「${phrase}」当前出现 ${count} 次 → 全文最多保留 1 处；其它位置删去多余的口头禅，直接说明原意，不补造动作、数字或场景。`);
     }
     lines.push("- 不是堆口语词就像真人。该简单的简单、该犀利的犀利，比『频繁说说实话』更接近真人写作。");
   }
 
   if (parallelIssues.length > 0) {
     lines.push("");
-    lines.push("【反三段对仗 · 必修】上一稿有典型 AI 对仗 / 否定式排比，必须整句改写：");
+    lines.push("【对仗检查】以下句子可能修辞过重；确认是否真的影响理解，再改写：");
     for (const it of parallelIssues.slice(0, 6)) {
       const example = it.text || it.hint || "";
       lines.push(`- 命中：${example}`);
     }
-    lines.push("- 把 X，而不是 Y / 不是 X，是 Y / 不仅 X，更 Y / X 而非 Y 整句拆开；用一句陈述或一个场景描写替换。");
+    lines.push("- 直接说明对象之间的区别及依据；原文必要的否定、转折与比较关系必须保留，不编造场景。");
   }
 
   if (endingIssues.length > 0) {
     lines.push("");
-    lines.push("【反命令式收尾 · 必修】文章最后一段是 AI 总结口吻，必须改写成具体场景或自问自答，不许保留对仗对偶：");
+    lines.push("【结尾检查】删除空泛劝诫，平实写明有依据的结论，不改成虚构场景、反问或金句：");
     for (const it of endingIssues.slice(0, 3)) {
       lines.push(`- 命中：${it.text || it.hint || ""}`);
     }
@@ -670,7 +603,7 @@ function buildHumanizeSystemPrompt({ profile, intensity, issues, voiceSample, te
 
   if (issueLines.length > 0) {
     lines.push("");
-    lines.push("【lint 报告 · 其它具体风险点，必须在新稿里清除】");
+    lines.push("【本地规则提示 · 结合上下文判断，不盲目清除】");
     lines.push(...issueLines);
   }
 

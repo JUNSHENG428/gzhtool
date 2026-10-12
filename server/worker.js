@@ -313,18 +313,10 @@ async function handleRegister(request, env) {
     .bind(id, email, base64Encode(hash), base64Encode(salt), now)
     .run();
 
-  // 注册时如果有匹配该邮箱但还没绑定的 license（webhook 已写入但用户还没注册），
-  // 自动认领过来。这样用户「先付款 → 再注册」的路径也能丝滑。
-  await env.DB.prepare(
-    `UPDATE license_keys
-        SET user_id = ?, updated_at = ?
-      WHERE user_id IS NULL AND lower(ls_customer_email) = ?`
-  )
-    .bind(id, now, email)
-    .run();
-
+  // 注册只证明用户选定了一个邮箱字符串，不证明其拥有邮箱。
+  // 自动认领须等到 Google 验证或邮件重设密码成功；仍可凭 License Key 手动绑定。
   const token = await issueJwt(env, { sub: id, email, te: 0 });
-  return jsonResponse({ ok: true, token, user: { id, email } });
+  return jsonResponse({ ok: true, token, user: { id, email, emailVerified: false } });
 }
 
 // ============================================================
@@ -428,7 +420,7 @@ async function handleMe(request, env) {
 
   // 取一次 user 行（拿 created_at / last_login_at + OAuth 标记），减少前端多次往返
   const userRow = await env.DB.prepare(
-    "SELECT id, email, created_at, last_login_at, oauth_provider, password_salt FROM users WHERE id = ?"
+    "SELECT id, email, created_at, last_login_at, oauth_provider, password_salt, email_verified_at FROM users WHERE id = ?"
   )
     .bind(auth.userId)
     .first();
@@ -448,6 +440,7 @@ async function handleMe(request, env) {
       created_at: userRow?.created_at || 0,
       last_login_at: userRow?.last_login_at || 0,
       oauth_provider: oauthProvider,
+      emailVerified: Boolean(userRow?.email_verified_at),
       needsPluginPassword
     },
     license: summary
@@ -817,25 +810,36 @@ async function handleReset(request, env) {
 
   const newSalt = crypto.getRandomValues(new Uint8Array(16));
   const newHash = await pbkdf2Hash(newPassword, newSalt);
-  await env.DB.prepare(
-    "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?"
-  )
-    .bind(base64Encode(newHash), base64Encode(newSalt), row.user_id)
-    .run();
-  await env.DB.prepare(
-    "UPDATE password_resets SET used_at = ? WHERE token_hash = ?"
-  )
-    .bind(Date.now(), tokenHash)
-    .run();
-
-  // 吊销重置前签发的所有旧 JWT（防被盗 token 在重置后仍存活）
-  const epoch = await bumpTokenEpoch(env, row.user_id);
+  const now = Date.now();
+  const hash = base64Encode(newHash);
+  // 密码、邮箱归属、旧会话吊销、认领权益与消费邮件 token 必须一起提交。
+  // SQL 内再次检查 token，避免两个并发重置都通过上面的 SELECT。
+  const resetResults = await env.DB.batch([
+    env.DB.prepare(`UPDATE users
+      SET password_hash = ?, password_salt = ?, email_verified_at = ?,
+          token_epoch = MAX(token_epoch + 1, ?)
+      WHERE id = ? AND email = ? AND EXISTS (
+        SELECT 1 FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
+      )`).bind(hash, base64Encode(newSalt), now, Math.floor(now / 1000), row.user_id, row.email, tokenHash, now),
+    env.DB.prepare(`UPDATE license_keys SET user_id = ?, updated_at = ?
+      WHERE user_id IS NULL AND lower(ls_customer_email) = ? AND EXISTS (
+        SELECT 1 FROM users WHERE id = ? AND email = ? AND email_verified_at IS NOT NULL AND password_hash = ?
+      )`).bind(row.user_id, now, row.email, row.user_id, row.email, hash),
+    env.DB.prepare(`UPDATE password_resets SET used_at = ?
+      WHERE token_hash = ? AND used_at IS NULL AND EXISTS (
+        SELECT 1 FROM users WHERE id = ? AND password_hash = ?
+      )`).bind(now, tokenHash, row.user_id, hash)
+  ]);
+  if (!Number(resetResults[0]?.meta?.changes)) {
+    return jsonResponse({ ok: false, error: "重置链接已使用或过期，请重新申请" }, 400);
+  }
+  const epoch = await currentTokenEpoch(env, row.user_id);
   // 重置成功直接发一个新 JWT，用户可立即登录
   const token2 = await issueJwt(env, { sub: row.user_id, email: row.email, te: epoch });
   return jsonResponse({
     ok: true,
     token: token2,
-    user: { id: row.user_id, email: row.email }
+    user: { id: row.user_id, email: row.email, emailVerified: true }
   });
 }
 
@@ -847,7 +851,7 @@ async function handleReset(request, env) {
 // 行为：
 //   1. 用 Google 公开 JWKS 验签该 ID Token；
 //   2. 校验 iss、aud（=GOOGLE_CLIENT_ID）、exp、email_verified；
-//   3. 用 google_sub 找已绑定用户；找不到则用 email 找已注册用户并补绑 google_sub；
+//   3. 用 google_sub 找已绑定用户；按 email 关联密码账号前必须已验证邮箱；
 //      都没有则创建一个 oauth-only 新用户（password_hash/salt 存 dummy 值，
 //      永远走不到密码登录路径，handleLogin 会拦截并提示"请用 Google 登录"）；
 //   4. 如果该邮箱有已发但未绑定的 license（webhook 先到 → 后注册场景），自动认领；
@@ -908,19 +912,26 @@ async function handleGoogleAuth(request, env) {
 
   // ——— 1. 通过 google_sub 查已绑用户 ———
   let user = await env.DB.prepare(
-    "SELECT id, email FROM users WHERE google_sub = ?"
+    "SELECT id, email, email_verified_at, password_salt FROM users WHERE google_sub = ?"
   )
     .bind(googleSub)
     .first();
 
+  // 旧版曾把 Google 自动绑到未验证的密码账号。保留该密码会让抢注者继续登录，
+  // 必须先走邮箱重设密码，替换密码并吊销旧 token，再允许关联。
+  if (user && !user.email_verified_at && isUsablePasswordHash(user.password_salt)) {
+    return emailVerificationRequired();
+  }
+
   // ——— 2. 通过 email 查已存在用户（之前用邮箱密码注册过，这次第一次用 Google 登录）———
   if (!user) {
     const byEmail = await env.DB.prepare(
-      "SELECT id, email, google_sub FROM users WHERE email = ?"
+      "SELECT id, email, google_sub, email_verified_at FROM users WHERE email = ?"
     )
       .bind(email)
       .first();
     if (byEmail) {
+      if (!byEmail.email_verified_at) return emailVerificationRequired();
       // 同邮箱已经绑过另一个 Google 账号，拒绝（防止账号被劫持）
       if (byEmail.google_sub && byEmail.google_sub !== googleSub) {
         return jsonResponse(
@@ -967,24 +978,16 @@ async function handleGoogleAuth(request, env) {
     // 任何 PBKDF2 都不可能算出 = 这两个值的输出 → 密码登录永远失败；
     // 同时 handleLogin 里会先看 oauth_provider 字段，提前给出友好提示。
     await env.DB.prepare(
-      `INSERT INTO users (id, email, password_hash, password_salt, google_sub, oauth_provider, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO users (id, email, password_hash, password_salt, google_sub, oauth_provider, created_at, email_verified_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-      .bind(id, email, "oauth:google", "oauth:google", googleSub, "google", now)
-      .run();
-
-    // 自动认领该邮箱已发但未绑定的 license（webhook 先到、后注册的场景）
-    await env.DB.prepare(
-      `UPDATE license_keys
-          SET user_id = ?, updated_at = ?
-        WHERE user_id IS NULL AND lower(ls_customer_email) = ?`
-    )
-      .bind(id, now, email)
+      .bind(id, email, "oauth:google", "oauth:google", googleSub, "google", now, now)
       .run();
 
     user = { id, email };
   }
 
+  await claimVerifiedEmailLicenses(env, user.id, user.email);
   await env.DB.prepare("UPDATE users SET last_login_at = ? WHERE id = ?")
     .bind(Date.now(), user.id)
     .run();
@@ -997,9 +1000,24 @@ async function handleGoogleAuth(request, env) {
   return jsonResponse({
     ok: true,
     token,
-    user: { id: user.id, email: user.email },
+    user: { id: user.id, email: user.email, emailVerified: true },
     provider: "google"
   });
+}
+
+function emailVerificationRequired() {
+  return jsonResponse({
+    ok: false,
+    reason: "email_verification_required",
+    error: "该邮箱已有未验证账号。请先通过「忘记密码」邮件设置新密码，确认邮箱归属后再使用 Google 登录。"
+  }, 409);
+}
+
+async function claimVerifiedEmailLicenses(env, userId, email) {
+  await env.DB.prepare(`UPDATE license_keys SET user_id = ?, updated_at = ?
+    WHERE user_id IS NULL AND lower(ls_customer_email) = ? AND EXISTS (
+      SELECT 1 FROM users WHERE id = ? AND email = ? AND email_verified_at IS NOT NULL
+    )`).bind(userId, Date.now(), email, userId, email).run();
 }
 
 /**
@@ -1510,11 +1528,11 @@ async function dispatchLemonEvent(env, eventName, payload) {
           .run();
       }
 
-      // 自动绑到已有用户（如果用户用同样邮箱注册过）
+      // 支付邮箱字符串不能证明注册账号拥有此邮箱；只自动绑定已验证账号。
       if (customerEmail) {
         await env.DB.prepare(
           `UPDATE license_keys
-              SET user_id = (SELECT id FROM users WHERE email = ?)
+              SET user_id = (SELECT id FROM users WHERE email = ? AND email_verified_at IS NOT NULL)
             WHERE key = ? AND user_id IS NULL`
         )
           .bind(customerEmail, key)
@@ -2148,11 +2166,6 @@ const HUPIJIAO_PLANS = {
 
 // 单笔订单的有效期（超过没付就算 expired）
 const ORDER_TTL_MS = 30 * 60 * 1000; // 30 分钟
-// 防重放：同一 nonce_str 在 KV 里不能重复
-// 39th 续³ #13 修订：30 min → 5 min · 虎皮椒 webhook 重试间隔 ≤ 5 min（其官方协议规定），
-// nonce TTL 与重试窗口对齐即可挡住重放，原 30 min 过长（订单 expire 后 nonce 仍接受可能被
-// 重放攻击者利用，虽实际有金额一致性校验兜底但属低 ROI 防御缺口）
-const NONCE_TTL_S = 5 * 60;
 
 /* ----------------------------- handler: create ----------------------------- */
 async function handleHupijiaoCreate(request, env) {
@@ -2265,135 +2278,57 @@ async function handleHupijiaoCreate(request, env) {
 
 /* ----------------------------- handler: notify ----------------------------- */
 async function handleHupijiaoNotify(request, env) {
-  // 虎皮椒回调是 form-urlencoded，不是 JSON
   const formText = await request.text();
   const params = parseFormUrlEncoded(formText);
-
-  // 防御：必填字段
   const tradeOrderId = String(params.trade_order_id || "");
-  const status = String(params.status || "");
-  const totalFee = parseFloat(params.total_fee || "0");
+  const status = String(params.status || "").toUpperCase();
+  const totalFee = Number(params.total_fee);
   const hash = String(params.hash || "");
-  const nonceStr = String(params.nonce_str || "");
-
-  if (!tradeOrderId || !hash || !nonceStr) {
+  if (!tradeOrderId || !hash || !params.nonce_str) {
     return new Response("missing required fields", { status: 400 });
   }
-
-  // 防重放：同一 nonce_str 30 分钟内不能再处理
-  if (env.RATE_LIMIT_KV) {
-    const nonceKey = `hpj:nonce:${nonceStr}`;
-    const seen = await env.RATE_LIMIT_KV.get(nonceKey);
-    if (seen) return new Response("replayed", { status: 400 });
-    await env.RATE_LIMIT_KV.put(nonceKey, "1", { expirationTtl: NONCE_TTL_S });
+  if (!env.HUPIJIAO_APP_SECRET) {
+    return new Response("payment not configured", { status: 503 });
   }
 
-  // 验签：除 hash 之外所有非空字段，按 key 字典序拼接 + AppSecret，MD5
-  const expected = await signHupijiao(params, env.HUPIJIAO_APP_SECRET || "");
+  // 必须先验签。nonce 不是发货幂等键：支付方会原样重试同一个合法回调。
+  const expected = await signHupijiao(params, env.HUPIJIAO_APP_SECRET);
   if (!constantTimeEqualString(expected, hash)) {
-    // 不记录服务端算出的合法签名（expected），日志外泄可辅助伪造；只记收到值前缀。
-    console.warn("[hpj] hash mismatch", { tradeOrderId, gotPrefix: String(hash).slice(0, 8) });
     return new Response("invalid sign", { status: 401 });
   }
-
-  // 查订单
-  const order = await env.DB.prepare(
-    `SELECT * FROM orders WHERE trade_order_id = ?`
-  )
-    .bind(tradeOrderId)
-    .first();
+  const order = await env.DB.prepare("SELECT * FROM orders WHERE trade_order_id = ?")
+    .bind(tradeOrderId).first();
   if (!order) return new Response("order not found", { status: 404 });
-
-  // 幂等：已经处理过的，直接回 success（虎皮椒会重试 6 次，必须返回 success 结束）
-  if (order.status === "paid") {
-    return new Response("success", { status: 200 });
-  }
-
-  // 退款 / 退款中 / 退款失败：只更状态，不签发权益
-  if (status === "CD" || status === "RD" || status === "UD") {
+  // 先按事件分流，已支付订单也必须接收后续退款通知。
+  // 保留现有退款归类与人工权益回收策略；RS/REFUND 与主动查询通道保持一致。
+  if (["CD", "RD", "UD", "RS", "REFUND"].includes(status)) {
     await env.DB.prepare(
-      `UPDATE orders SET status = 'refunded', notify_payload = ? WHERE trade_order_id = ?`
-    )
-      .bind(formText, tradeOrderId)
-      .run();
-    // 这里有需要的话还可以反过来 revoke 对应 license_keys
-    return new Response("success", { status: 200 });
+      "UPDATE orders SET status = 'refunded', notify_payload = ? WHERE trade_order_id = ?"
+    ).bind(formText, tradeOrderId).run();
+    return new Response("success");
   }
-
-  // 只接 OD（已支付）；其他状态拒绝继续
-  if (status !== "OD") {
-    return new Response("unsupported status", { status: 400 });
-  }
-
-  // 金额一致性校验（防止小额订单骗大额开通）
-  if (Math.abs(totalFee - Number(order.total_fee)) > 0.01) {
-    console.warn("[hpj] amount mismatch", {
-      tradeOrderId,
-      expected: order.total_fee,
-      got: totalFee
-    });
+  if (status !== "OD") return new Response("unsupported status", { status: 400 });
+  if (!Number.isFinite(totalFee) || totalFee < 0 ||
+      Math.round(totalFee * 100) !== Math.round(Number(order.total_fee) * 100)) {
     return new Response("amount mismatch", { status: 400 });
   }
-
-  // 原子占坑：只有把 status 从 pending 翻成 paid 的那一个请求才继续发货。
-  // 上面 order.status === "paid" 的 SELECT 检查挡不住并发重放（两个回调
-  // 同时读到 pending 都会走到发货），D1 条件 UPDATE 的行级原子性在这里收口。
-  const claim = await env.DB.prepare(
-    `UPDATE orders SET status = 'paid', paid_at = ? WHERE trade_order_id = ? AND status = 'pending'`
-  )
-    .bind(Date.now(), tradeOrderId)
-    .run();
-  if (!Number(claim?.meta?.changes)) {
-    // 已被并发请求处理（或状态早已不是 pending）：直接 success 结束重试链
-    return new Response("success", { status: 200 });
+  // 晚到的支付通知不能把已退款订单重新开通。
+  if (order.status === "refunded") return new Response("success");
+  if (order.status === "paid") {
+    // 旧版可能已经写 paid 却没有完成发货；不能假装成功或冒险重复续费。
+    if (!order.granted_license_key) return new Response("fulfillment requires reconciliation", { status: 503 });
+    return new Response("success");
   }
+  if (order.status !== "pending") return new Response("invalid order state", { status: 409 });
 
-  // 签发 license（issueProLicense 内部强制 365d 上限）
-  // 39th 续 · 透传 planCode 让 license_keys.plan 写真实 monthly/yearly 而非历史 'pro' 兜底
-  let issued;
-  try {
-    issued = await issueProLicense(env, {
-      userId: order.user_id,
-      userEmail: order.user_email || "",
-      source: "hupijiao",
-      sourceOrderId: tradeOrderId,
-      days: order.days,
-      planCode: order.plan_code || ""
-    });
-  } catch (err) {
-    // 发货失败：把占坑回滚成 pending，让虎皮椒的下一次重试能重新走完整链路
-    console.error("[hpj] issueProLicense failed, revert claim", tradeOrderId, err);
-    await env.DB.prepare(
-      `UPDATE orders SET status = 'pending', paid_at = NULL WHERE trade_order_id = ? AND status = 'paid' AND granted_license_key IS NULL`
-    )
-      .bind(tradeOrderId)
-      .run();
-    return new Response("issue failed", { status: 500 });
-  }
-
-  // 补写 license key + 交易号 + 存档原始回调（status/paid_at 已在占坑时写入）
-  await env.DB.prepare(
-    `UPDATE orders
-        SET granted_license_key = ?,
-            hupijiao_open_order_id = ?,
-            hupijiao_transaction_id = ?,
-            notify_payload = ?
-      WHERE trade_order_id = ?`
-  )
-    .bind(
-      issued.key,
-      String(params.open_order_id || ""),
-      String(params.transaction_id || ""),
-      formText,
-      tradeOrderId
-    )
-    .run();
-
-  // 必须返回纯字符串 "success"，否则虎皮椒会重试 6 次
-  return new Response("success", { status: 200 });
+  // 选定授权、续期/签发、写回订单在同一 D1 batch 事务内完成。
+  // 任何语句失败都会回滚；重试仍可处理 pending，重复/并发回调不会再次续费。
+  await fulfillHupijiaoOrder(env, order, params, formText);
+  return new Response("success");
 }
 
-/* ----------------------------- handler: query ------------------------------ */
+/* ----------------------------- handler: query ----------------------------- */
+
 async function handleHupijiaoQuery(request, env, ctx, url) {
   const auth = await requireAuth(request, env);
   if (!auth.ok) return auth.response;
@@ -3103,79 +3038,49 @@ function derivePlanForLlm(licenseSummary) {
   return "free";
 }
 
-/* ---------------------- 共用签发函数（hupijiao + 未来其他通道） ---------------------- */
-/**
- * 给指定用户签发 / 续期一张 Pro license。
- * - 强制 365d 上限（虎皮椒协议 3.12）
- * - 如果该用户已有 active 的 hupijiao license 且未到期，直接在原 key 上叠加 days
- * - 否则新生成一张
- *
- * 39th 续 · planCode 参数（"monthly" / "yearly" / 缺省）：
- *   - 缺省 → "pro"（向后兼容旧 SKU 与 Lemon Squeezy 通道）
- *   - "monthly" / "yearly" → 写入 license_keys.plan，让 derivePlanForLlm / devicePlanFromLicenseRow
- *     直接区分两档（5M vs 20M token / 3 vs 10 设备）
- *   - 续期时只升档不降档：现有 yearly 续费时买月费不会降级（保留 yearly 直到自然到期）
- */
-// 39th 续³ #11 · planCode 白名单（防意外脏值污染 license_keys.plan 列）
-// D1 prepare 已 parameterize 防 SQL 注入，但若 planCode = "yearly2026" 等奇怪字符串
-// 会被当成 valid plan 写入 license_keys.plan → derivePlanForLlm / devicePlanFromLicenseRow
-// 等下游函数对未知 plan 默认 free，导致 paid 用户被误降级。白名单 + console.warn 双防御。
+/* ---------------------- 虎皮椒事务发货 ---------------------- */
 const ALLOWED_LICENSE_PLANS = new Set(["monthly", "yearly", "pro"]);
 
-async function issueProLicense(env, { userId, userEmail, source, sourceOrderId, days, planCode }) {
-  const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+async function fulfillHupijiaoOrder(env, order, params, formText) {
   const now = Date.now();
-  const addMs = Math.min(Math.max(Number(days) || 0, 1), 365) * 24 * 60 * 60 * 1000;
-  // SKU 映射 · 严格白名单（39th 续³ #11）：
-  //   - 显式白名单 ["monthly", "yearly", "pro"] 内的值直接用
-  //   - 其他值（含 ""、null、未识别新 SKU）兜底 "pro" + console.warn 让运维排查
-  let newPlan = "pro";
-  if (planCode && ALLOWED_LICENSE_PLANS.has(planCode)) {
-    newPlan = planCode;
-  } else if (planCode) {
-    console.warn(`[issueProLicense] unknown planCode="${planCode}" (source=${source}, order=${sourceOrderId}); fallback to "pro"`);
+  const cap = now + 365 * 86400000;
+  const addMs = Math.min(Math.max(Number(order.days) || 0, 1), 365) * 86400000;
+  const plan = ALLOWED_LICENSE_PLANS.has(order.plan_code) ? order.plan_code : "pro";
+  const candidateKey = await generateLicenseKey(env);
+  // batch 按顺序执行且失败整体回滚。选择已有 key 和累加到期时间也在事务中，
+  // 避免同一用户同时购买两笔不同订单时丢失一次续期。
+  const results = await env.DB.batch([
+    env.DB.prepare(`UPDATE orders SET granted_license_key = COALESCE(
+      (SELECT key FROM license_keys WHERE user_id = orders.user_id
+        AND source = 'hupijiao' AND status = 'active' ORDER BY updated_at DESC LIMIT 1), ?)
+      WHERE trade_order_id = ? AND status = 'pending' AND granted_license_key IS NULL`
+    ).bind(candidateKey, order.trade_order_id),
+    env.DB.prepare(`INSERT INTO license_keys
+      (key, user_id, plan, status, expires_at, ls_order_id, ls_subscription_id,
+       ls_customer_email, source, created_at, updated_at)
+      SELECT granted_license_key, user_id, ?, 'active', ?, trade_order_id, '',
+        user_email, 'hupijiao', ?, ? FROM orders
+      WHERE trade_order_id = ? AND status = 'pending'
+      ON CONFLICT(key) DO UPDATE SET
+        plan = CASE WHEN (CASE license_keys.plan WHEN 'pro' THEN 3 WHEN 'yearly' THEN 2
+          WHEN 'monthly' THEN 1 ELSE 0 END) < ? THEN excluded.plan ELSE license_keys.plan END,
+        expires_at = MIN(MAX(COALESCE(license_keys.expires_at, ?), ?) + ?, ?),
+        ls_order_id = excluded.ls_order_id, ls_customer_email = excluded.ls_customer_email,
+        updated_at = excluded.updated_at`
+    ).bind(plan, Math.min(now + addMs, cap), now, now, order.trade_order_id,
+      PLAN_RANK[plan], now, now, addMs, cap),
+    env.DB.prepare(`UPDATE orders SET status = 'paid', paid_at = ?,
+      hupijiao_open_order_id = ?, hupijiao_transaction_id = ?, notify_payload = ?
+      WHERE trade_order_id = ? AND status = 'pending'`
+    ).bind(now, String(params.open_order_id || ""), String(params.transaction_id || ""),
+      formText, order.trade_order_id),
+    env.DB.prepare("SELECT status, granted_license_key FROM orders WHERE trade_order_id = ?")
+      .bind(order.trade_order_id)
+  ]);
+  const completed = results[3]?.results?.[0];
+  if (completed?.status !== "refunded" && !(completed?.status === "paid" && completed.granted_license_key)) {
+    throw new Error("Payment fulfillment did not reach a terminal state");
   }
-
-  // 找该用户最新一张同 source 的 active license
-  const existing = await env.DB.prepare(
-    `SELECT key, plan, expires_at FROM license_keys
-      WHERE user_id = ? AND source = ? AND status = 'active'
-      ORDER BY updated_at DESC LIMIT 1`
-  )
-    .bind(userId, source)
-    .first();
-
-  let key;
-  if (existing) {
-    key = existing.key;
-    const base = Math.max(Number(existing.expires_at) || now, now);
-    const newExpires = Math.min(base + addMs, now + ONE_YEAR_MS);
-    // 只升档不降档：避免 yearly 用户买月费时被错误降级到 monthly
-    const finalPlan =
-      (PLAN_RANK[newPlan] || 0) > (PLAN_RANK[existing.plan] || 0)
-        ? newPlan
-        : existing.plan;
-    await env.DB.prepare(
-      `UPDATE license_keys
-          SET plan = ?, expires_at = ?, ls_order_id = ?, ls_customer_email = ?, updated_at = ?
-        WHERE key = ?`
-    )
-      .bind(finalPlan, newExpires, sourceOrderId, userEmail, now, key)
-      .run();
-  } else {
-    key = await generateLicenseKey(env);
-    const expiresAt = Math.min(now + addMs, now + ONE_YEAR_MS);
-    await env.DB.prepare(
-      `INSERT INTO license_keys
-          (key, user_id, plan, status, expires_at,
-           ls_order_id, ls_subscription_id, ls_customer_email,
-           source, created_at, updated_at)
-        VALUES (?, ?, ?, 'active', ?, ?, '', ?, ?, ?, ?)`
-    )
-      .bind(key, userId, newPlan, expiresAt, sourceOrderId, userEmail, source, now, now)
-      .run();
-  }
-  return { key };
 }
 
 /* ---------------------- 调虎皮椒下单 ---------------------- */

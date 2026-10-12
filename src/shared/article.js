@@ -1,3 +1,4 @@
+import { createReadableDigest } from "./digest.js";
 import { THEME_PRESETS } from "./defaults.js";
 import { escapeHtml, escapeAttribute } from "./utils.js";
 
@@ -438,11 +439,11 @@ function renderImageRef(imageRef, sourceImages) {
 
 function createDigest(article) {
   if (article.lead?.trim()) {
-    return article.lead.trim().slice(0, DIGEST_MAX_LEN);
+    return createReadableDigest(article.lead, DIGEST_MAX_LEN);
   }
 
   const firstParagraph = article.sections?.find((section) => section.paragraphs?.length)?.paragraphs?.[0];
-  return String(firstParagraph || "").trim().slice(0, DIGEST_MAX_LEN);
+  return createReadableDigest(firstParagraph, DIGEST_MAX_LEN);
 }
 
 function findCoverImageIndex(article, sourceImages) {

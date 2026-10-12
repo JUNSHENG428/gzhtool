@@ -22,7 +22,7 @@ const mockRewritePayload = {
         content: JSON.stringify({
           title: "AI 改写测试：内容团队的新工作流",
           subtitle: "从抓取、改写到排版的稳定链路",
-          lead: "这是一段由 E2E mock LLM 返回的导语，用来确认改写结果不是空内容。",
+          lead: "这是一段由 E2E mock LLM 返回的导语，用来确认改写结果不是空内容。" + "这段后续背景用于验证摘要应在完整句子处结束，正文导语仍然保留全部内容，不能为了摘要长度而截断原稿中的说明文字和条件".repeat(3) + "。",
           sections: [
             {
               heading: "第一节：把失败变得可见",
@@ -205,6 +205,14 @@ test.describe("抓取 → AI 改写核心链路", () => {
 
       await expect(workspace.locator("#titleInput")).toHaveValue(/AI 改写测试/);
       await expect(workspace.locator("#leadInput")).toHaveValue(/E2E mock LLM/);
+      await expect(workspace.locator("#digestInput")).toHaveValue("这是一段由 E2E mock LLM 返回的导语，用来确认改写结果不是空内容。");
+      await expect(workspace.locator("#humanizeBadge")).toContainText("措辞检查");
+      await expect(workspace.locator("#humanizeBadge")).toContainText("规则分");
+      await expect(workspace.locator("#humanizeBadge")).toContainText("二次润色已关闭");
+      await expect(workspace.locator("#humanizeBadge")).not.toContainText("已达标");
+      await workspace.locator("#humanizeBadge").click();
+      await expect(workspace.locator("#humanizePanel")).toBeVisible();
+      await expect(workspace.locator("#humanizePanel")).toContainText("不代表事实准确、逻辑通顺或作者身份");
       await expect(workspace.locator("#editor")).toContainText("第一节：把失败变得可见");
       await expect(workspace.locator("#editor")).toContainText("第二节：改写要能直接进入排版");
       await expect(workspace.locator("#wechatPreview")).toContainText("可靠的工具先让失败可见");

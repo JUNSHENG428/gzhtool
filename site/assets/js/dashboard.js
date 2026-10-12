@@ -39,6 +39,7 @@ const els = {
   changePwSubmit: document.getElementById("changePwSubmit"),
   changePwFeedback: document.getElementById("changePwFeedback"),
   pluginPwCard: document.getElementById("pluginPwCard"),
+  emailVerificationCard: document.getElementById("emailVerificationCard"),
   setPwBtn: document.getElementById("setPwBtn"),
   setPwModal: document.getElementById("setPwModal"),
   setPwForm: document.getElementById("setPwForm"),
@@ -351,6 +352,7 @@ function formatDashUsage(n) {
 
 function renderAccount(data) {
   const user = data?.user || {};
+  if (els.emailVerificationCard) els.emailVerificationCard.hidden = user.emailVerified !== false;
   const lic = data?.license || {};
   const plan = lic.plan || "free";
 
