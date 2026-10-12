@@ -1,14 +1,6 @@
 import { LENGTH_LABELS, LENGTH_RANGES, LENGTH_TOLERANCE } from "./defaults.js";
-import {
-  AI_VOCAB_BLACKLIST,
-  AI_PHRASE_BLACKLIST,
-  BURSTINESS_TARGET,
-  PUNCTUATION_LIMITS,
-  RULE_CARDS,
-  AI_VOCAB_REPLACEMENTS,
-  getHumanizeProfile,
-  getTopRuleCards
-} from "./humanize-rules.js";
+import { getHumanizeProfile } from "./humanize-rules.js";
+import { EDITORIAL_RULES } from "./editorial-rules.js";
 import { INSIGHT_PRESSURE_RULES, lintInsight } from "./insight-rules.js";
 import { repairComicData } from "./comic-prompt.js";
 import { ensureOptionalHostPermission } from "./host-permissions.js";
@@ -332,99 +324,18 @@ function buildThesisBriefMessage(brief) {
   return lines.join("\n");
 }
 
-/**
- * 兜底"硬约束" system message v2（去 AI 味强化版）：
- *
- * 不论用户用什么 prompt 模板，这一条都会被附加到 system 队列里。
- * 内容来自 src/shared/humanize-rules.js 的单一真源，避免规则在多处漂移。
- *
- *   1. 字数边界：把 requestedLength 显式提出来当门槛
- *   2. 反 AI 痕迹：动态拼接 humanize-rules 的高优先级 rule cards、
- *      黑名单子集、突发性目标、标点上限、词替换字典
- *   3. 事实/图片/结构约束：保持原有兜底
- *
- * 模板可以通过 humanizeProfile 字段（meta-prompt 生成或用户在 storage 里手动填）
- * 局部放宽（比如 listicle 模板天然句子短，burstiness 阈值放低）。
- *
- * 之所以独立成一条 system message 而不是合并进 systemPrompt：
- *   - 兼容老用户已经存到 chrome.storage 里的 prompt 模板（不会被覆盖）
- *   - 兼容用户后续自定义的模板，约束始终生效
- */
+/** 统一编辑底线；旧模板也会收到，不覆盖用户保存的模板。 */
 function buildHardConstraintMessage(requestedLength, template = null) {
-  // 模板可声明 humanizeProfile（template-generator.js v2 会自动写入）
   const profile = {
     ...getHumanizeProfile(template?.id || ""),
     ...(template?.humanizeProfile || {})
   };
-
-  // 控制 prompt 长度：高优先级卡片只挑 8 张，黑名单挑 weight ≥ 7 的
-  const cards = getTopRuleCards(10);
-  const cardLines = cards.map(
-    (c) => `- 【${c.label}】${c.do}（避免：${c.dont}）`
-  );
-
-  // 黑名单 + 套话短语：喂更全的高权重集（覆盖不足是"改写后仍有 AI 套话"的主因之一）
-  const blacklistTop = AI_VOCAB_BLACKLIST.filter((x) => x.weight >= 5)
-    .slice(0, 18)
-    .map((x) => x.phrase);
-  const phraseTop = AI_PHRASE_BLACKLIST.filter((x) => x.weight >= 7)
-    .slice(0, 12)
-    .map((x) => x.phrase);
-
-  // 给 LLM 的"AI 词 → 替代词"字典
-  const dictLines = AI_VOCAB_REPLACEMENTS.slice(0, 12).map(
-    ([from, to]) => `「${from}」可换 ${to}`
-  );
-
-  // 突发性 / 节奏：根据模板 profile 调整阈值
-  const stdMin = Number(profile.burstinessMin || BURSTINESS_TARGET.minStdOverMean).toFixed(2);
-  const dashLimit = Number(profile.dashesPer500 || PUNCTUATION_LIMITS.dashesPer500);
-  const allowFp = profile.allowFirstPerson !== false;
-
   return [
     "硬性约束（不要忽略）：",
+    EDITORIAL_RULES,
     "",
-    "【字数】整篇正文（含 lead、所有 sections.paragraphs / bulletPoints / quote、closing；不含 title / subtitle / cta / wechatTitleOptions / keywords）总字数应严格落在「" +
-      requestedLength +
-      "」范围内。超出该范围 ±15% 视为不合格。请在产出前自检字数。",
-    "",
-    "【反 AI 痕迹 · 句长突发性】",
-    `- 句长策略：${BURSTINESS_TARGET.ratioGuide}。`,
-    `- 全篇句长标准差 / 均值 ≥ ${stdMin}（即 burstiness ≥ ${stdMin}）。`,
-    `- 相邻三句不得长度相同；每个 section 至少出现 1 处 ${BURSTINESS_TARGET.shortParagraphMaxSentences} 句以内的短段，作为节奏呼吸。`,
-    "- 单段不超过 4 句。",
-    "",
-    "【流畅与衔接（重要：别为了去 AI 味把句子切碎）】",
-    "- 相邻句子要有逻辑承接：前句抛出一个点，后句接住、展开或反驳它，读起来是一条连贯的思路，不是互不相关的碎片堆叠。",
-    "- 衔接靠语义和指代自然完成（用「它/这/那套/结果」等指代承接），可少量用口语连接词「所以/可/这就/反过来」点一下；但不要每句都用「然而/因此/与此同时/值得注意的是」这类书面过渡词起头。",
-    "- 短句用来强调和换气，不能把一个完整意思砍成「实操层面。出事故。兜底。」这种连串残句——那是另一种 AI 腔。短句之间仍要有清晰的逻辑链。",
-    "",
-    "【反 AI 痕迹 · 高优先级规则卡】",
-    ...cardLines,
-    "",
-    "【反 AI 痕迹 · 黑名单】",
-    "- 不允许出现以下抽象壳词 / 套话动词：" + blacklistTop.join(" / "),
-    "- 不允许出现以下整段套话：" + phraseTop.join(" ／ "),
-    "- 不允许「**标签**：内容」式的内联标题列表，每篇文章至多保留" +
-      PUNCTUATION_LIMITS.inlineTitleListPerArticle +
-      "处。",
-    `- 破折号「——」每 500 字不得超过 ${dashLimit} 个，多用逗号或句号。`,
-    `- 感叹号每 500 字不得超过 ${PUNCTUATION_LIMITS.exclamPer500} 个。`,
-    "",
-    "【反 AI 痕迹 · 信息噪声】",
-    "- 涉及数据/事实时优先使用具体数字、具体时间、具体场景，禁止使用「大量 / 显著 / 明显 / 重要 / 极其重要」等模糊定性词。",
-    "- 涉及人物/机构时给出具体名称与角色，禁止使用「专家认为 / 业内人士指出 / 多个来源显示」等模糊归因。",
-    "",
-    "【反 AI 痕迹 · 反三段式】",
-    "- 列举优先 2 项或 4 项；连续 3 项并列以上必须改写。",
-    "- 禁止使用「不仅……而且……」「既要……也要……」「首先……其次……最后」等程式化串场。",
-    "",
-    allowFp
-      ? "【个人视角】允许在文中出现 1–2 处带主观判断的句子，例如「说实话，我意外的是…」「回过头看…」「讲真…」，让文章像真人观察。"
-      : "【个人视角】保持客观播报，不出现第一人称。",
-    "",
-    "【AI 词替换字典（参考）】",
-    ...dictLines.map((line) => "- " + line),
+    "【字数】整篇正文（含 lead、所有 sections.paragraphs / bulletPoints / quote、closing；不含 title / subtitle / cta / wechatTitleOptions / keywords）目标为「" + requestedLength + "」。素材不足时优先保留事实与完整意思，不为凑字数重复结论或编造内容。",
+    profile.allowFirstPerson === false ? "【个人视角】保持客观，不出现第一人称。" : "【个人视角】仅保留来源已有的个人经历或有事实依据的判断，不另加口头禅。",
     "",
     "【主体识别 · 噪声过滤】",
     "- 来源 source 由抓取脚本基于通用规则提取，可能仍混入页面噪声（评论 / 推荐文章 / 相关阅读 / 作者简介 / 订阅引导 / 广告位 / 导航栏残余 / 上下篇链接 / 站点 footer / 二维码说明 / 「点击下载 App」等 CTA 文字）。",
@@ -501,12 +412,12 @@ function buildVoiceSampleMessage(sample) {
 // 单独抽出来避免两边漂移。只谈质量标准，不谈 JSON schema（schema 在各自 prompt 里）。
 const CRAFT_QUALITY_RULES = [
   "各字段的质量标准（公众号编辑手艺）：",
-  "- title / wechatTitleOptions：给 5 个策略互不相同的备选标题（如：反常识结论 / 具体数字 / 场景对话 / 利益点 / 悬念留白），每个 ≤ 28 字。可以有钩子，但禁止夸张失实的标题党：不堆感叹号、不写「震惊/惊呆/速看/千万别」。title 取其中信息最扎实的一个。",
+  "- title / wechatTitleOptions：给 5 个表意清楚的备选标题，每个 ≤ 28 字；不必凑齐反常识、悬念等套路。title 取其中最准确的一个，不扩大事实范围。",
   "- subtitle：一句话补足 title 没说完的语境或立场，不复述 title 的字面。",
-  "- lead：前两行决定读者是否读下去。直接进入最有张力的事实、场景或冲突，禁止「今天我们来聊聊」「最近，XX 火了」这类热身式开场。",
-  "- sections[].heading：必须是有信息量的结论句或悬念句，让只扫标题的读者也能拼出文章骨架；禁止「引言」「背景介绍」「总结」这类空壳标题。",
-  "- sections[].quote：只放最有分量的一句话——来源原话或提炼出的金句，全篇 1-3 处即可，不要每个 section 都塞。",
-  "- closing：收在一个具体判断、一个画面或一句留有余味的话上；禁止「总之」「综上所述」「未来可期」「让我们拭目以待」。",
+  "- lead：前两行决定读者是否读下去。先交代关键事实及其对象、时间和口径，禁止「今天我们来聊聊」「最近，XX 火了」这类热身式开场。",
+  "- sections[].heading：用具体名词或有依据的判断，让只扫标题的读者也能拼出文章骨架；禁止「引言」「背景介绍」「总结」这类空壳标题。",
+  "- sections[].quote：只放来源中有价值的原话；没有适合的引语时留空，不生造金句或引语。",
+  "- closing：收在有依据的结论或明确的问题边界上；禁止「总之」「综上所述」「未来可期」「让我们拭目以待」。",
   "- keywords：3-6 个读者真的会搜的词（具体名词优先），不放「科技」「分析」这类大而空的词。"
 ].join("\n");
 
@@ -514,7 +425,7 @@ const DEFAULT_SYSTEM_PROMPT = [
   "你是一名资深微信公众号编辑，负责把网页内容改写成适合公众号发布的原创风格文章。",
   "必须遵守这些规则：",
   "1. 只基于提供的来源事实写作，不要编造数据、案例、引语、公司动作或人物观点。",
-  "2. 允许重组结构、加强开头钩子、提炼论点，但不要篡改原文结论。",
+  "2. 允许重组结构、说明事实关系、提炼论点，但不要篡改原文结论。",
   "3. 语气要像成熟编辑，而不是模板化 AI 文案；避免「随着…的不断发展」「在当今时代」等套话。",
   "4. 输出必须是合法 JSON，且只输出 JSON，不要附加解释或 Markdown 代码块。",
   "5. JSON 字段必须包含 title、subtitle、lead、sections、closing、cta、wechatTitleOptions、keywords。",
@@ -1264,25 +1175,23 @@ export async function requestPlainChat(settings, messages, { temperature = 0.5, 
  * 找出本地正则 lint 抓不到的 AI 味，返回结构化评分 + 具体问题点。
  *
  * @returns {Promise<{score:number, verdict:string, findings:Array<{excerpt:string, reason:string}>}>}
- *   score：0-100，越高越像真人（与本地 lint 同方向，便于对比）
+ *   score：0-100，编辑对清晰度及论证的主观评价，不代表作者身份或事实核验
  */
 export async function requestHumanizeJudge(settings, bodyHtml) {
   const text = stripHtmlToPlain(bodyHtml);
   if (!text) throw new Error("正文为空，无法评审。");
   const sys = [
-    "你是顶级中文 AI 文本检测专家，熟悉 GPTZero / 原创度检测的判定逻辑。",
-    "请评估下面这篇公众号文章「读起来有多像 AI 写的」，重点看本地词表查不到的深层特征：",
-    "- 论证/结构套路（总分总、起承转合过于工整、每段开头都用过渡词）",
-    "- 语义空泛、信息密度低、正确的废话",
-    "- 句式统一、缺乏真人写作的随机性与个人视角",
-    "- 统一敬语 / 客服腔 / 说明书腔",
-    "- 升华式结尾（「不会在 X 见分晓，而在 Y…」否定+肯定、「一辆辆/一步步」量词排比、金句收尾）",
-    "- 三段式并列（顶层/中层/底层、首先/其次/最后）与模板小标题（「N 个必须正视的 X」）",
-    "- 过度碎句（连续多个 5 字以内残句堆砌，也是一种风格指纹）",
-    "- 机械替换痕迹（「差不多同期」这种像是把 AI 词硬换出来的别扭表达）",
+    "你是一位中文编辑，检查文章是否容易理解、论证是否成立。不要推断作者是不是 AI，也不按检测器套路给分。",
+    "优先检查：",
+    "- 主语或指代不清、残句、比喻无法还原具体意思、术语未解释。",
+    "- 数据遗漏对象/年份/分母，跨人群跨年份直接比较，把相关性写成因果。",
+    "- 结论超出文中证据；强行反转、虚构反方、由少量数据推出长期建议。",
+    "- 反复口头禅、空泛金句、重复结论、标题与正文不一致。",
+    "客观语气、正常列举、长短句均匀本身不是问题；合理的不确定性不扣分。你没有外部核验材料，只能指出证据不足，不能宣称事实已经核实。",
+    "每条问题必须引用原文并解释具体理解障碍；不得仅以“像AI”或“缺少情绪”为理由。",
     "只输出合法 JSON，不要解释、不要 markdown 代码块：",
-    '{ "score": 0到100整数(越高越像真人), "verdict": "一句话总评<=40字", "findings": [ { "excerpt": "原文里像AI的片段<=40字", "reason": "为什么像AI<=30字" } ] }',
-    "findings 最多 8 条，挑最典型的；若整体已很像真人，findings 可为空、score 给高分。"
+    '{ "score": 0到100整数(越高越清晰且论证充分，不是作者身份概率), "verdict": "一句话总评<=40字", "findings": [ { "excerpt": "有问题的原文片段<=40字", "reason": "具体问题及修改方向<=60字" } ] }',
+    "findings 最多 8 条，优先语义和论证问题；没有具体问题可为空。"
   ].join("\n");
   const content = await requestPlainChat(
     settings,
@@ -1684,11 +1593,9 @@ export async function requestDeepHumanizeRewrite(settings, bodyHtml, findings = 
     .map((f, i) => `${i + 1}. 「${f.excerpt}」—— ${f.reason}`)
     .join("\n");
   const sys = [
-    "你是把 AI 生成文本改写成真人手笔的顶级中文编辑。",
-    "请整体重写下面这篇公众号正文，**消除所有 AI 味**：打散过于工整的结构、删掉正确的废话、",
-    "让句长有真人的随机起伏（长短句交错）、去掉过渡词堆砌和统一敬语、适度加入具体细节与个人判断。",
-    "**但要保持句子之间的流畅衔接**：相邻句子靠语义和指代自然承接，是一条连贯的思路；短句用于强调换气，",
-    "不要把完整意思切成互不相关的碎片残句。去 AI 味不等于把文章砍碎。",
+    "你是一名中文编辑。请针对下面的问题修改正文，让意思清楚、论证连贯；通顺的句子保留，不为追求变化整体换词。",
+    EDITORIAL_RULES,
+    "你只有当前稿件，不能重新核实来源。对无法补证的推断收窄措辞或明确其不确定性；不编造新证据。",
     "严格要求：① 事实、数据、人名、产品名、引号内文字、列表项、代码、表格、图片一律不得新增或删减；",
     "② 保持原文的小标题层级与篇幅（±15% 以内）；③ 直接输出重写后的正文 HTML，不要 JSON / markdown 代码块 / 任何解释。",
     findingLines ? `\n审稿员指出的重点 AI 痕迹（务必改掉）：\n${findingLines}` : ""
@@ -1699,7 +1606,7 @@ export async function requestDeepHumanizeRewrite(settings, bodyHtml, findings = 
       { role: "system", content: sys },
       { role: "user", content: html }
     ],
-    { temperature: 0.75, context: "深度去 AI 味接口" }
+    { temperature: 0.4, context: "深度去 AI 味接口" }
   );
   return stripCodeFence(content);
 }
@@ -2162,7 +2069,7 @@ export function normalizeArticle(data, source = {}, preferences = {}) {
     lead: normalizeGeneratedText(root.lead),
     sections,
     closing: normalizeGeneratedText(root.closing),
-    cta: normalizeGeneratedText(root.cta) || normalizeGeneratedText(preferences.cta),
+    cta: root.cta == null ? normalizeGeneratedText(preferences.cta) : normalizeGeneratedText(root.cta),
     wechatTitleOptions: normalizeStringArray(root.wechatTitleOptions).slice(0, 3),
     keywords: normalizeStringArray(root.keywords).slice(0, 8)
   };

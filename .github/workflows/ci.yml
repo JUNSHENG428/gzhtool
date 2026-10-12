@@ -23,3 +23,5 @@ jobs:
           python-version: "3.x"
       - name: Auth, payment and session regression tests
         run: npm run test:p1
+      - name: Rewrite readability regression tests
+        run: npm run test:rewrite-quality

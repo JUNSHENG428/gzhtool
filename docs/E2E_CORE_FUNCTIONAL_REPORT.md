@@ -61,3 +61,11 @@ The core slice uses `SCRAPE_LAST_SOURCE_TAB` against an already-open local fixtu
 - 使用独立用户目录、headed persistent context、仓库根目录加载扩展、从 service worker URL 获取 ID；不使用固定等待。
 - AI mock 覆盖三家服务商及平台 `/api/llm/` 接口；账号/支付的 28 项接口与事务回归见 `npm run test:p1`。
 - 此轮未声称完成真实 Google OAuth 跳转或微信草稿推送验收。
+
+## 2026-10-12：改写可读性回归
+
+- 主改写、旧模板、自拟主题、二次润色、深度评审与返工采用准确性和可读性优先的编辑规则；不再强制句长随机、第一人称口头禅或反方观点。
+- `npm run test:rewrite-quality`：11/11 通过，覆盖提示词传递、空 CTA、完整句摘要、小数/引号/emoji 边界，以及模拟润色时的图片和列表保全。
+- `npm test` 全部通过；`npm run check:js` 和 `npx tsc --noEmit -p tsconfig.bundle.json` 通过。
+- 构建后运行原核心改写切片及跨页面保存切片：4/4 通过。三家模拟接口均断言摘要在完整句结束、徽标标注“规则分”、关闭润色时正确显示状态，面板说明分数的适用范围。
+- 测试全部使用本地素材及模拟 AI；验证的是请求约束、数据处理和界面行为，未评估真实模型成稿质量，也未核实用户素材中的事实。

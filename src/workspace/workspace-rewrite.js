@@ -1426,7 +1426,7 @@ function renderHumanizeBadge(lint, humanizePass) {
     if (humanizePass?.applied) {
       passNote = `（已二次润色 · ${humanizePass.sectionCount || 0} 段）`;
     } else if (humanizePass?.skippedReason === "high-score") {
-      passNote = "（原稿已达标，跳过二次润色）";
+      passNote = "（按本地规则分跳过二次润色）";
     } else if (humanizePass?.skippedReason === "license-required") {
       passNote = "（二次润色需会员，未执行）";
     } else if (humanizePass?.skippedReason === "user-disabled") {
@@ -1436,10 +1436,11 @@ function renderHumanizeBadge(lint, humanizePass) {
     } else if (Array.isArray(humanizePass?.errors) && humanizePass.errors.length > 0) {
       passNote = "（二次润色未完成，详情见下方面板）";
     }
-    labelEl.textContent = `AI 味检测 ${passNote}`;
+    labelEl.textContent = `措辞检查 ${passNote}`;
   }
-  if (scoreEl) scoreEl.textContent = `${score} 分 · ${issues.length} 处可优化`;
+  if (scoreEl) scoreEl.textContent = `规则分 ${score} · ${issues.length} 项提示`;
   badge.setAttribute("data-tier", tier);
+  badge.title = "仅检查词汇与句式；分数不代表事实准确、逻辑通顺或作者身份。";
   bar.removeAttribute("hidden");
 
   const summaryEl = panel.querySelector(".humanize-panel-summary");
@@ -1474,7 +1475,7 @@ function renderHumanizeBadge(lint, humanizePass) {
       const li = document.createElement("li");
       li.dataset.severity = "hint";
       li.innerHTML =
-        '<span class="humanize-issue-tag">PASS</span><span class="humanize-issue-text">没有命中已知 AI 痕迹模式</span>';
+        '<span class="humanize-issue-tag">PASS</span><span class="humanize-issue-text">未命中已知措辞模式；事实与逻辑仍需核对</span>';
       list.appendChild(li);
     } else {
       // 默认只展示前 8 条；剩下的隐藏在「展开更多」里
@@ -1655,6 +1656,7 @@ function renderComplianceBadge(compliance) {
     scoreEl.textContent = parts.join(" · ") || "通过";
   }
   badge.setAttribute("data-tier", tier);
+  badge.title = "仅检查词汇与句式；分数不代表事实准确、逻辑通顺或作者身份。";
   bar.removeAttribute("hidden");
 
   const list = panel.querySelector(".compliance-panel-issues");

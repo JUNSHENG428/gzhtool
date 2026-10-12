@@ -539,6 +539,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const hasErrorIssue =
           Array.isArray(lint?.issues) && lint.issues.some((it) => it.severity === "error");
         const skipForHighScore =
+          settings.humanizeEnabled && humanizeAllowedByTemplate &&
           Number.isFinite(skipScore) && skipScore > 0 && lintScore >= skipScore && !hasErrorIssue;
 
         if (skipForHighScore) {

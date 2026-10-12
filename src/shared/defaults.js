@@ -168,7 +168,7 @@ export const DEFAULT_SETTINGS = {
   defaultTone: "专业、可信、像有判断的编辑在写",
   defaultLength: "medium",
   defaultAngle: "提炼观点，重组结构，保留事实",
-  defaultCta: "在结尾给出一个可执行的行动建议",
+  defaultCta: "有来源支持且适合读者时再给建议，否则留空",
   wechatAppId: "",
   wechatAppSecret: "",
   wechatDefaultAuthor: "",
@@ -1049,9 +1049,9 @@ export const COMMON_OUTPUT_RULES = [
   "imageRefs 中每一项形如 {\"index\": 1, \"caption\": \"图注\"}，index 必须引用来源图片编号。",
   "若某个字段没有内容，请返回空字符串或空数组，不要省略字段。",
   "整篇正文（含标题、副标题、段落、列表、引用、CTA）总字符数请控制在 6000 字以内，避免发布时被截断。",
-  "wechatTitleOptions 给 5 个策略互不相同的备选标题（反常识 / 数字 / 场景 / 利益点 / 悬念），每个 ≤ 28 字；可以有钩子但禁止失实标题党（不堆感叹号、不写「震惊/速看/千万别」）。",
-  "sections[].heading 必须是有信息量的结论句或悬念句，禁止「引言」「背景」「总结」这类空壳标题。",
-  "closing 收在具体判断或余味上，禁止「总之」「综上所述」「未来可期」。"
+  "wechatTitleOptions 给 5 个准确、表意清楚的备选标题，每个 ≤ 28 字；不强求反常识、悬念等套路，不扩大事实范围。",
+  "sections[].heading 使用具体名词或有依据的判断，禁止「引言」「背景」「总结」这类空壳标题。",
+  "closing 收在有依据的结论或明确的问题边界上，禁止「总之」「综上所述」「未来可期」。"
 ].join("\n");
 
 export const COMMON_USER_PAYLOAD = `改写目标：
@@ -1084,7 +1084,7 @@ export const DEFAULT_PROMPT_TEMPLATES = [
 写作风格：
 - 像有立场的编辑：先抛事实，再给判断；不要堆排比、空话、口号。
 - 段落短、节奏明，避免使用过多形容词。
-- 在文中至少给出 1 个明确观点和 1 个反驳/质疑的视角。
+- 写清关键事实如何支持判断；只有来源支持时才讨论分歧，不强行设置反方或反常识结论。
 - 不要使用 "随着…的不断发展"、"在当今时代" 这类 AI 常见套话。
 
 事实约束：
@@ -1097,9 +1097,9 @@ ${COMMON_OUTPUT_RULES}`,
 ${COMMON_USER_PAYLOAD}`,
     defaults: {
       tone: "冷静、有判断、像资深行业观察",
-      angle: "提炼核心事实，给出独立判断与反方视角",
+      angle: "解释核心事实、统计口径及判断依据",
       length: "medium",
-      cta: "结尾给出一个明确的判断或可执行建议",
+      cta: "有来源支持且适合读者时再给建议，否则留空",
       audience: "关注行业趋势与底层逻辑的从业者"
     },
     temperature: 0.7,

@@ -1,3 +1,4 @@
+import { createReadableDigest } from "../shared/digest.js";
 /**
  * workspace-state.js
  * 负责：state 对象、所有文章包操作、表单同步、持久化、schedulePersist。
@@ -625,14 +626,14 @@ export function normalizeImportedSelectedImageIndex(value, imageCount) {
 export function deriveDigestFromEditor() {
   const { view } = _ctx;
   const text = normalizeText(view.editor.textContent || "");
-  return text.slice(0, 120);
+  return createReadableDigest(text);
 }
 
 export function deriveDigestFromArticle(article) {
   const text = normalizeText(
     new DOMParser().parseFromString(article.bodyHtml || "", "text/html").body.textContent || ""
   );
-  return (article.meta.digest || text).slice(0, 120);
+  return createReadableDigest(article.meta.digest || text);
 }
 
 export function getCoverImageForArticle(article) {
