@@ -251,7 +251,12 @@ export function FloatingBall() {
   }, [menuOpen, tucked, expanded]);
 
   // ── 拉草稿 ──
+  const pullBusyRef = useRef(false);
+  const [pullBusy, setPullBusy] = useState(false);
   const triggerPull = useCallback(async (articleId?: string) => {
+    if (pullBusyRef.current) return;
+    pullBusyRef.current = true;
+    setPullBusy(true);
     setDraftReadyTitle(null); // 用户已响应「有新草稿」徽标
     try {
       const reply = await sendMessage("PULL_DRAFT_TO_MP_EDITOR", articleId ? { articleId } : {});
@@ -264,12 +269,7 @@ export function FloatingBall() {
             profile: (payload.profile as ProfileInfo) || null
           });
         }
-        showHelperDock({
-          ok: true,
-          level: "success",
-          title: "已写入 mp 编辑器",
-          message: "请按合规步骤手动保存草稿"
-        });
+        // 确认弹窗由目标编辑页显示，收到稿件不代表已经写入或保存。
       } else {
         showHelperDock({
           ok: false,
@@ -286,6 +286,9 @@ export function FloatingBall() {
         title: "扩展内部错误",
         message: (err as Error)?.message || String(err)
       });
+    } finally {
+      pullBusyRef.current = false;
+      setPullBusy(false);
     }
   }, []);
 
@@ -301,18 +304,16 @@ export function FloatingBall() {
   // ── 5 球定义 ──
   const profileMatch = computeProfileMatch(mpAccount, swState.profile?.targetProfileName);
   const isOnEditorPage = window.__runbi_mp_helper?.isEditorPage?.() ?? true;
-  const pullDisabled = !isOnEditorPage || profileMatch === "mismatch";
-  const pullTooltip = !isOnEditorPage
-    ? "不在 mp 编辑页，无法写入"
-    : profileMatch === "mismatch"
-      ? `mp 后台账号「${mpAccount}」与草稿目标账号「${swState.profile?.targetProfileName}」不一致，已禁用以防写错号`
-      : swState.drafts.length > 1
-        ? `从润笔工作台取草稿（${swState.drafts.length} 篇可选）`
-        : "从润笔工作台取当前激活草稿到 mp 编辑器";
+  const pullDisabled = pullBusy;
+  const pullTooltip = pullBusy ? "正在准备稿件…" : !isOnEditorPage
+    ? "打开新建图文并导入润笔稿件"
+    : swState.drafts.length > 1
+      ? `选择要导入的稿件（${swState.drafts.length} 篇可选）`
+      : "导入当前篇；先核对稿件与账号，再确认写入";
   // 徽标亮且球可点时，tooltip 直接说"有什么新东西"，比通用说明更有行动力
   const pullTooltipFinal =
     draftReadyTitle != null && !pullDisabled
-      ? `润笔有新草稿可拉${draftReadyTitle ? `：《${draftReadyTitle}》` : ""}，点击写入 mp 编辑器`
+      ? `润笔有新草稿可拉${draftReadyTitle ? `：《${draftReadyTitle}》` : ""}，点击核对并导入`
       : pullTooltip;
 
   if (!settings) return null; // 还没读到 settings，不渲染（防闪烁）
@@ -350,7 +351,7 @@ export function FloatingBall() {
         <Ball
           primary
           icon="📥"
-          label="取草稿"
+          label="导入稿件"
           tooltip={pullTooltipFinal}
           disabled={pullDisabled}
           mounted={mounted}

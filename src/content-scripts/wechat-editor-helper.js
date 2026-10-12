@@ -54,7 +54,7 @@
   // 否则旧 banner 被 remove 后定时器仍在 detached 节点上跑，长生命周期 mp 编辑页会累积僵尸定时器。
   let syncBannerTimer = null;
   // 「最后一公里」防丢（浏览器模式不代点保存是合规底线，只能提醒）：
-  // 写入成功后 banner 常驻「尚未保存」警示，探测到用户点了保存/发表类按钮才转「已保存」。
+  // 写入成功后 banner 常驻「尚未保存」警示，检测到公众号保存成功提示后才转「已保存」。
   // syncBannerRefresh 持有当前 banner 的重绘函数，保存探测命中后立即刷新状态行。
   let syncBannerRefresh = null;
   let mpDraftSaveState = ""; // "" 无待保存内容 / "unsaved" 已写入未保存 / "saved" 已检测到保存动作
@@ -86,6 +86,166 @@
 
     return true;
   });
+
+  let pendingImport = null;
+  let importBusy = false;
+  let latestBackup = null;
+  let helperTabId = null;
+  let saveObserver = null;
+  let writtenImport = null;
+
+  function notifyImportResult(status, message) {
+    const isSaveStatus = ["save-unconfirmed", "saved", "unsaved", "restored"].includes(status);
+    const snapshot = isSaveStatus ? writtenImport : { payload: STATE.payload, result: STATE.result };
+    const payload = snapshot?.payload;
+    if (!payload?.transferId) return;
+    const result = { ...(snapshot.result || {}), status, message, transferId: payload.transferId };
+    if (STATE.payload?.transferId === payload.transferId) STATE.result = result;
+    chrome.runtime.sendMessage({ type: "WECHAT_IMPORT_RESULT", payload: result }).catch(() => {});
+  }
+
+  function accountProblem(payload) {
+    const expected = normalizeText(payload.profile?.targetProfileName || payload.meta?.profileLabel || "");
+    const actual = normalizeText(readCurrentMpAccountName());
+    return { expected, actual, mismatch: Boolean(expected && actual && expected !== actual) };
+  }
+
+  function showImportConfirmation(payload) {
+    const existing = document.getElementById("runbi-import-confirm");
+    if (existing?.dataset.transferId === payload.transferId) return;
+    existing?.remove();
+    pendingImport = payload;
+    const account = accountProblem(payload);
+    const surface = findEditorSurface();
+    const hasContent = Boolean(normalizeText(surface?.node?.textContent || "") || surface?.node?.querySelector("img") || fieldValue(findTitleField()));
+    const text = new DOMParser().parseFromString(payload.html, "text/html").body.textContent || "";
+    const dialog = document.createElement("dialog");
+    dialog.id = "runbi-import-confirm";
+    dialog.dataset.transferId = payload.transferId || "";
+    dialog.setAttribute("aria-labelledby", "runbi-import-heading");
+    dialog.style.cssText = `width:min(480px,calc(100vw - 40px));max-height:80vh;overflow:auto;border:1px solid ${TOKEN.line};border-radius:14px;padding:24px;background:${TOKEN.cream};color:${TOKEN.ink};font:14px/1.7 ${TOKEN.fontSans};box-shadow:${TOKEN.shadowLg};`;
+    dialog.innerHTML = `
+      <h2 id="runbi-import-heading" style="font-size:19px;margin:0 0 12px">确认导入润笔稿件</h2>
+      <strong>${escapeHtml(payload.meta.title)}</strong>
+      <p>目标账号：${escapeHtml(account.expected || "未指定，请核对当前账号")}<br>当前账号：${escapeHtml(account.actual || "未能读取，请人工核对")}</p>
+      <p>${payload.bundle?.total > 1 ? `第 ${Number(payload.bundle.index)} / ${Number(payload.bundle.total)} 篇 · ` : ""}${text.trim().length} 字 · 本次只导入这一篇</p>
+      <p style="padding:10px;background:white;border-radius:6px">${escapeHtml(text.trim().slice(0, 160))}${text.trim().length > 160 ? "…" : ""}</p>
+      <p data-import-warning style="color:#a44b17">${account.mismatch ? "账号不一致，请先切换到目标公众号或在润笔修改目标账号。" : hasContent ? "当前编辑器已有内容。更新前会保存恢复副本；也可以另建一篇。" : "确认后写入标题和正文；封面及保存草稿由你在公众号完成。"}</p>
+      ${!account.actual || !account.expected ? '<label style="display:block;margin-bottom:12px"><input type="checkbox" data-import-account-check> 我已核对当前公众号账号</label>' : ""}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" data-import-confirm style="${buttonStyle()}" ${account.mismatch ? "disabled" : ""}>${hasContent ? "更新当前篇（先备份）" : "确认导入"}</button>
+        ${hasContent ? `<button type="button" data-import-new style="${buttonStyle()}">另建一篇</button>` : ""}
+        <button type="button" data-import-cancel style="${buttonStyle("#68756b")}">取消</button>
+      </div>`;
+    const cancel = () => {
+      if (importBusy) return;
+      pendingImport = null;
+      dialog.remove();
+      notifyImportResult("cancelled", "已取消导入，公众号内容未更改。");
+    };
+    dialog.querySelector("[data-import-cancel]").addEventListener("click", cancel);
+    dialog.addEventListener("cancel", event => { event.preventDefault(); cancel(); });
+    dialog.querySelector("[data-import-new]")?.addEventListener("click", async () => {
+      if (importBusy) return;
+      importBusy = true;
+      dialog.querySelectorAll("button").forEach(btn => { btn.disabled = true; });
+      try {
+        const response = await chrome.runtime.sendMessage({ type: "WECHAT_IMPORT_NEW_PAGE", payload: { transferId: payload.transferId } });
+        if (!response?.ok) throw new Error(response?.error?.message || response?.error || "新建编辑页失败");
+        pendingImport = null; dialog.remove();
+      } catch (err) {
+        dialog.querySelector("[data-import-warning]").textContent = err.message;
+        dialog.querySelectorAll("button").forEach(btn => { btn.disabled = false; });
+        dialog.querySelector("[data-import-confirm]").disabled = account.mismatch;
+      } finally { importBusy = false; }
+    });
+    dialog.querySelector("[data-import-confirm]").addEventListener("click", async () => {
+      if (importBusy || pendingImport !== payload) return;
+      const warning = dialog.querySelector("[data-import-warning]");
+      const check = dialog.querySelector("[data-import-account-check]");
+      const currentAccount = accountProblem(payload);
+      if (currentAccount.mismatch || currentAccount.actual !== account.actual) {
+        warning.textContent = "账号状态已变化，请取消并重新确认目标公众号。"; return;
+      }
+      if (check && !check.checked) { warning.textContent = "请先核对当前公众号并勾选确认。"; return; }
+      importBusy = true;
+      dialog.querySelectorAll("button").forEach(btn => { btn.disabled = true; });
+      try {
+        const editor = findEditorSurface();
+        if (!isEditorPage() || !editor) throw new Error("编辑页状态已变化，请重新打开新建图文。");
+        const backup = { html: editor.node.innerHTML, meta: readEditorMeta(), account: currentAccount.actual, createdAt: Date.now() };
+        await chrome.storage.local.set({ ["runbiWechatBackup:" + payload.destinationTabId]: backup });
+        latestBackup = backup;
+        const result = await writeArticle(payload, editor);
+        pendingImport = null; dialog.remove();
+        renderHelperDock(result);
+        notifyImportResult(result.status, result.message);
+      } catch (err) {
+        warning.textContent = `导入未完成：${err.message}。可取消后重试。`;
+        dialog.querySelectorAll("button").forEach(btn => { btn.disabled = false; });
+      } finally { importBusy = false; }
+    });
+    document.documentElement.appendChild(dialog);
+    dialog.showModal();
+    dialog.querySelector("[data-import-cancel]").focus();
+  }
+
+  function fieldValue(node) { return node ? String(node.value ?? node.textContent ?? "") : ""; }
+  function readEditorMeta() {
+    return { title: fieldValue(findTitleField()), digest: fieldValue(findDigestField()), author: fieldValue(findAuthorField()), contentSourceUrl: fieldValue(findSourceField()) };
+  }
+
+  function settleEditor() {
+    return new Promise(resolve => {
+      const timer = setTimeout(resolve, 750);
+      requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timer); resolve(); }));
+    });
+  }
+
+  async function restoreBeforeImport() {
+    if (!latestBackup || importBusy) return;
+    const account = normalizeText(readCurrentMpAccountName());
+    if (latestBackup.account && latestBackup.account !== account) { renderToast("当前账号与恢复副本不一致，请切回原账号。", "error"); return; }
+    if (!window.confirm(`恢复导入前的《${latestBackup.meta.title || "未命名稿件"}》？当前编辑内容将被替换。`)) return;
+    const surface = findEditorSurface();
+    if (!surface) return;
+    importBusy = true;
+    try {
+      for (const [key, find] of [["title",findTitleField],["digest",findDigestField],["author",findAuthorField],["contentSourceUrl",findSourceField]]) setFieldValue(find(), latestBackup.meta[key]);
+      setEditorHtml(surface, latestBackup.html);
+      await settleEditor();
+      const expected = new DOMParser().parseFromString(sanitizeHtml(latestBackup.html), "text/html").body;
+      const compact = text => String(text || "").replace(/\s+/g, "");
+      if (compact(surface.node.textContent) !== compact(expected.textContent) || surface.node.querySelectorAll("img").length !== expected.querySelectorAll("img").length || JSON.stringify(readEditorMeta()) !== JSON.stringify(latestBackup.meta)) {
+        throw new Error("恢复结果不完整，请检查编辑器");
+      }
+      mpDraftSaveState = "unsaved";
+      saveObserver?.disconnect();
+      document.getElementById(SYNC_BANNER_ID)?.remove();
+      clearInterval(syncBannerTimer); syncBannerRefresh = null;
+      notifyImportResult("restored", "已恢复导入前内容，请检查后手动保存。");
+      renderHelperDock(STATE.result);
+      renderToast("已恢复导入前内容，请检查后手动保存。", "success");
+    } catch (err) { renderToast(err.message, "error"); }
+    finally { importBusy = false; }
+  }
+
+  async function announceReady() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "WECHAT_HELPER_READY" });
+      helperTabId = response?.tabId;
+      if (helperTabId) latestBackup = (await chrome.storage.local.get("runbiWechatBackup:" + helperTabId))["runbiWechatBackup:" + helperTabId] || latestBackup;
+    } catch {}
+  }
+  void announceReady();
+  // 等真实正文区挂载后续接，不能靠 tab complete 或固定延迟猜测。
+  if (isEditorPage() && !findEditorSurface()) {
+    const readyObserver = new MutationObserver(() => {
+      if (findEditorSurface()) { readyObserver.disconnect(); void announceReady(); }
+    });
+    readyObserver.observe(document.documentElement, { subtree: true, childList: true });
+    setTimeout(() => readyObserver.disconnect(), 60000);
+  }
 
   // ────────── 公众号编辑页悬浮助手（v0.1，twenty-ninth session）──────────
   // 初始化：问 SW 当前 floatingBallEnabled + 位置，决定是否注入浮球。
@@ -401,19 +561,7 @@
   }
 
   /** 1 号球 disabled 条件：① !isEditorPage（列表页）② Profile 不匹配（防写错号）*/
-  function isPullDisabled() {
-    if (!isEditorPage()) return true;
-    const profile = STATE.payload?.profile || null;
-    const targetName = String(profile?.targetProfileName || "").trim();
-    if (!targetName) return false; // 没关联 profile = 不强制比对
-    const mpAccount = readCurrentMpAccountName();
-    if (!mpAccount) return false; // 没读到 mp 账号 = fail-open 放行
-    return !(
-      targetName === mpAccount ||
-      targetName.includes(mpAccount) ||
-      mpAccount.includes(targetName)
-    );
-  }
+  function isPullDisabled() { return importBusy; }
 
   function stripBallsHtml() {
     const pullDisabled = isPullDisabled();
@@ -430,12 +578,12 @@
             String(draftReadyInfo.articleTitle || "").trim()
               ? `：《${String(draftReadyInfo.articleTitle).trim()}》`
               : ""
-          }，点击写入 mp 编辑器\n`
+          }，点击核对并导入\n`
         : "";
     const pullTooltip = draftReadyPrefix + (!isEditorPage()
-      ? "不在 mp 编辑页，无法写入"
+      ? "打开新建图文并导入润笔稿件"
       : pullDisabled
-        ? "mp 后台账号与草稿目标账号不一致，已禁用以防写错号"
+        ? "正在准备稿件，请稍候"
         : drafts.length > 1
           ? `从润笔工作台取草稿（${drafts.length} 篇可选）`
           : "从润笔工作台取当前激活草稿到 mp 编辑器") + lastSyncSuffix;
@@ -449,7 +597,7 @@
         <span class="rb-ball-label">${label}</span>
       </div>`;
     return [
-      cell("pull", "📥", "取草稿", pullTooltip, { primary: true, disabled: pullDisabled }),
+      cell("pull", "📥", "导入稿件", pullTooltip, { primary: true, disabled: pullDisabled }),
       cell("open-workspace", "✍️", "编辑台", "打开润笔工作台（写 / 改 / 排版）"),
       cell("open-hot", "🔥", "热点", "热点抓题（找选题）"),
       cell("open-options", "⚙️", "设置", "打开设置"),
@@ -666,19 +814,7 @@
       renderToast(resp?.error || "拉草稿失败。", "error");
       return;
     }
-    // ok 路径走 IMPORT_ARTICLE_TO_WECHAT_EDITOR → importArticle → 写入 STATE.lastSyncRecord
-    // 38th 续 14：toast 文案带篇名 / 第 N/M 篇 / 字数（之前只说"已写入 mp 编辑器"用户不知道是哪篇）
-    const rec = STATE.lastSyncRecord;
-    if (rec) {
-      const bundleHint = rec.bundleTotal > 1 ? `第 ${rec.bundleIndex}/${rec.bundleTotal} 篇 · ` : "";
-      const charsHint = rec.bodyChars > 0 ? `${rec.bodyChars} 字 · ` : "";
-      renderToast(
-        `已同步《${rec.title}》到 mp 编辑器（${bundleHint}${charsHint}下一步：手动上传封面 + 点保存草稿）`,
-        "success"
-      );
-    } else {
-      renderToast("已写入 mp 编辑器。请按合规步骤手动 ① 上传封面 ② 点保存草稿。", "success");
-    }
+    renderToast(resp.data?.message || "稿件已准备好，请在公众号页面确认导入。", "info");
     // strip 也刷新一下（drafts / profile 可能变了）
     const strip = document.getElementById(STRIP_ID);
     if (strip) refreshPullBallStatus(strip);
@@ -788,28 +924,28 @@
       <span style="flex:1;min-width:0;">
         <strong style="color:${TOKEN.accent};">已检测到新推送的草稿：《${escapeHtmlAttr(title)}》${escapeHtmlAttr(charsHint)}</strong>
         <br />
-        <span style="color:${TOKEN.inkSecondary};">当前是草稿箱列表页，未自动写入。请点右上角绿色「<strong>新的创作</strong>」按钮新建图文页，进入编辑器后再点浮球的「📥 拉草稿」即可写入。</span>
+        <span style="color:${TOKEN.inkSecondary};">稿件已保留，尚未写入。请先登录公众号，再打开新建图文；进入编辑器后会继续显示导入确认。</span>
       </span>
-      <button type="button" data-pending-action="retry" style="flex:none;padding:5px 12px;border:1px solid ${TOKEN.accent};background:${TOKEN.accent};color:${TOKEN.cream};border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;">💡 重新拉一次</button>
+      <button type="button" data-pending-action="retry" style="flex:none;padding:5px 12px;border:1px solid ${TOKEN.accent};background:${TOKEN.accent};color:${TOKEN.cream};border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;">打开新建图文</button>
       <button type="button" data-pending-action="close" aria-label="关闭" style="flex:none;width:22px;height:22px;border:none;background:transparent;color:${TOKEN.softInk};font-size:16px;line-height:1;cursor:pointer;border-radius:4px;">×</button>
     `;
 
     banner.querySelector('[data-pending-action="retry"]')?.addEventListener("click", () => {
-      // 重新发 PULL 让 SW 走一遍流程；如果用户已经切到「新建图文」页，importArticle
-      // 这次会成功写入；如果还在 list_card 页，banner 会重新刷出来（payload 透传）。
-      chrome.runtime.sendMessage({ type: "PULL_DRAFT_TO_MP_EDITOR" }).catch(() => {});
+      chrome.runtime.sendMessage({ type: "WECHAT_IMPORT_NEW_PAGE", payload: { transferId: payload.transferId } }).then(response => {
+        if (response?.ok) banner.remove();
+        else renderToast(response?.error?.message || "请先登录公众号后重试。", "error");
+      }).catch(() => renderToast("请先登录公众号后重试。", "error"));
     });
     banner.querySelector('[data-pending-action="close"]')?.addEventListener("click", () => {
       banner.remove();
+      notifyImportResult("cancelled", "已取消导入，公众号内容未更改。");
     });
 
     document.body.appendChild(banner);
   }
 
   /**
-   * 开始监视「保存草稿」动作。capture 阶段监听全文档 click，命中文本含
-   * 保存/发表/发布/群发 的按钮类元素即认为用户完成了保存（启发式，探测不到
-   * 也只是警示行不消失，不影响任何功能）。监听器全局只装一次。
+   * 保存按钮只进入待确认状态；新的公众号成功提示才能确认保存。
    */
   function beginUnsavedSaveWatch() {
     mpDraftSaveState = "unsaved";
@@ -818,7 +954,7 @@
     document.addEventListener(
       "click",
       (ev) => {
-        if (mpDraftSaveState !== "unsaved") return;
+        if (!["unsaved", "save-unconfirmed"].includes(mpDraftSaveState)) return;
         const btn =
           ev.target instanceof Element
             ? ev.target.closest("button, a, [role='button'], .weui-desktop-btn")
@@ -826,14 +962,45 @@
         const text = normalizeText(btn?.textContent || "");
         // 长文本说明命中的是段落/链接而不是操作按钮，忽略
         if (!text || text.length > 12) return;
-        if (/保存|发表|发布|群发/.test(text)) {
-          mpDraftSaveState = "saved";
+        if (/保存/.test(text) && !btn?.closest("#" + HELPER_ID + ",#" + SYNC_BANNER_ID + ",#runbi-import-confirm")) {
+          mpDraftSaveState = "save-unconfirmed";
           if (typeof syncBannerRefresh === "function") syncBannerRefresh();
+          notifyImportResult("save-unconfirmed", "已点击保存，尚未确认公众号保存成功。");
+          watchSaveFeedback();
         }
       },
       true
     );
   }
+
+  function watchSaveFeedback() {
+    saveObserver?.disconnect();
+    const seen = new Set(document.querySelectorAll("[role=status],[role=alert],.weui-desktop-toast"));
+    saveObserver = new MutationObserver(records => {
+      if (mpDraftSaveState !== "save-unconfirmed") return;
+      const changed = new Set(records.flatMap(r => [r.target, ...r.addedNodes]));
+      for (const node of document.querySelectorAll("[role=status],[role=alert],.weui-desktop-toast")) {
+        if (seen.has(node) && ![...changed].some(el => node === el || node.contains(el))) continue;
+        if (!node.getClientRects().length || node.closest("#" + HELPER_ID + ",#" + SYNC_BANNER_ID)) continue;
+        const text = normalizeText(node.textContent || "");
+        if (/^(?:保存成功[！!。]?|已保存)$/.test(text)) {
+          mpDraftSaveState = "saved"; saveObserver.disconnect();
+          syncBannerRefresh?.(); notifyImportResult("saved", "已检测到公众号保存成功提示。"); return;
+        }
+      }
+    });
+    saveObserver.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    const currentObserver = saveObserver;
+    setTimeout(() => currentObserver.disconnect(), 30000);
+  }
+  document.addEventListener("input", event => {
+    if (importBusy || !mpDraftSaveState || event.target?.closest?.("#" + HELPER_ID + ",#runbi-import-confirm")) return;
+    const target = findEditorSurface();
+    if (target?.node.contains(event.target) || [findTitleField(),findDigestField(),findAuthorField(),findSourceField()].includes(event.target)) {
+      mpDraftSaveState = "unsaved"; saveObserver?.disconnect(); syncBannerRefresh?.();
+      notifyImportResult("unsaved", "内容已修改，需重新保存。");
+    }
+  }, true);
 
   function renderSyncBanner(record) {
     // 清掉上一个 banner 的刷新定时器，避免泄漏到 detached 节点
@@ -882,17 +1049,21 @@
         mpDraftSaveState === "unsaved"
           ? `<br /><span style="color:#c77700;">⚠️ 内容已写入但<strong>尚未保存</strong>——请点编辑器右上方「保存为草稿」，直接关页会丢失。</span>`
           : mpDraftSaveState === "saved"
-            ? `<br /><span style="color:${TOKEN.brand};">✓ 已检测到保存操作。</span>`
+            ? `<br /><span style="color:${TOKEN.brand};">✓ 已检测到公众号保存成功提示。</span>`
+            : mpDraftSaveState === "save-unconfirmed"
+              ? `<br /><span style="color:#c77700;">已点击保存，结果待确认；请以公众号的保存成功提示为准。</span>`
             : "";
       banner.innerHTML = `
         <span style="font-size:14px;">📥</span>
         <span style="flex:1;min-width:0;">
-          <strong style="color:${TOKEN.brand};">已同步《${escapeHtmlAttr(record.title)}》</strong>
+          <strong style="color:${TOKEN.brand};">${STATE.result?.status === "partial" ? "部分写入" : "已写入"}《${escapeHtmlAttr(record.title)}》</strong>
           <span style="color:${TOKEN.inkSecondary};">来自润笔${bundleHint}${charsHint} · ${agoText}</span>${saveLine}
         </span>
+        <button type="button" data-banner-action="restore" style="flex:none;padding:4px 10px;cursor:pointer">恢复导入前内容</button>
         <button type="button" data-banner-action="goto" style="flex:none;padding:4px 10px;border:1px solid ${TOKEN.line};background:transparent;color:${TOKEN.brand};border-radius:6px;cursor:pointer;font-size:11px;">📂 查看在润笔</button>
         <button type="button" data-banner-action="close" aria-label="关闭" style="flex:none;width:22px;height:22px;border:none;background:transparent;color:${TOKEN.softInk};font-size:16px;line-height:1;cursor:pointer;border-radius:4px;">×</button>
       `;
+      banner.querySelector('[data-banner-action="restore"]')?.addEventListener("click", () => void restoreBeforeImport());
       // 重新绑定事件（innerHTML 替换会清掉之前的 listener）
       banner.querySelector('[data-banner-action="goto"]')?.addEventListener("click", () => {
         chrome.runtime.sendMessage({
@@ -1106,47 +1277,25 @@
   }
 
   async function importArticle(payload) {
+    if (importBusy) return { status: "awaiting-confirmation", message: "正在处理上一篇稿件，请稍候。" };
+    if (STATE.payload?.transferId !== payload.transferId) STATE.result = null;
     STATE.payload = payload;
-    const result = {
-      pageUrl: location.href,
-      isEditor: isEditorPage(),
-      titleWritten: false,
-      digestWritten: false,
-      authorWritten: false,
-      sourceUrlWritten: false,
-      bodyWritten: false,
-      message: ""
-    };
-
-    if (!result.isEditor) {
-      result.message = "当前不是公众号图文编辑页。请先登录并进入新建图文页后重试。";
-      renderHelperDock(result);
-      // 39th 续³ Batch 9：草稿箱列表页（list_card）等非编辑页的引导 banner——
-      // 用户从润笔浮球 PULL 时如果 mp tab 停在草稿箱列表页，importArticle 会
-      // 因 isEditor:false 早返回，dock 里有提示但不够显眼，用户经常会以为是
-      // 推送失败。这里加一个常驻顶栏 banner，明确告诉用户：草稿已经推过来了，
-      // 只是当前不在「新建图文」编辑页所以没自动写入；引导点右上角「新的创作」。
+    if (!isEditorPage()) {
       renderPendingPullBanner(payload);
-      return result;
+      return { status: "awaiting-editor", isEditor: false, message: "稿件已保留，请登录并进入新建图文后继续导入。" };
     }
+    const editor = findEditorSurface() || await waitForEditorSurface(2500);
+    if (!editor) {
+      renderPendingPullBanner(payload);
+      return { status: "awaiting-editor", isEditor: true, message: "等待图文正文编辑区加载；稿件已保留。" };
+    }
+    document.getElementById(PENDING_PULL_BANNER_ID)?.remove();
+    showImportConfirmation(payload);
+    return { status: "awaiting-confirmation", isEditor: true, message: "请在公众号页面核对稿件和账号，再确认导入。" };
+  }
 
-    // Safety net：必须先找到编辑器正文区（contenteditable / .ql-editor / .ProseMirror）
-    // 才允许往字段里写东西。否则会出现「URL 看着像编辑页但 DOM 是列表/搜索框」的
-    // 噩梦场景：findTitleField 匹配到列表的「搜索标题」输入框，把文章标题塞进搜索框。
-    // isEditorPage URL 检测 + 这道 surface 检测，**双重防线**才稳。
-    // 编辑器可能异步挂载（PULL 比编辑器渲染先到）：先查一次，没有就用 MutationObserver
-    // 等它出现（技术规范 §3/§5.1：用 MO 而非一次性查询），最多等 2.5s 再判失败。
-    let editorSurface = findEditorSurface();
-    if (!editorSurface) {
-      editorSurface = await waitForEditorSurface(2500);
-    }
-    if (!editorSurface) {
-      result.message =
-        "当前页面没有图文正文编辑区。请确认已经打开公众号「新建图文」编辑页（不是草稿箱列表 / 管理后台）后重试。";
-      renderHelperDock(result);
-      return result;
-    }
-
+  async function writeArticle(payload, editorSurface) {
+    const result = { isEditor: true, pageUrl: location.origin + location.pathname, transferId: payload.transferId };
     result.titleWritten = setFieldValue(findTitleField(), payload.meta?.title || "");
     result.digestWritten = setFieldValue(findDigestField(), payload.meta?.digest || "");
     result.authorWritten = setFieldValue(findAuthorField(), payload.meta?.author || "");
@@ -1155,9 +1304,25 @@
       payload.meta?.contentSourceUrl || ""
     );
     result.bodyWritten = setEditorHtml(editorSurface, payload.html || "");
+    // 留给编辑器两次渲染提交，再回读完整正文，防止 DOM 写入被编辑器模型回滚。
+    await settleEditor();
+    const desired = new DOMParser().parseFromString(sanitizeHtml(payload.html || ""), "text/html");
+    const compact = text => String(text || "").replace(/\s+/g, "");
+    result.bodyWritten = result.bodyWritten && compact(editorSurface.node.textContent) === compact(desired.body.textContent);
+    result.imageCount = editorSurface.node.querySelectorAll("img").length;
+    result.expectedImageCount = desired.querySelectorAll("img").length;
+    result.imagesWritten = result.imageCount === result.expectedImageCount;
+    const actualMeta = readEditorMeta();
+    for (const [key, writtenKey] of [["title", "titleWritten"], ["digest", "digestWritten"], ["author", "authorWritten"], ["contentSourceUrl", "sourceUrlWritten"]]) {
+      result[writtenKey] = result[writtenKey] && actualMeta[key] === String(payload.meta?.[key] || "");
+    }
 
-    result.message = buildResultMessage(result);
+    result.status = result.bodyWritten && result.titleWritten && result.imagesWritten && result.digestWritten && result.authorWritten && result.sourceUrlWritten ? "written" : "partial";
+    result.message = result.status === "written"
+      ? "标题与正文已写入，尚未保存。请核对图片与封面后，在公众号手动保存草稿。"
+      : "部分内容未能完整写入，请检查标题、正文和图片；可恢复导入前内容。";
     STATE.result = result;
+    writtenImport = { payload, result };
 
     // 38th 续 14：写入 lastSyncRecord 给后续 toast / banner / 浮球 tooltip 三层视觉反馈
     // 39th 续³ Batch 8：PULL 通道（用户主动点浮球）每次强制显示 banner，跳过 30min cooldown——
@@ -1185,16 +1350,9 @@
   }
 
   function isEditorPage() {
-    // 必须是"真正在写图文"的 URL，不只是含 /cgi-bin/appmsg。
-    // mp 后台许多列表/管理页（草稿箱、群发记录、数据中心）URL 里都有 /cgi-bin/appmsg
-    // 但 query 是 action=list / action=manage 等，**不**是编辑页。
-    // 编辑器实际 URL 形如：
-    //   /cgi-bin/appmsg?t=media/appmsg_edit_v2&action=edit&...
-    //   /cgi-bin/appmsg?...&action=add&...
-    // 与 wechat-browser-bridge.js MP_EDITOR_PATH_RE 保持一致；改这里要同步改那边。
-    return /\/cgi-bin\/appmsg.*?(?:action=(?:edit|add)|t=media\/appmsg_edit)/i.test(
-      location.href
-    );
+    const url = new URL(location.href);
+    return url.origin === "https://mp.weixin.qq.com" && url.pathname === "/cgi-bin/appmsg" &&
+      (["edit", "add"].includes(url.searchParams.get("action")) || /^media\/appmsg_edit(?:_v\d+)?$/.test(url.searchParams.get("t") || ""));
   }
 
   function findTitleField() {
@@ -1323,7 +1481,7 @@
   }
 
   function setFieldValue(node, value) {
-    if (!node || !value) {
+    if (!node) {
       return false;
     }
 
@@ -1346,7 +1504,7 @@
   }
 
   function setEditorHtml(target, html) {
-    if (!target?.node || !html) {
+    if (!target?.node || typeof html !== "string") {
       return false;
     }
 
@@ -1362,20 +1520,17 @@
     // 于是新内容永远写不进去，必须关掉重开（清空编辑器）才行。
     // 新逻辑：判定改为「这一次有没有把『新内容』真的写进去」，而不是「编辑器是否为空」，
     // 让每次导入都强制替换为当前选中的文章。
-    const beforeText = normalizeText(node.innerHTML || "");
-    // 期望写入内容的纯文本指纹（取前 40 字）——用于判断每一步是否真的换成了新内容
-    const desiredFingerprint = normalizeText(safeHtml.replace(/<[^>]+>/g, " ")).slice(0, 40);
-    const wroteNewContent = () => {
-      const cur = normalizeText(node.innerHTML || "");
-      if (desiredFingerprint) return cur.includes(desiredFingerprint);
-      // 没有可比对的文本指纹（如纯图片文章）：内容相对导入前发生变化即视为写入成功
-      return cur !== beforeText && cur.length > 0;
-    };
+    const beforeHtml = node.innerHTML;
+    const desired = new DOMParser().parseFromString(safeHtml, "text/html");
+    const compact = text => String(text || "").replace(/\s+/g, "");
+    const wroteNewContent = () => (node.innerHTML !== beforeHtml || beforeHtml === safeHtml) && compact(node.textContent) === compact(desired.body.textContent) &&
+      node.querySelectorAll("img").length === desired.querySelectorAll("img").length &&
+      (safeHtml === "" ? node.innerHTML === "" : node.innerHTML !== "");
     const selectAll = () => {
-      if (!doc.execCommand) return;
-      try {
-        doc.execCommand("selectAll", false);
-      } catch {}
+      const range = doc.createRange();
+      range.selectNodeContents(node);
+      const selection = win.getSelection();
+      selection.removeAllRanges(); selection.addRange(range);
     };
 
     try {
@@ -1592,9 +1747,9 @@
     const pullDisabledAttr = pullDisabled ? "disabled" : "";
     const pullDisabledStyle = pullDisabled ? "opacity:0.5;cursor:not-allowed;" : "";
     const pullTooltip = !result.isEditor
-      ? "不在 mp 编辑页，无法写入"
+      ? "打开新建图文并导入润笔稿件"
       : !profileMatches
-        ? "mp 后台账号与草稿目标账号不一致，已禁用以防写错号"
+        ? "正在准备稿件，请稍候"
         : "从润笔工作台拉这一篇到 mp 编辑器";
     // v0.3 strip 已经接管「拉草稿」入口，dock 内不再画 pull 按钮（避免重复）
     const pullLabel = drafts.length > 1 ? "📥 拉这一篇" : "📥 从润笔取最新草稿";
@@ -1604,7 +1759,7 @@
       <div style="display:grid;gap:8px;">
         <strong style="font-size:15px;">${escapeHtml(heading)}</strong>
         <p style="margin:0;line-height:1.65;color:#d6e0d5;">${escapeHtml(result.message || "等待同步结果")}</p>
-        <div style="font-size:12px;line-height:1.7;color:#b9c7bb;">
+        <div style="font-size:12px;line-height:1.7;color:#b9c7bb;" ${["written", "partial"].includes(result.status) ? "" : "hidden"}>
           标题：${result.titleWritten ? "已写入" : "未写入"}<br />
           摘要：${result.digestWritten ? "已写入" : "未写入"}<br />
           正文：${result.bodyWritten ? "已写入" : "未写入"}

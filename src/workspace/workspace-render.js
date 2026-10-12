@@ -4,7 +4,7 @@
  * 通过 init(ctx) 接收跨模块依赖，不直接 import 其他 workspace-* 模块。
  */
 
-import { WECHAT_WEB_EDITOR_URL, THEME_PRESETS } from "../shared/defaults.js";
+import { THEME_PRESETS } from "../shared/defaults.js";
 import { escapeHtml, escapeAttribute, normalizeText, sanitizeHtml, safeHttpUrl } from "../shared/utils.js";
 
 let _ctx;
@@ -360,54 +360,29 @@ function renderPublishResult() {
 
 function renderWebEditorSyncResult() {
   const { view, state } = _ctx;
-  if (!state.lastWebSyncResult) {
-    view.webEditorSyncResult.innerHTML =
-      "网页编辑器辅助模式会把当前篇尝试写入 `mp.weixin.qq.com/cgi-bin/appmsg`。自动失败时，编辑页右下角会出现回退助手。";
+  const result = state.lastWebSyncResult;
+  if (!result) {
+    view.webEditorSyncResult.textContent = "选择当前篇 → 送到公众号 → 核对稿件与账号 → 确认导入 → 在公众号保存草稿。";
     return;
   }
-  // 39th 续³ Batch 7 · Bug 2 · 状态卡入口与「mp 浮球 PULL」语义解耦标记：
-  // 此卡只在用户主动点「💬 同步到公众号编辑页」按钮（syncCurrentToWebEditor）后更新；
-  // mp 浮球 PULL（_buildPullReadyPayload + 浮球 toast「已同步...来自润笔」）走另一条流程
-  // 不更新此 state。如果 syncedAt 距今 > 5 分钟，加陈旧标记，避免用户混淆「为什么浮球 toast
-  // 显示成功，但状态卡还是『未完成』」（实际是上次主动同步留下的旧结果）。
-  const syncedTs = Date.parse(state.lastWebSyncResult.syncedAt);
-  const ageMs = Number.isFinite(syncedTs) ? Date.now() - syncedTs : 0;
-  const isStale = ageMs > 5 * 60 * 1000;
-  const syncedAt = new Date(state.lastWebSyncResult.syncedAt).toLocaleString("zh-CN");
-  const lines = [];
-  if (isStale) {
-    lines.push(
-      `<em style="color:#7a6f62;">这是 ${formatRelativeAge(ageMs)} 前主动「💬 同步到公众号编辑页」的结果。</em>`,
-      `<em style="color:#7a6f62;">如果你刚通过 mp 浮球拉过新草稿，浮球 toast「已同步…」才是当前操作的最终状态——本卡片不会随浮球 PULL 更新。</em>`,
-      ""
-    );
+  const statuses = {
+    "awaiting-editor": "等待登录或打开编辑器", "awaiting-confirmation": "等待确认导入",
+    written: "已写入，尚未保存", partial: "部分写入，请检查", cancelled: "已取消导入",
+    "save-unconfirmed": "已点击保存，尚未确认成功", saved: "已检测到保存成功提示",
+    unsaved: "内容已修改，需重新保存", restored: "已恢复导入前内容，需保存"
+  };
+  const lines = [
+    `<strong>${escapeHtml(statuses[result.status] || "请在公众号检查导入结果")}</strong>`,
+    `稿件：${escapeHtml(result.articleTitle || "")}`,
+    `说明：${escapeHtml(result.message || "")}`
+  ];
+  if (["written", "partial"].includes(result.status)) {
+    for (const [key, label] of [["titleWritten", "标题"], ["bodyWritten", "正文"], ["imagesWritten", "图片结构"]]) {
+      lines.push(`${label}：${result[key] ? "已回读" : "待检查"}`);
+    }
   }
-  lines.push(
-    `<strong>网页编辑器同步结果</strong>`,
-    `标题：${escapeHtml(state.lastWebSyncResult.articleTitle || "")}`,
-    `页面：${escapeHtml(state.lastWebSyncResult.pageUrl || WECHAT_WEB_EDITOR_URL)}`,
-    `标题写入：${state.lastWebSyncResult.titleWritten ? "成功" : "未完成"}`,
-    `摘要写入：${state.lastWebSyncResult.digestWritten ? "成功" : "未完成"}`,
-    `正文写入：${state.lastWebSyncResult.bodyWritten ? "成功" : "未完成"}`,
-    `时间：${escapeHtml(syncedAt)}`
-  );
-  if (state.lastWebSyncResult.message) {
-    lines.push(`说明：${escapeHtml(state.lastWebSyncResult.message)}`);
-  }
+  if (result.syncedAt) lines.push(`更新：${escapeHtml(new Date(result.syncedAt).toLocaleString("zh-CN"))}`);
   view.webEditorSyncResult.innerHTML = lines.join("<br />");
-}
-
-// 39th 续³ Batch 7 · 相对时间格式化（用于状态卡陈旧标记）
-function formatRelativeAge(ms) {
-  if (!Number.isFinite(ms) || ms <= 0) return "刚刚";
-  const sec = Math.floor(ms / 1000);
-  if (sec < 60) return `${sec} 秒`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min} 分钟`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} 小时`;
-  const day = Math.floor(hr / 24);
-  return `${day} 天`;
 }
 
 // ── 预览 / 输出 ──

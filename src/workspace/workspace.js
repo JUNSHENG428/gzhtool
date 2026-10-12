@@ -592,7 +592,7 @@ function _refreshPublishActionsForCurrentProfile() {
   if (mode === "browser") {
     if (hint) {
       hint.dataset.mode = "browser";
-      hint.textContent = `当前账号「${profile.name || `账号 ${idx + 1}`}」走「浏览器登录模式」：扩展会自动打开公众号编辑页并把内容写入，最后一步「保存草稿」由你手动点（合规底线）。下方主操作请用「同步到公众号编辑页」。`;
+      hint.textContent = `当前账号「${profile.name || `账号 ${idx + 1}`}」走「浏览器登录模式」：先核对当前篇及目标账号，确认导入后再到公众号手动保存。下方「送到公众号」每次处理当前编辑的一篇。`;
       hint.hidden = false;
     }
     if (publishCurrentBtn) publishCurrentBtn.hidden = true;
@@ -601,7 +601,7 @@ function _refreshPublishActionsForCurrentProfile() {
     if (syncWebEditorBtn) {
       syncWebEditorBtn.classList.remove("ghost");
       syncWebEditorBtn.classList.add("primary");
-      syncWebEditorBtn.textContent = "💬 同步到公众号编辑页";
+      syncWebEditorBtn.textContent = "送到公众号（当前篇）";
     }
   } else {
     // API 模式 / 默认账号
@@ -634,7 +634,7 @@ function _refreshPublishActionsForCurrentProfile() {
     if (syncWebEditorBtn) {
       syncWebEditorBtn.classList.remove("primary");
       syncWebEditorBtn.classList.add("ghost");
-      syncWebEditorBtn.textContent = "同步到网页编辑器";
+      syncWebEditorBtn.textContent = "送到公众号（当前篇）";
     }
   }
 }

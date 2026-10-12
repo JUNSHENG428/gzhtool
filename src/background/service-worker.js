@@ -17,7 +17,7 @@ import {
   setSessionWriter,
   saveSettings
 } from "../shared/storage.js";
-import { WECHAT_WEB_EDITOR_URL, STORAGE_KEYS } from "../shared/defaults.js";
+import { STORAGE_KEYS } from "../shared/defaults.js";
 import { classifyError } from "../shared/errors.js";
 import { getAuthRecord, saveAuthRecord, getApiBase } from "../shared/license.js";
 import {
@@ -64,7 +64,7 @@ import { ensureOptionalHostPermission } from "../shared/host-permissions.js";
 // "import() is disallowed on ServiceWorkerGlobalScope by the HTML specification"），
 // 见 https://github.com/w3c/ServiceWorker/issues/1356。
 // 哪怕是为了"按需懒加载"也不行——SW 里只能用顶部静态 import。
-import { publishViaBrowser } from "./wechat-browser-bridge.js";
+import { publishViaBrowser, stageWechatImport, resumeWechatImport, moveWechatImportToNewTab, recordWechatImportResult } from "./wechat-browser-bridge.js";
 import {
   addTask as registerTask,
   updateTask as updateRegistryTask,
@@ -206,6 +206,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 chrome.tabs.onRemoved.addListener(async (tabId) => {
+  await chrome.storage.local.remove([`runbiWechatImport:${tabId}`, `runbiWechatReceipt:${tabId}`, `runbiWechatBackup:${tabId}`]);
   const session = await getSession();
   if (session.lastSourceTabId === tabId) {
     await saveSession({
@@ -1074,7 +1075,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           const result = await publishViaBrowser(message.payload, {
             profileLabel: accountLabel
           });
-          void bumpUsage("publish");
+          // 此时只是待确认导入，尚未创建或保存公众号草稿。
           sendResponse({
             ok: true,
             data: { ...result, accountLabel }
@@ -1140,12 +1141,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "SYNC_TO_WECHAT_WEB_EDITOR": {
-        const result = await withRetry(
-          () => syncToWechatWebEditor(message.payload),
-          MAX_RETRIES,
-          "网页编辑器同步"
-        );
+        const result = await stageWechatImport(message.payload);
         sendResponse({ ok: true, data: result });
+        break;
+      }
+      case "WECHAT_HELPER_READY":
+      case "WECHAT_IMPORT_NEW_PAGE":
+      case "WECHAT_IMPORT_RESULT": {
+        const tabId = sender?.tab?.id;
+        let trusted = false;
+        try { trusted = new URL(sender?.url || sender?.tab?.url).origin === "https://mp.weixin.qq.com"; } catch {}
+        if (!tabId || !trusted) { sendResponse({ ok: false, error: "无效的公众号页面来源。" }); break; }
+        if (message.type === "WECHAT_HELPER_READY") {
+          await resumeWechatImport(tabId);
+          sendResponse({ ok: true, tabId });
+        } else if (message.type === "WECHAT_IMPORT_NEW_PAGE") {
+          const data = await moveWechatImportToNewTab(tabId, message.payload?.transferId);
+          sendResponse({ ok: true, data });
+        } else {
+          const data = await recordWechatImportResult(tabId, message.payload);
+          if (data) {
+            await saveSession({ lastWebSyncResult: data });
+            chrome.runtime.sendMessage({ type: "WECHAT_IMPORT_STATUS", data }).catch(() => {});
+          }
+          sendResponse({ ok: Boolean(data) });
+        }
         break;
       }
       // ────────── 公众号编辑页悬浮助手（v0.1，twenty-ninth session）──────────
@@ -1456,59 +1476,6 @@ async function openWorkspace(autoCapture, captureMode) {
     url.searchParams.set("mode", captureMode);
   }
   await chrome.tabs.create({ url: url.toString() });
-}
-
-async function syncToWechatWebEditor(payload) {
-  const tab = await openOrFocusWechatEditorTab();
-  await waitForTabComplete(tab.id);
-
-  const response = await chrome.tabs
-    .sendMessage(tab.id, {
-      type: "IMPORT_ARTICLE_TO_WECHAT_EDITOR",
-      payload
-    })
-    .catch((error) => ({
-      ok: false,
-      error: error.message || "没有接收到网页编辑器响应。"
-    }));
-
-  if (!response?.ok) {
-    throw new Error(response?.error || "同步网页编辑器失败。");
-  }
-
-  return {
-    tabId: tab.id,
-    ...response
-  };
-}
-
-async function openOrFocusWechatEditorTab() {
-  const existingTabs = await chrome.tabs.query({
-    url: ["https://mp.weixin.qq.com/cgi-bin/appmsg*", "https://mp.weixin.qq.com/*"]
-  });
-
-  let tab =
-    existingTabs.find((item) => /\/cgi-bin\/appmsg/i.test(item.url || "")) ||
-    existingTabs[0] ||
-    null;
-
-  if (tab?.id) {
-    await chrome.tabs.update(tab.id, {
-      active: true,
-      url: /\/cgi-bin\/appmsg/i.test(tab.url || "") ? tab.url : WECHAT_WEB_EDITOR_URL
-    });
-  } else {
-    tab = await chrome.tabs.create({
-      url: WECHAT_WEB_EDITOR_URL,
-      active: true
-    });
-  }
-
-  if (tab?.windowId) {
-    await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
-  }
-
-  return tab;
 }
 
 async function waitForTabComplete(tabId, timeoutMs = 25000) {
@@ -2278,22 +2245,12 @@ async function runFloatingBallPull(mpTabId, extraPayload = {}) {
     ...buildResp.payload,
     drafts: buildResp.drafts || []
   };
-  let importResp;
-  try {
-    importResp = await chrome.tabs.sendMessage(mpTabId, {
-      type: "IMPORT_ARTICLE_TO_WECHAT_EDITOR",
-      payload: enrichedPayload
-    });
-  } catch (error) {
-    const err = new Error(`公众号编辑器页面没有响应，请刷新公众号编辑页后重试。`);
-    err.code = "FLOATING_BALL_MP_TIMEOUT";
-    throw err;
-  }
-
+  const importResp = await stageWechatImport(enrichedPayload, { preferredTabId: mpTabId });
   return {
-    ok: importResp?.ok !== false,
+    ok: true,
     data: importResp,
     payloadMeta: buildResp.payload?.meta || null,
+    payload: { drafts: buildResp.drafts || [], profile: buildResp.payload?.profile || null },
     drafts: buildResp.drafts || null
   };
 }

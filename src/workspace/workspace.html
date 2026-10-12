@@ -752,7 +752,7 @@
                     <span>封面图</span>
                     <select id="coverImageSelect"></select>
                   </label>
-                  <label>
+                  <label hidden>
                     <span>发布模式</span>
                     <select id="publishModeSelect">
                       <option value="draft">推草稿箱</option>
@@ -845,7 +845,7 @@
                   </div>
                   <div class="publish-actions-secondary">
                     <button id="pollStatusButton" class="ghost" data-publish-channel="api">查询发布状态</button>
-                    <button id="syncWebEditorButton" class="ghost" data-publish-channel="any">同步到公众号编辑页</button>
+                    <button id="syncWebEditorButton" class="ghost" data-publish-channel="any" title="将当前编辑篇送到公众号；确认后写入，手动保存">送到公众号（当前篇）</button>
                   </div>
                 </div>
 
