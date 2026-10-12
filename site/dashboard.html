@@ -69,6 +69,12 @@
             <button class="btn btn-ghost btn-block" type="button" id="logoutBtn">退出登录</button>
           </div>
 
+          <div class="dash-plugin-pw" id="emailVerificationCard" hidden>
+            <h3 class="dash-plugin-pw-title">验证邮箱后认领历史权益</h3>
+            <p class="dash-plugin-pw-desc">通过邮件链接重新设置密码，即可验证邮箱并认领以此邮箱购买的未绑定权益。已有 License Key 也可直接在下方绑定。</p>
+            <a class="btn btn-primary btn-block" href="./forgot">通过邮件验证并设置密码</a>
+          </div>
+
           <!-- OAuth-only 用户专用：用 Google 登录时没有密码，无法在 Chrome 插件里登录。
                需要在这里先设一个密码，扩展端就能用「邮箱+密码」登录同步会员权益。
                默认 hidden，由 dashboard.js 在 /api/me 返回 needsPluginPassword=true 时显示。 -->

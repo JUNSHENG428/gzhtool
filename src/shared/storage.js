@@ -21,10 +21,23 @@ export async function getSession() {
   return { ...DEFAULT_SESSION, ...(stored[STORAGE_KEYS.session] || {}) };
 }
 
+let sessionWriter = null;
+
+// Set only by the service-worker entry point. Pages always send a patch to it.
+export function setSessionWriter(writer) {
+  sessionWriter = writer;
+}
+
 export async function saveSession(patch) {
-  const next = { ...(await getSession()), ...patch };
-  await chrome.storage.local.set({ [STORAGE_KEYS.session]: next });
-  return next;
+  if (sessionWriter) return sessionWriter(patch);
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage({ type: "SAVE_SESSION", patch }, (response) => {
+      const error = chrome.runtime.lastError;
+      if (error) return reject(new Error(error.message));
+      if (!response?.ok) return reject(new Error(response?.error?.message || "会话保存失败"));
+      resolve(response.data);
+    });
+  });
 }
 
 export async function getPromptTemplates() {

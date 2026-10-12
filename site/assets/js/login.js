@@ -235,6 +235,7 @@ function updatePasswordStrength(pw) {
  */
 function humanizeAuthError(error) {
   const message = error?.message || "操作失败";
+  if (error?.payload?.reason === "email_verification_required") return message;
   if (error?.status === 409) return "该邮箱已注册，可直接登录或点「忘记密码」找回。";
   if (error?.status === 401) return "邮箱或密码错误，确认下大小写。";
   if (error?.kind === "network") return "网络异常，请检查网络后重试。";

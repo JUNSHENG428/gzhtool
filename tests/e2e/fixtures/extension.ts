@@ -157,7 +157,9 @@ export async function installServiceWorkerAiMock(
     g.__runbiAiMockHits = [];
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (/api\.openai\.com|api\.deepseek\.com|dashscope\.aliyuncs\.com/i.test(url)) {
+      const parsed = new URL(url);
+      if (["api.openai.com", "api.deepseek.com", "dashscope.aliyuncs.com"].includes(parsed.hostname) ||
+          (parsed.hostname.endsWith(".docuearn.com") && parsed.pathname.startsWith("/api/llm/"))) {
         g.__runbiAiMockHits.push({
           url,
           method: init?.method || "GET",

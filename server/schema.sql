@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
   oauth_provider  TEXT,                          -- 'google' / 'github' / NULL=邮箱密码
   created_at      INTEGER NOT NULL,
   last_login_at   INTEGER,
+  email_verified_at INTEGER,                    -- 仅 Google 已验证身份或邮件重设密码成功后写入
   token_epoch     INTEGER NOT NULL DEFAULT 0   -- JWT 吊销纪元；改密/重置时 bump 使旧 token 失效（见 005_token_epoch.sql）
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email          ON users(email);

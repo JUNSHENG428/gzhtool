@@ -14,6 +14,7 @@ import {
   getSession,
   getSettings,
   saveSession,
+  setSessionWriter,
   saveSettings
 } from "../shared/storage.js";
 import { WECHAT_WEB_EDITOR_URL, STORAGE_KEYS } from "../shared/defaults.js";
@@ -78,6 +79,10 @@ import {
   restoreAndCleanStale as restoreTaskRegistry,
   waitUntilRunnable as waitTaskRunnable
 } from "./task-registry.js";
+import { createSessionWriter, isTrustedSessionSender } from "./session-store.js";
+
+// Initialize synchronously before any event handler can write session state.
+setSessionWriter(createSessionWriter(chrome.storage.local));
 
 const MAX_RETRIES = 2;
 // AI 选题总监：单次调用超时 / 总预算（含自动重试）/ 触发重试所需的最少剩余预算。
@@ -271,6 +276,15 @@ async function handleDocuearnAuthHandoff(message, sender) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     switch (message.type) {
+      case "SAVE_SESSION": {
+        if (!isTrustedSessionSender(sender, chrome.runtime)) {
+          sendResponse({ ok: false, error: { message: "不允许此来源修改会话" } });
+          break;
+        }
+        const session = await saveSession(message.patch);
+        sendResponse({ ok: true, data: session });
+        break;
+      }
       case "OPEN_WORKSPACE": {
         await openWorkspace(Boolean(message.autoCapture), message.captureMode || "");
         sendResponse({ ok: true });

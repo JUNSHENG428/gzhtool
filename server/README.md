@@ -1,5 +1,30 @@
 # 润笔 · 授权服务（Cloudflare Workers）
 
+## 2026-10-12 P1 修复部署顺序
+
+现有数据库先执行一次 `migrations/006_email_verification.sql`，再部署 Worker 与官网。新环境直接用 `schema.sql` 建库，不再重复执行 006（避免重复加列）。
+
+```bash
+# 在 server/ 目录执行；部署者确认目标数据库后操作
+npx wrangler d1 execute gzh-license --remote --file=./migrations/006_email_verification.sql
+npm run deploy
+```
+
+邮箱密码注册仍可正常使用免费功能、凭 License Key 绑定权益，但不再仅凭邮箱认领历史付款。通过「忘记密码」邮件设置新密码后，会验证邮箱、吊销旧会话并认领未绑定权益。Google 新账号须通过已验证邮箱检查；已有未验证密码账号须先走邮件重置，避免抢注者保留旧密码。
+
+Lemon 回调同样只按已验证邮箱自动绑定。006 只回填 Google OAuth-only 账号，不推断旧密码账号已验证。邮件验证依赖现有 Resend 配置。既有错误绑定需单独核对，本次迁移不自动转移历史权益。
+
+虎皮椒发货使用 D1 `batch` 事务：选择授权、签发/续费和订单完成一并提交；失败回滚，原样重试可以恢复。退款类通知先于已支付重复判断处理，保留原有人工权益回收策略。上线前建议核对旧版中断遗留的订单：
+
+```sql
+SELECT trade_order_id, user_id, paid_at
+FROM orders WHERE status = 'paid' AND granted_license_key IS NULL;
+```
+
+这类历史订单返回待对账错误，须先核实实际授权是否已经发放，避免重复续费。
+
+本地回归：仓库根目录执行 `npm run test:p1`（Node 18+、Python 3）。测试使用临时 SQLite、模拟 KV、测试签名及禁止外网的 fetch，不连接生产数据库、支付或邮件服务。
+
 这个目录是一个**独立**的 Cloudflare Workers 项目，给浏览器扩展提供：
 
 - 用户注册 / 登录（邮箱 + 密码）

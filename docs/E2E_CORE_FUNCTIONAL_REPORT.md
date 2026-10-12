@@ -51,3 +51,13 @@ Screenshots and metrics are written to:
 ## Notes
 
 The core slice uses `SCRAPE_LAST_SOURCE_TAB` against an already-open local fixture tab because Playwright routing does not intercept pages opened internally by `chrome.tabs.create` from the extension background. Popup and floating-ball entry-point coverage should be added in the next slice.
+
+## 2026-10-12：P1 修复与跨页面保存回归
+
+构建后执行 `playwright test tests/e2e/session-persistence.spec.ts tests/e2e/scrape-ai-rewrite.spec.ts --workers=1 --reporter=list`：4/4 通过。
+
+- 新增跨页面保存切片：两个真实扩展页面同时更新不同字段，连续 12 轮确认改写、正文与既有主题均保留。
+- OpenAI、DeepSeek、DashScope 抓取到改写切片全部通过。
+- 使用独立用户目录、headed persistent context、仓库根目录加载扩展、从 service worker URL 获取 ID；不使用固定等待。
+- AI mock 覆盖三家服务商及平台 `/api/llm/` 接口；账号/支付的 28 项接口与事务回归见 `npm run test:p1`。
+- 此轮未声称完成真实 Google OAuth 跳转或微信草稿推送验收。

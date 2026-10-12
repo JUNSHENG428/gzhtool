@@ -30,3 +30,9 @@ Date: 2026-07-06
 | DashScope | 1997ms | 315ms | 0 | `dist/e2e-observations/scrape-rewrite-dashscope-after.png` |
 
 Videos: `dist/e2e-videos/*.webm`.
+
+## 2026-10-12：P1 修复结果
+
+跨页面保存改为后台单一队列，浏览器 E2E 连续 12 轮并发更新保留全部字段；失败会向调用方返回错误，后续队列仍可执行。三家 AI 抓取改写流程复验通过。
+
+邮箱密码用户在控制台可找到邮件验证入口；支付处理失败保留可重试状态，退款类事件不会被“订单已支付”的提前返回忽略。实际第三方支付、Google 登录和生产迁移未执行。
